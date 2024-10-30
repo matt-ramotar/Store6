@@ -1,0 +1,33 @@
+public final class org/mobilenativefoundation/store6/rx2/BuildConfig {
+	public static final field BUILD_TYPE Ljava/lang/String;
+	public static final field DEBUG Z
+	public static final field LIBRARY_PACKAGE_NAME Ljava/lang/String;
+	public fun <init> ()V
+}
+
+public final class org/mobilenativefoundation/store6/rx2/RxFetcherKt {
+	public static final fun ofFlowable (Lorg/mobilenativefoundation/store6/core/Fetcher$Companion;Lkotlin/jvm/functions/Function1;)Lorg/mobilenativefoundation/store6/core/Fetcher;
+	public static final fun ofResultFlowable (Lorg/mobilenativefoundation/store6/core/Fetcher$Companion;Lkotlin/jvm/functions/Function1;)Lorg/mobilenativefoundation/store6/core/Fetcher;
+	public static final fun ofResultSingle (Lorg/mobilenativefoundation/store6/core/Fetcher$Companion;Lkotlin/jvm/functions/Function1;)Lorg/mobilenativefoundation/store6/core/Fetcher;
+	public static final fun ofSingle (Lorg/mobilenativefoundation/store6/core/Fetcher$Companion;Lkotlin/jvm/functions/Function1;)Lorg/mobilenativefoundation/store6/core/Fetcher;
+}
+
+public final class org/mobilenativefoundation/store6/rx2/RxSourceOfTruthKt {
+	public static final fun ofFlowable (Lorg/mobilenativefoundation/store6/core/SourceOfTruth$Companion;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;)Lorg/mobilenativefoundation/store6/core/SourceOfTruth;
+	public static synthetic fun ofFlowable$default (Lorg/mobilenativefoundation/store6/core/SourceOfTruth$Companion;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lorg/mobilenativefoundation/store6/core/SourceOfTruth;
+	public static final fun ofMaybe (Lorg/mobilenativefoundation/store6/core/SourceOfTruth$Companion;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;)Lorg/mobilenativefoundation/store6/core/SourceOfTruth;
+	public static synthetic fun ofMaybe$default (Lorg/mobilenativefoundation/store6/core/SourceOfTruth$Companion;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lorg/mobilenativefoundation/store6/core/SourceOfTruth;
+}
+
+public final class org/mobilenativefoundation/store6/rx2/RxStoreBuilderKt {
+	public static final fun withScheduler (Lorg/mobilenativefoundation/store6/core/StoreBuilder;Lio/reactivex/Scheduler;)Lorg/mobilenativefoundation/store6/core/StoreBuilder;
+}
+
+public final class org/mobilenativefoundation/store6/rx2/RxStoreKt {
+	public static final fun freshSingle (Lorg/mobilenativefoundation/store6/core/Store;Ljava/lang/Object;)Lio/reactivex/Single;
+	public static final fun getSingle (Lorg/mobilenativefoundation/store6/core/Store;Ljava/lang/Object;)Lio/reactivex/Single;
+	public static final fun observe (Lorg/mobilenativefoundation/store6/core/Store;Lorg/mobilenativefoundation/store6/core/StoreReadRequest;)Lio/reactivex/Flowable;
+	public static final fun observeClear (Lorg/mobilenativefoundation/store6/core/Store;Ljava/lang/Object;)Lio/reactivex/Completable;
+	public static final fun observeClearAll (Lorg/mobilenativefoundation/store6/core/Store;)Lio/reactivex/Completable;
+}
+

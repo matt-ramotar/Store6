@@ -2,7 +2,7 @@ plugins {
     `kotlin-dsl`
 }
 
-group = "org.mobilenativefoundation.store"
+group = "org.mobilenativefoundation.store6"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_11
@@ -26,13 +26,13 @@ dependencies {
 gradlePlugin {
     plugins {
         register("kotlinMultiplatformConventionPlugin") {
-            id = "org.mobilenativefoundation.store.multiplatform"
-            implementationClass = "org.mobilenativefoundation.store.tooling.plugins.KotlinMultiplatformConventionPlugin"
+            id = "org.mobilenativefoundation.store6.multiplatform"
+            implementationClass = "org.mobilenativefoundation.store6.tooling.plugins.KotlinMultiplatformConventionPlugin"
         }
 
         register("androidConventionPlugin") {
-            id = "org.mobilenativefoundation.store.android"
-            implementationClass = "org.mobilenativefoundation.store.tooling.plugins.AndroidConventionPlugin"
+            id = "org.mobilenativefoundation.store6.android"
+            implementationClass = "org.mobilenativefoundation.store6.tooling.plugins.AndroidConventionPlugin"
         }
     }
 }
