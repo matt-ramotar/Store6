@@ -10,6 +10,7 @@ import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.CacheableTask
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
@@ -58,11 +59,8 @@ abstract class GenerateSkieSwiftDumpTask : DefaultTask() {
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val linkedHeader: RegularFileProperty
 
-    @get:InputFiles
+    @get:InputDirectory
     @get:PathSensitive(PathSensitivity.RELATIVE)
-    abstract val generatedSwiftSources: ConfigurableFileCollection
-
-    @get:Internal
     abstract val generatedSwiftRoot: DirectoryProperty
 
     @get:Input
@@ -89,9 +87,10 @@ abstract class GenerateSkieSwiftDumpTask : DefaultTask() {
             throw unsupportedSkieLayout(swiftRoot)
         }
 
-        val swiftFiles = generatedSwiftSources.files
+        val swiftFiles = swiftRoot.walkTopDown()
             .filter { it.isFile && it.extension == "swift" }
             .sortedBy { it.relativeTo(swiftRoot).invariantSeparatorsPath() }
+            .toList()
         if (swiftFiles.isEmpty()) {
             throw unsupportedSkieLayout(swiftRoot)
         }
@@ -183,7 +182,7 @@ class Store6ObjcSwiftDumpPlugin : Plugin<Project> {
                 outputDirectory.set(stagedDirectory)
             }
 
-            tasks.register("refreshSwiftDump", Sync::class.java) {
+            val refresh = tasks.register("refreshSwiftDump", Sync::class.java) {
                 group = "Store6 verification"
                 description = "Refreshes the committed Obj-C export dump for store6-core."
                 dependsOn(generate)
@@ -197,6 +196,7 @@ class Store6ObjcSwiftDumpPlugin : Plugin<Project> {
                 group = "Store6 verification"
                 description = "Checks the committed Obj-C export dump for store6-core."
                 dependsOn(generate)
+                mustRunAfter(refresh)
                 generatedFiles.from(stagedDirectory)
                 committedFiles.from(committedDumpDirectory)
                 generatedDirectory.set(stagedDirectory)
@@ -216,9 +216,6 @@ class Store6SkieSwiftDumpPlugin : Plugin<Project> {
             val stagedDirectory = layout.buildDirectory.dir("swift-dump")
             val committedDumpDirectory = rootProject.layout.projectDirectory.dir("store6-core/api/swift/skie")
             val generatedSwiftDirectory = layout.buildDirectory.dir(SKIE_GENERATED_SWIFT_LAYOUT)
-            val generatedSwiftFiles = fileTree(generatedSwiftDirectory).apply {
-                include("**/*.swift")
-            }
             val generate = tasks.register("generateSwiftDump", GenerateSkieSwiftDumpTask::class.java) {
                 group = "Store6 verification"
                 description = "Generates the sanitized SKIE dump for store6-core."
@@ -228,7 +225,6 @@ class Store6SkieSwiftDumpPlugin : Plugin<Project> {
                         "bin/iosArm64/debugFramework/Store6CoreSkie.framework/Headers/Store6CoreSkie.h",
                     ),
                 )
-                generatedSwiftSources.from(generatedSwiftFiles)
                 generatedSwiftRoot.set(generatedSwiftDirectory)
                 supportedLayout.set(SKIE_GENERATED_SWIFT_LAYOUT)
                 outputHeaderName.set("Store6CoreSkie.h")
@@ -236,7 +232,7 @@ class Store6SkieSwiftDumpPlugin : Plugin<Project> {
                 outputDirectory.set(stagedDirectory)
             }
 
-            tasks.register("refreshSwiftDump", Sync::class.java) {
+            val refresh = tasks.register("refreshSwiftDump", Sync::class.java) {
                 group = "Store6 verification"
                 description = "Refreshes the committed SKIE dump for store6-core."
                 dependsOn(generate)
@@ -250,6 +246,7 @@ class Store6SkieSwiftDumpPlugin : Plugin<Project> {
                 group = "Store6 verification"
                 description = "Checks the committed SKIE dump for store6-core."
                 dependsOn(generate)
+                mustRunAfter(refresh)
                 generatedFiles.from(stagedDirectory)
                 committedFiles.from(committedDumpDirectory)
                 generatedDirectory.set(stagedDirectory)
