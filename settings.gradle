@@ -1,5 +1,10 @@
 pluginManagement {
     includeBuild("tooling")
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+        google()
+    }
 }
 
 plugins {
@@ -17,3 +22,7 @@ include ':rx2'
 include ':core'
 include ':store6-core'
 include ':store6-quickstart'
+include ':store6-swift-dumps-objc'
+project(':store6-swift-dumps-objc').projectDir = file('store6-swift-dumps/objc')
+include ':store6-swift-dumps-skie'
+project(':store6-swift-dumps-skie').projectDir = file('store6-swift-dumps/skie')
