@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, 001-walking-skeleton ] # stacked-PR base; remove after 003 retargets to main
 
 concurrency:
   group: store6-${{ github.ref }}
@@ -99,6 +99,49 @@ jobs:
             :store6-core:macosArm64Test \
             "-Pstore6.iosSimulatorDevice=${STORE6_IOS_SIMULATOR_DEVICE}" \
             --stacktrace
+
+  swift-dumps:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v3
+
+      - name: Cache Kotlin/Native compiler
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', '**/*.gradle.kts') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
+
+      - name: Grant execute permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Check committed Swift dumps
+        run: ./gradlew checkSwiftDumps --stacktrace
+
+      - name: Upload Swift dump diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-dump-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            store6-swift-dumps/**/build/swift-dump/**
+            store6-swift-dumps/**/build/bin/iosArm64/debugFramework/**/*.h
+            store6-swift-dumps/**/build/skie/**
+            store6-core/api/swift/**
+          if-no-files-found: warn
+          retention-days: 7
 
   klib-publication-check:
     runs-on: ubuntu-latest
