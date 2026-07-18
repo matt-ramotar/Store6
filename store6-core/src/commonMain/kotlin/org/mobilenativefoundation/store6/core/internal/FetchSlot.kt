@@ -11,6 +11,9 @@ internal sealed interface FetchSlot {
     /** A fetch is active and represented by [ticket]. */
     class InFlight(
         val ticket: FetchTicket,
+
+        /** The key's clear epoch when this fetch launched; a later clear supersedes the commit. */
+        val clearEpochAtLaunch: Long,
     ) : FetchSlot
 }
 
@@ -33,4 +36,7 @@ internal sealed interface FetchOutcome {
     class Failed(
         val exception: StoreException,
     ) : FetchOutcome
+
+    /** The fetch succeeded but a clear advanced the clear epoch after launch; the value was discarded. */
+    data object Superseded : FetchOutcome
 }

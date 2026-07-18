@@ -15,7 +15,8 @@ internal class KeyRegistry<K : StoreKey, V : Any>(
      * Resolves the engine for [key] and invokes [block] without holding the registry lock.
      *
      * Engine creation is serialized, while work performed by different engines remains
-     * independent.
+     * independent. Creation is also where canonical-identity stability is verified: the check
+     * runs once per key residency, which keeps it always-on at negligible cost.
      */
     internal suspend fun <R> withEngine(
         key: K,
@@ -23,8 +24,47 @@ internal class KeyRegistry<K : StoreKey, V : Any>(
     ): R {
         val engine =
             lock.withLock {
-                engines.getOrPut(KeyId.from(key)) { createEngine(key) }
+                val id = KeyId.from(key)
+                engines.getOrPut(id) {
+                    verifyStableCanonicalId(key, id)
+                    createEngine(key)
+                }
             }
         return block(engine)
+    }
+
+    /**
+     * Applies [action] to every resident engine, filtered to [namespace] when one is given.
+     *
+     * The engine list is snapshotted under the lock and acted on outside it. At this stage
+     * residence is the only state a store has, so sweeping resident engines is complete
+     * coverage for namespace and all-key maintenance operations.
+     */
+    internal suspend fun forEachResident(
+        namespace: String?,
+        action: suspend (KeyEngine<K, V>) -> Unit,
+    ) {
+        val targets =
+            lock.withLock {
+                engines.entries
+                    .filter { namespace == null || it.key.namespace == namespace }
+                    .map { it.value }
+            }
+        targets.forEach { engine -> action(engine) }
+    }
+
+    /** Fails fast when a key's canonical identity is not stable across calls (FS-6). */
+    private fun verifyStableCanonicalId(
+        key: K,
+        id: KeyId,
+    ) {
+        val second = key.canonicalId()
+        check(id.canonicalId == second) {
+            "StoreKey ${key::class.simpleName ?: "<anonymous>"} in namespace " +
+                "'${id.namespace}' returned two different canonical ids for the same " +
+                "instance ('${id.canonicalId}', then '$second'). canonicalId() is the key's " +
+                "durable identity and must be a pure, stable function of the key's immutable " +
+                "fields. Fix the key type so repeated calls always return the same string."
+        }
     }
 }
