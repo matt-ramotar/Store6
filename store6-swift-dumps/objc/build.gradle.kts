@@ -27,14 +27,15 @@ fun sanitized(raw: String): String =
 
 val stagedHeader = layout.buildDirectory.file("swift-dump/Store6Core.h")
 val committedDir = rootProject.layout.projectDirectory.dir("store6-core/api/swift/objc")
+val linkedHeader = layout.buildDirectory
+    .file("bin/iosArm64/debugFramework/Store6Core.framework/Headers/Store6Core.h")
 
 val generateSwiftDump by tasks.registering {
     dependsOn("linkDebugFrameworkIosArm64")
+    inputs.file(linkedHeader)
     outputs.file(stagedHeader)
     doLast {
-        val header = layout.buildDirectory
-            .file("bin/iosArm64/debugFramework/Store6Core.framework/Headers/Store6Core.h")
-            .get().asFile
+        val header = linkedHeader.get().asFile
         require(header.isFile) { "Expected Obj-C export header at ${header.path}" }
         stagedHeader.get().asFile.apply {
             parentFile.mkdirs()

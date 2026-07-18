@@ -28,31 +28,36 @@ fun sanitized(raw: String): String =
 
 val stagedDir = layout.buildDirectory.dir("swift-dump")
 val committedDir = rootProject.layout.projectDirectory.dir("store6-core/api/swift/skie")
+val linkedHeader = layout.buildDirectory
+    .file("bin/iosArm64/debugFramework/Store6CoreSkie.framework/Headers/Store6CoreSkie.h")
+val generatedSwiftDir = layout.buildDirectory
+    .dir("skie/binaries/debugFramework/DEBUG/iosArm64/swift/generated")
 
 val generateSwiftDump by tasks.registering {
     dependsOn("linkDebugFrameworkIosArm64")
+    inputs.file(linkedHeader)
+    inputs.dir(generatedSwiftDir)
     outputs.dir(stagedDir)
     doLast {
-        val out = stagedDir.get().asFile.apply { mkdirs() }
+        val out = stagedDir.get().asFile.apply {
+            deleteRecursively()
+            mkdirs()
+        }
 
-        val header = layout.buildDirectory
-            .file("bin/iosArm64/debugFramework/Store6CoreSkie.framework/Headers/Store6CoreSkie.h")
-            .get().asFile
+        val header = linkedHeader.get().asFile
         require(header.isFile) { "Expected SKIE-processed header at ${header.path}" }
         out.resolve("Store6CoreSkie.h").writeText(sanitized(header.readText()))
 
-        // SKIE writes its generated Swift under the module build directory. The include below
-        // is intentionally broad; verify the concrete path on the first run (expected under
-        // build/skie/**) and tighten the include once observed.
-        val swiftFiles = fileTree(layout.buildDirectory) { include("skie/**/*.swift") }
-            .files.sortedBy { it.invariantSeparatorsPath() }
+        val generatedSwiftRoot = generatedSwiftDir.get().asFile
+        val swiftFiles = fileTree(generatedSwiftRoot) { include("**/*.swift") }
+            .files.sortedBy { it.relativeTo(generatedSwiftRoot).invariantSeparatorsPath() }
         require(swiftFiles.isNotEmpty()) {
-            "No SKIE-generated Swift found under ${layout.buildDirectory.get()}/skie. " +
-                "Locate the generated sources (find build -name '*.swift') and fix the include."
+            "No SKIE-generated Swift found under ${generatedSwiftRoot.path}."
         }
         val combined = buildString {
             swiftFiles.forEach { file ->
-                appendLine("// FILE: ${file.name}")
+                val relativePath = file.relativeTo(generatedSwiftRoot).invariantSeparatorsPath()
+                appendLine("// FILE: $relativePath")
                 append(sanitized(file.readText()))
                 appendLine()
             }
