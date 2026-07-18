@@ -15,6 +15,7 @@ java {
 
 dependencies {
     compileOnly(libs.android.gradle.plugin)
+    compileOnly(libs.binary.compatibility.validator)
     compileOnly(libs.kotlin.gradle.plugin)
     compileOnly(libs.dokka.gradle.plugin)
     compileOnly(libs.maven.publish.plugin)
