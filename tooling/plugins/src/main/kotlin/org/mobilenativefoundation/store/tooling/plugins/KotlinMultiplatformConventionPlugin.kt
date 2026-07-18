@@ -32,7 +32,7 @@ class KotlinMultiplatformConventionPlugin : Plugin<Project> {
             apply("com.android.library")
             apply("com.vanniktech.maven.publish")
             apply("org.jetbrains.dokka")
-            apply("co.touchlab.faktory.kmmbridge")
+            apply("co.touchlab.kmmbridge")
             apply("maven-publish")
             apply("org.jetbrains.kotlin.native.cocoapods")
             apply("kotlinx-atomicfu")
@@ -78,7 +78,6 @@ class KotlinMultiplatformConventionPlugin : Plugin<Project> {
                 compilations.configureEach {
                     compilerOptions.configure {
                         freeCompilerArgs.add("-Xallocator=custom")
-                        freeCompilerArgs.add("-XXLanguage:+ImplicitSignedToUnsignedIntegerConversion")
                         freeCompilerArgs.add("-Xadd-light-debug=enable")
 
                         freeCompilerArgs.addAll(
@@ -186,9 +185,7 @@ fun Project.configureMavenPublishing() = extensions.configure<MavenPublishBaseEx
 
 
 fun Project.configureKmmBridge() = extensions.configure<KmmBridgeExtension> {
-    githubReleaseArtifacts()
-    githubReleaseVersions()
-    versionPrefix.set(Versions.STORE)
+    mavenPublishArtifacts()
     spm()
 }
 
