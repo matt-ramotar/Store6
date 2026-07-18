@@ -1,0 +1,175 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64, js, linuxX64, macosArm64, mingwX64, tvosArm64, wasmJs, watchosArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <Store5:store6-core>
+open annotation class org.mobilenativefoundation.store6.core/DelicateStoreApi : kotlin/Annotation { // org.mobilenativefoundation.store6.core/DelicateStoreApi|null[0]
+    constructor <init>() // org.mobilenativefoundation.store6.core/DelicateStoreApi.<init>|<init>(){}[0]
+}
+
+open annotation class org.mobilenativefoundation.store6.core/ExperimentalStoreApi : kotlin/Annotation { // org.mobilenativefoundation.store6.core/ExperimentalStoreApi|null[0]
+    constructor <init>() // org.mobilenativefoundation.store6.core/ExperimentalStoreApi.<init>|<init>(){}[0]
+}
+
+open annotation class org.mobilenativefoundation.store6.core/InternalStoreApi : kotlin/Annotation { // org.mobilenativefoundation.store6.core/InternalStoreApi|null[0]
+    constructor <init>() // org.mobilenativefoundation.store6.core/InternalStoreApi.<init>|<init>(){}[0]
+}
+
+final enum class org.mobilenativefoundation.store6.core/Origin : kotlin/Enum<org.mobilenativefoundation.store6.core/Origin> { // org.mobilenativefoundation.store6.core/Origin|null[0]
+    enum entry FETCHER // org.mobilenativefoundation.store6.core/Origin.FETCHER|null[0]
+    enum entry MEMORY // org.mobilenativefoundation.store6.core/Origin.MEMORY|null[0]
+    enum entry OVERLAY // org.mobilenativefoundation.store6.core/Origin.OVERLAY|null[0]
+    enum entry SOT // org.mobilenativefoundation.store6.core/Origin.SOT|null[0]
+
+    final val entries // org.mobilenativefoundation.store6.core/Origin.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<org.mobilenativefoundation.store6.core/Origin> // org.mobilenativefoundation.store6.core/Origin.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): org.mobilenativefoundation.store6.core/Origin // org.mobilenativefoundation.store6.core/Origin.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<org.mobilenativefoundation.store6.core/Origin> // org.mobilenativefoundation.store6.core/Origin.values|values#static(){}[0]
+}
+
+abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: out kotlin/Any> org.mobilenativefoundation.store6.core/Store { // org.mobilenativefoundation.store6.core/Store|null[0]
+    abstract fun close() // org.mobilenativefoundation.store6.core/Store.close|close(){}[0]
+    abstract fun stream(#A, org.mobilenativefoundation.store6.core/Freshness = ...): kotlinx.coroutines.flow/Flow<org.mobilenativefoundation.store6.core/StoreResult<#B>> // org.mobilenativefoundation.store6.core/Store.stream|stream(1:0;org.mobilenativefoundation.store6.core.Freshness){}[0]
+    abstract suspend fun clear(#A) // org.mobilenativefoundation.store6.core/Store.clear|clear(1:0){}[0]
+    abstract suspend fun clearAll() // org.mobilenativefoundation.store6.core/Store.clearAll|clearAll(){}[0]
+    abstract suspend fun clearNamespace(org.mobilenativefoundation.store6.core/StoreNamespace) // org.mobilenativefoundation.store6.core/Store.clearNamespace|clearNamespace(org.mobilenativefoundation.store6.core.StoreNamespace){}[0]
+    abstract suspend fun get(#A, org.mobilenativefoundation.store6.core/Freshness = ...): #B // org.mobilenativefoundation.store6.core/Store.get|get(1:0;org.mobilenativefoundation.store6.core.Freshness){}[0]
+    abstract suspend fun invalidate(#A) // org.mobilenativefoundation.store6.core/Store.invalidate|invalidate(1:0){}[0]
+    abstract suspend fun invalidateAll() // org.mobilenativefoundation.store6.core/Store.invalidateAll|invalidateAll(){}[0]
+    abstract suspend fun invalidateNamespace(org.mobilenativefoundation.store6.core/StoreNamespace) // org.mobilenativefoundation.store6.core/Store.invalidateNamespace|invalidateNamespace(org.mobilenativefoundation.store6.core.StoreNamespace){}[0]
+}
+
+abstract interface org.mobilenativefoundation.store6.core/StoreKey { // org.mobilenativefoundation.store6.core/StoreKey|null[0]
+    abstract val namespace // org.mobilenativefoundation.store6.core/StoreKey.namespace|{}namespace[0]
+        abstract fun <get-namespace>(): org.mobilenativefoundation.store6.core/StoreNamespace // org.mobilenativefoundation.store6.core/StoreKey.namespace.<get-namespace>|<get-namespace>(){}[0]
+
+    abstract fun canonicalId(): kotlin/String // org.mobilenativefoundation.store6.core/StoreKey.canonicalId|canonicalId(){}[0]
+}
+
+abstract interface org.mobilenativefoundation.store6.core/StoreMeta // org.mobilenativefoundation.store6.core/StoreMeta|null[0]
+
+sealed interface <#A: out kotlin/Any?> org.mobilenativefoundation.store6.core/StoreResult { // org.mobilenativefoundation.store6.core/StoreResult|null[0]
+    final class <#A1: kotlin/Any?> Data : org.mobilenativefoundation.store6.core/StoreResult<#A1> { // org.mobilenativefoundation.store6.core/StoreResult.Data|null[0]
+        final val age // org.mobilenativefoundation.store6.core/StoreResult.Data.age|{}age[0]
+            final fun <get-age>(): kotlin.time/Duration // org.mobilenativefoundation.store6.core/StoreResult.Data.age.<get-age>|<get-age>(){}[0]
+        final val isStale // org.mobilenativefoundation.store6.core/StoreResult.Data.isStale|{}isStale[0]
+            final fun <get-isStale>(): kotlin/Boolean // org.mobilenativefoundation.store6.core/StoreResult.Data.isStale.<get-isStale>|<get-isStale>(){}[0]
+        final val origin // org.mobilenativefoundation.store6.core/StoreResult.Data.origin|{}origin[0]
+            final fun <get-origin>(): org.mobilenativefoundation.store6.core/Origin // org.mobilenativefoundation.store6.core/StoreResult.Data.origin.<get-origin>|<get-origin>(){}[0]
+        final val refreshing // org.mobilenativefoundation.store6.core/StoreResult.Data.refreshing|{}refreshing[0]
+            final fun <get-refreshing>(): kotlin/Boolean // org.mobilenativefoundation.store6.core/StoreResult.Data.refreshing.<get-refreshing>|<get-refreshing>(){}[0]
+        final val value // org.mobilenativefoundation.store6.core/StoreResult.Data.value|{}value[0]
+            final fun <get-value>(): #A1 // org.mobilenativefoundation.store6.core/StoreResult.Data.value.<get-value>|<get-value>(){}[0]
+    }
+
+    final class Error : org.mobilenativefoundation.store6.core/StoreResult<kotlin/Nothing> { // org.mobilenativefoundation.store6.core/StoreResult.Error|null[0]
+        final val error // org.mobilenativefoundation.store6.core/StoreResult.Error.error|{}error[0]
+            final fun <get-error>(): org.mobilenativefoundation.store6.core/StoreError // org.mobilenativefoundation.store6.core/StoreResult.Error.error.<get-error>|<get-error>(){}[0]
+        final val servedStale // org.mobilenativefoundation.store6.core/StoreResult.Error.servedStale|{}servedStale[0]
+            final fun <get-servedStale>(): kotlin/Boolean // org.mobilenativefoundation.store6.core/StoreResult.Error.servedStale.<get-servedStale>|<get-servedStale>(){}[0]
+    }
+
+    final class Loading : org.mobilenativefoundation.store6.core/StoreResult<kotlin/Nothing> // org.mobilenativefoundation.store6.core/StoreResult.Loading|null[0]
+
+    final class Revalidated : org.mobilenativefoundation.store6.core/StoreResult<kotlin/Nothing> { // org.mobilenativefoundation.store6.core/StoreResult.Revalidated|null[0]
+        final val age // org.mobilenativefoundation.store6.core/StoreResult.Revalidated.age|{}age[0]
+            final fun <get-age>(): kotlin.time/Duration // org.mobilenativefoundation.store6.core/StoreResult.Revalidated.age.<get-age>|<get-age>(){}[0]
+    }
+}
+
+sealed interface org.mobilenativefoundation.store6.core/Freshness { // org.mobilenativefoundation.store6.core/Freshness|null[0]
+    final class MaxAge : org.mobilenativefoundation.store6.core/Freshness { // org.mobilenativefoundation.store6.core/Freshness.MaxAge|null[0]
+        constructor <init>(kotlin.time/Duration) // org.mobilenativefoundation.store6.core/Freshness.MaxAge.<init>|<init>(kotlin.time.Duration){}[0]
+
+        final val notOlderThan // org.mobilenativefoundation.store6.core/Freshness.MaxAge.notOlderThan|{}notOlderThan[0]
+            final fun <get-notOlderThan>(): kotlin.time/Duration // org.mobilenativefoundation.store6.core/Freshness.MaxAge.notOlderThan.<get-notOlderThan>|<get-notOlderThan>(){}[0]
+    }
+
+    final object CachedOrFetch : org.mobilenativefoundation.store6.core/Freshness { // org.mobilenativefoundation.store6.core/Freshness.CachedOrFetch|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // org.mobilenativefoundation.store6.core/Freshness.CachedOrFetch.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // org.mobilenativefoundation.store6.core/Freshness.CachedOrFetch.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // org.mobilenativefoundation.store6.core/Freshness.CachedOrFetch.toString|toString(){}[0]
+    }
+
+    final object LocalOnly : org.mobilenativefoundation.store6.core/Freshness { // org.mobilenativefoundation.store6.core/Freshness.LocalOnly|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // org.mobilenativefoundation.store6.core/Freshness.LocalOnly.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // org.mobilenativefoundation.store6.core/Freshness.LocalOnly.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // org.mobilenativefoundation.store6.core/Freshness.LocalOnly.toString|toString(){}[0]
+    }
+
+    final object MustBeFresh : org.mobilenativefoundation.store6.core/Freshness { // org.mobilenativefoundation.store6.core/Freshness.MustBeFresh|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // org.mobilenativefoundation.store6.core/Freshness.MustBeFresh.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // org.mobilenativefoundation.store6.core/Freshness.MustBeFresh.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // org.mobilenativefoundation.store6.core/Freshness.MustBeFresh.toString|toString(){}[0]
+    }
+
+    final object StaleIfError : org.mobilenativefoundation.store6.core/Freshness { // org.mobilenativefoundation.store6.core/Freshness.StaleIfError|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // org.mobilenativefoundation.store6.core/Freshness.StaleIfError.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // org.mobilenativefoundation.store6.core/Freshness.StaleIfError.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // org.mobilenativefoundation.store6.core/Freshness.StaleIfError.toString|toString(){}[0]
+    }
+}
+
+final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core/StoreBuilder { // org.mobilenativefoundation.store6.core/StoreBuilder|null[0]
+    final fun fetcher(kotlin.coroutines/SuspendFunction1<#A, #B>) // org.mobilenativefoundation.store6.core/StoreBuilder.fetcher|fetcher(kotlin.coroutines.SuspendFunction1<1:0,1:1>){}[0]
+}
+
+final class org.mobilenativefoundation.store6.core/StoreException : kotlin/RuntimeException { // org.mobilenativefoundation.store6.core/StoreException|null[0]
+    final val error // org.mobilenativefoundation.store6.core/StoreException.error|{}error[0]
+        final fun <get-error>(): org.mobilenativefoundation.store6.core/StoreError // org.mobilenativefoundation.store6.core/StoreException.error.<get-error>|<get-error>(){}[0]
+}
+
+final class org.mobilenativefoundation.store6.core/StoreNamespace { // org.mobilenativefoundation.store6.core/StoreNamespace|null[0]
+    constructor <init>(kotlin/String) // org.mobilenativefoundation.store6.core/StoreNamespace.<init>|<init>(kotlin.String){}[0]
+
+    final val value // org.mobilenativefoundation.store6.core/StoreNamespace.value|{}value[0]
+        final fun <get-value>(): kotlin/String // org.mobilenativefoundation.store6.core/StoreNamespace.value.<get-value>|<get-value>(){}[0]
+}
+
+sealed class org.mobilenativefoundation.store6.core/StoreError { // org.mobilenativefoundation.store6.core/StoreError|null[0]
+    final class Conflict : org.mobilenativefoundation.store6.core/StoreError { // org.mobilenativefoundation.store6.core/StoreError.Conflict|null[0]
+        final val message // org.mobilenativefoundation.store6.core/StoreError.Conflict.message|{}message[0]
+            final fun <get-message>(): kotlin/String // org.mobilenativefoundation.store6.core/StoreError.Conflict.message.<get-message>|<get-message>(){}[0]
+        final val serverMeta // org.mobilenativefoundation.store6.core/StoreError.Conflict.serverMeta|{}serverMeta[0]
+            final fun <get-serverMeta>(): org.mobilenativefoundation.store6.core/StoreMeta? // org.mobilenativefoundation.store6.core/StoreError.Conflict.serverMeta.<get-serverMeta>|<get-serverMeta>(){}[0]
+    }
+
+    final class Conversion : org.mobilenativefoundation.store6.core/StoreError { // org.mobilenativefoundation.store6.core/StoreError.Conversion|null[0]
+        final val cause // org.mobilenativefoundation.store6.core/StoreError.Conversion.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable? // org.mobilenativefoundation.store6.core/StoreError.Conversion.cause.<get-cause>|<get-cause>(){}[0]
+        final val message // org.mobilenativefoundation.store6.core/StoreError.Conversion.message|{}message[0]
+            final fun <get-message>(): kotlin/String // org.mobilenativefoundation.store6.core/StoreError.Conversion.message.<get-message>|<get-message>(){}[0]
+    }
+
+    final class Fetch : org.mobilenativefoundation.store6.core/StoreError { // org.mobilenativefoundation.store6.core/StoreError.Fetch|null[0]
+        final val cause // org.mobilenativefoundation.store6.core/StoreError.Fetch.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable? // org.mobilenativefoundation.store6.core/StoreError.Fetch.cause.<get-cause>|<get-cause>(){}[0]
+        final val message // org.mobilenativefoundation.store6.core/StoreError.Fetch.message|{}message[0]
+            final fun <get-message>(): kotlin/String // org.mobilenativefoundation.store6.core/StoreError.Fetch.message.<get-message>|<get-message>(){}[0]
+    }
+
+    final class FreshnessUnsatisfiable : org.mobilenativefoundation.store6.core/StoreError { // org.mobilenativefoundation.store6.core/StoreError.FreshnessUnsatisfiable|null[0]
+        final val message // org.mobilenativefoundation.store6.core/StoreError.FreshnessUnsatisfiable.message|{}message[0]
+            final fun <get-message>(): kotlin/String // org.mobilenativefoundation.store6.core/StoreError.FreshnessUnsatisfiable.message.<get-message>|<get-message>(){}[0]
+    }
+
+    final class Missing : org.mobilenativefoundation.store6.core/StoreError { // org.mobilenativefoundation.store6.core/StoreError.Missing|null[0]
+        final val key // org.mobilenativefoundation.store6.core/StoreError.Missing.key|{}key[0]
+            final fun <get-key>(): org.mobilenativefoundation.store6.core/StoreKey // org.mobilenativefoundation.store6.core/StoreError.Missing.key.<get-key>|<get-key>(){}[0]
+        final val message // org.mobilenativefoundation.store6.core/StoreError.Missing.message|{}message[0]
+            final fun <get-message>(): kotlin/String // org.mobilenativefoundation.store6.core/StoreError.Missing.message.<get-message>|<get-message>(){}[0]
+    }
+
+    final class Persistence : org.mobilenativefoundation.store6.core/StoreError { // org.mobilenativefoundation.store6.core/StoreError.Persistence|null[0]
+        final val cause // org.mobilenativefoundation.store6.core/StoreError.Persistence.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable? // org.mobilenativefoundation.store6.core/StoreError.Persistence.cause.<get-cause>|<get-cause>(){}[0]
+        final val message // org.mobilenativefoundation.store6.core/StoreError.Persistence.message|{}message[0]
+            final fun <get-message>(): kotlin/String // org.mobilenativefoundation.store6.core/StoreError.Persistence.message.<get-message>|<get-message>(){}[0]
+    }
+}
+
+final fun <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core/store(kotlin/Function1<org.mobilenativefoundation.store6.core/StoreBuilder<#A, #B>, kotlin/Unit>): org.mobilenativefoundation.store6.core/Store<#A, #B> // org.mobilenativefoundation.store6.core/store|store(kotlin.Function1<org.mobilenativefoundation.store6.core.StoreBuilder<0:0,0:1>,kotlin.Unit>){0§<org.mobilenativefoundation.store6.core.StoreKey>;1§<kotlin.Any>}[0]
