@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -29,6 +29,19 @@ import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreResult
 import kotlin.time.TimeSource
+
+/** Emits every stale epoch that advanced beyond the snapshot used to plan a stream startup. */
+internal fun Flow<KeyState>.staleEpochsAfter(planningEpoch: Long): Flow<Long> =
+    map { it.staleEpoch }
+        .distinctUntilChanged()
+        .filter { observedEpoch -> observedEpoch > planningEpoch }
+
+/** Returns whether resident data satisfies the current invalidation epoch. */
+internal fun residenceSatisfies(
+    state: KeyState,
+    residentStaleEpochAtCommit: Long?,
+): Boolean =
+    residentStaleEpochAtCommit != null && residentStaleEpochAtCommit >= state.staleEpoch
 
 /**
  * Coordinates residence, fetch ownership, and invalidation epochs for one canonical key.
@@ -68,22 +81,30 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         }
 
     /**
-     * Returns the active ticket, launching a fetch only when the state grants ownership.
+     * Returns the active ticket, launching a fetch only when the state grants ownership, or
+     * `null` when residence became satisfying before this function acquired [stateLock].
      *
-     * The open-state check and ticket creation share the state critical section, making that
-     * check the linearization point between a concurrent fetch request and store closure.
+     * The open-state check, residence recheck, and ticket creation share the state critical
+     * section. This makes the recheck the linearization point between a concurrent commit and
+     * an Idle-to-InFlight transition, and the open check the linearization point between a
+     * concurrent fetch request and store closure.
      */
-    private suspend fun ensureFetch(): FetchTicket {
+    private suspend fun ensureFetch(): FetchTicket? {
         val effect =
             stateLock.withLock {
                 ensureOpen()
+                val snapshot = mutableState.value
+                if (residenceSatisfies(snapshot, residence.value?.staleEpochAtCommit)) {
+                    return@withLock null
+                }
                 val fresh = FetchTicket(CompletableDeferred<FetchOutcome>(engineJob))
-                val result = transition(mutableState.value, KeyEvent.EnsureFetch(fresh))
+                val result = transition(snapshot, KeyEvent.EnsureFetch(fresh))
                 mutableState.value = result.state
                 result.effect
             }
 
         return when (effect) {
+            null -> null
             is KeyEffect.Launch -> effect.ticket.also(::launchFetch)
             is KeyEffect.Join -> effect.ticket
             else -> error("Ensure-fetch transition produced an invalid effect: $effect")
@@ -246,16 +267,18 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
             try {
                 val initial = residence.value
+                val planningEpoch = state.value.staleEpoch
                 if (initial == null) {
                     send(StoreResult.Loading())
                 }
-                if (initial == null || initial.staleEpochAtCommit < state.value.staleEpoch) {
-                    val ticket = ensureFetch()
-                    launch { watchOutcome(ticket) }
+                if (initial == null || initial.staleEpochAtCommit < planningEpoch) {
+                    ensureFetch()?.let { ticket ->
+                        launch { watchOutcome(ticket) }
+                    }
                 }
 
                 launch {
-                    state.map { it.staleEpoch }.distinctUntilChanged().drop(1).collect {
+                    state.staleEpochsAfter(planningEpoch).collect {
                         refetchWhileUnsatisfied()
                     }
                 }
@@ -311,7 +334,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             if (envelope != null && envelope.staleEpochAtCommit >= state.value.staleEpoch) {
                 return
             }
-            when (val outcome = ensureFetch().outcome.await()) {
+            val ticket = ensureFetch() ?: return
+            when (val outcome = ticket.outcome.await()) {
                 FetchOutcome.Committed -> return
                 is FetchOutcome.Failed -> {
                     send(StoreResult.Error(outcome.exception.error, servedStale = false))
@@ -339,7 +363,12 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             return envelope.value
         }
 
-        return when (val outcome = ensureFetch().outcome.await()) {
+        val ticket = ensureFetch()
+        if (ticket == null) {
+            return residence.value?.value ?: throw supersededException()
+        }
+
+        return when (val outcome = ticket.outcome.await()) {
             FetchOutcome.Committed ->
                 residence.value?.value ?: throw supersededException()
 
