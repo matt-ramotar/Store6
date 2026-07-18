@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, 001-walking-skeleton ] # stacked-PR base; remove after 003 retargets to main
 
 jobs:
   build-and-test:
@@ -37,7 +37,7 @@ jobs:
           java-version: '17'
 
       - name: Setup Gradle
-        uses: gradle/gradle-build-action@v3
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Grant execute permission for Gradlew
         run: chmod +x gradlew
@@ -73,7 +73,7 @@ jobs:
           java-version: '17'
 
       - name: Setup Gradle
-        uses: gradle/gradle-build-action@v3
+        uses: gradle/actions/setup-gradle@v6
 
       - name: Grant execute permission for Gradlew
         run: chmod +x gradlew
