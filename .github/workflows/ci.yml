@@ -46,10 +46,9 @@ jobs:
         run: ./gradlew clean build koverXmlReport --stacktrace
 
       - name: Upload Coverage to Codecov
-        # Secrets (including CODECOV_TOKEN) are not exposed to fork PRs, so the
-        # upload would fail under fail_ci_if_error. Skip it for forks; coverage is
-        # still uploaded and enforced for same-repo PRs and pushes to main.
-        if: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request' }}
+        # The development fork has no Codecov token. Keep coverage generation required there,
+        # while enforcing uploads for same-repo PRs and pushes in the upstream repository.
+        if: ${{ github.repository == 'MobileNativeFoundation/Store' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') }}
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

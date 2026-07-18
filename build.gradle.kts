@@ -32,6 +32,8 @@ allprojects {
 }
 
 subprojects {
+    if (name.startsWith("store6")) return@subprojects
+
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
     apply(plugin = "com.diffplug.spotless")
 

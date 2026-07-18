@@ -1,0 +1,61 @@
+public final class org/mobilenativefoundation/store6/core/Origin : java/lang/Enum {
+	public static final field FETCHER Lorg/mobilenativefoundation/store6/core/Origin;
+	public static final field MEMORY Lorg/mobilenativefoundation/store6/core/Origin;
+	public static final field OVERLAY Lorg/mobilenativefoundation/store6/core/Origin;
+	public static final field SOT Lorg/mobilenativefoundation/store6/core/Origin;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lorg/mobilenativefoundation/store6/core/Origin;
+	public static fun values ()[Lorg/mobilenativefoundation/store6/core/Origin;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/Store {
+	public abstract fun close ()V
+	public abstract fun get (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun stream (Lorg/mobilenativefoundation/store6/core/StoreKey;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreBuilder {
+	public final fun fetcher (Lkotlin/jvm/functions/Function2;)V
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreBuilderKt {
+	public static final fun store (Lkotlin/jvm/functions/Function1;)Lorg/mobilenativefoundation/store6/core/Store;
+}
+
+public abstract class org/mobilenativefoundation/store6/core/StoreError {
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreError$Fetch : org/mobilenativefoundation/store6/core/StoreError {
+	public final fun getCause ()Ljava/lang/Throwable;
+	public final fun getMessage ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreException : java/lang/RuntimeException {
+	public final fun getError ()Lorg/mobilenativefoundation/store6/core/StoreError;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/StoreKey {
+	public abstract fun canonicalId ()Ljava/lang/String;
+	public abstract fun getNamespace ()Lorg/mobilenativefoundation/store6/core/StoreNamespace;
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreNamespace {
+	public fun <init> (Ljava/lang/String;)V
+	public final fun getValue ()Ljava/lang/String;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/StoreResult {
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreResult$Data : org/mobilenativefoundation/store6/core/StoreResult {
+	public final fun getOrigin ()Lorg/mobilenativefoundation/store6/core/Origin;
+	public final fun getValue ()Ljava/lang/Object;
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreResult$Error : org/mobilenativefoundation/store6/core/StoreResult {
+	public final fun getError ()Lorg/mobilenativefoundation/store6/core/StoreError;
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreResult$Loading : org/mobilenativefoundation/store6/core/StoreResult {
+}
+

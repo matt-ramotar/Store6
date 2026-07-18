@@ -29,6 +29,11 @@ gradlePlugin {
             implementationClass = "org.mobilenativefoundation.store.tooling.plugins.KotlinMultiplatformConventionPlugin"
         }
 
+        register("store6MultiplatformConventionPlugin") {
+            id = "org.mobilenativefoundation.store.store6.multiplatform"
+            implementationClass = "org.mobilenativefoundation.store.tooling.plugins.Store6MultiplatformConventionPlugin"
+        }
+
         register("androidConventionPlugin") {
             id = "org.mobilenativefoundation.store.android"
             implementationClass = "org.mobilenativefoundation.store.tooling.plugins.AndroidConventionPlugin"
