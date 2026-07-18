@@ -1,0 +1,167 @@
+name: Store6
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+concurrency:
+  group: store6-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v3
+
+      - name: Cache Kotlin/Native compiler
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', '**/*.gradle.kts') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
+
+      - name: Grant execute permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Build Store6 core
+        run: ./gradlew :store6-core:build --stacktrace
+
+      - name: Run Store6 quickstart
+        run: ./gradlew :store6-quickstart:run --stacktrace
+
+  apple-tests:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v3
+
+      - name: Cache Kotlin/Native compiler
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', '**/*.gradle.kts') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
+
+      - name: Grant execute permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Select an available iPhone simulator
+        id: ios_simulator
+        shell: bash
+        run: |
+          device_name="$(
+            xcrun simctl list devices available -j |
+              jq -r '[.devices[][] | select(.name | startswith("iPhone"))] | first | .name // empty'
+          )"
+          if [[ -z "${device_name}" ]]; then
+            echo "No available iPhone simulator was found." >&2
+            exit 1
+          fi
+          echo "Selected iPhone simulator: ${device_name}"
+          echo "device_name=${device_name}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run Store6 Apple tests
+        env:
+          STORE6_IOS_SIMULATOR_DEVICE: ${{ steps.ios_simulator.outputs.device_name }}
+        run: |
+          ./gradlew \
+            :store6-core:iosSimulatorArm64Test \
+            :store6-core:macosArm64Test \
+            "-Pstore6.iosSimulatorDevice=${STORE6_IOS_SIMULATOR_DEVICE}" \
+            --stacktrace
+
+  klib-publication-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/gradle-build-action@v3
+
+      - name: Cache Kotlin/Native compiler
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', '**/*.gradle.kts') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
+
+      - name: Grant execute permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Publish Store6 core to Maven local without signing
+        run: ./gradlew :store6-core:publishToMavenLocal --stacktrace
+
+      - name: Verify common and target publications
+        shell: bash
+        run: |
+          group_id="org.mobilenativefoundation.store"
+          version="6.0.0-SNAPSHOT"
+          repository="${HOME}/.m2/repository/org/mobilenativefoundation/store"
+
+          artifact_ids=(
+            store6-core
+            store6-core-android
+            store6-core-iosarm64
+            store6-core-iossimulatorarm64
+            store6-core-iosx64
+            store6-core-js
+            store6-core-jvm
+            store6-core-linuxx64
+            store6-core-macosarm64
+            store6-core-mingwx64
+            store6-core-tvosarm64
+            store6-core-wasm-js
+            store6-core-watchosarm64
+          )
+
+          failed=0
+          for artifact_id in "${artifact_ids[@]}"; do
+            artifact_dir="${repository}/${artifact_id}/${version}"
+            if [[ ! -d "${artifact_dir}" ]]; then
+              echo "Missing publication directory: ${artifact_dir}" >&2
+              failed=1
+              continue
+            fi
+            if [[ -z "$(find "${artifact_dir}" -maxdepth 1 -type f -print -quit)" ]]; then
+              echo "Publication directory contains no files: ${artifact_dir}" >&2
+              failed=1
+              continue
+            fi
+            echo "Verified ${group_id}:${artifact_id}:${version}"
+          done
+          exit "${failed}"
