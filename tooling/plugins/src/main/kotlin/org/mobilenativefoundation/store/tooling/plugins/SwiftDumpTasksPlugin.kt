@@ -100,7 +100,7 @@ abstract class GenerateSkieSwiftDumpTask : DefaultTask() {
         val output = outputDirectory.get().asFile
         recreateDirectory(output)
         output.resolve(outputHeaderName.get()).writeText(sanitized(header.readText()))
-        output.resolve(outputSwiftName.get()).writeText(
+        val combinedSwift =
             buildString {
                 swiftFiles.forEach { file ->
                     val relativePath = file.relativeTo(swiftRoot).invariantSeparatorsPath()
@@ -108,8 +108,8 @@ abstract class GenerateSkieSwiftDumpTask : DefaultTask() {
                     append(sanitized(file.readText()))
                     appendLine()
                 }
-            },
-        )
+            }.trimEnd() + "\n"
+        output.resolve(outputSwiftName.get()).writeText(combinedSwift)
     }
 }
 
