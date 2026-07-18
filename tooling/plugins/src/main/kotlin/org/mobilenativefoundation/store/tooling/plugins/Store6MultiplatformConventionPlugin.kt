@@ -17,9 +17,10 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTargetWithSimulatorTests
 
 /**
- * Convention plugin for store6-* modules (TD-18). Deliberately NOT applied:
- * CocoaPods, KMMBridge, atomicfu (banned by TD-8), kotlinx-serialization, Dokka,
- * blanket coroutines opt-ins (C-4: stable coroutines APIs only in core code).
+ * Configures Store6 library modules with the supported multiplatform targets,
+ * Android defaults, API validation, and Maven publication conventions.
+ * Optional packaging, documentation, serialization, and concurrency plugins
+ * remain opt-in at the module level.
  */
 class Store6MultiplatformConventionPlugin : Plugin<Project> {
     override fun apply(project: Project) = with(project) {
