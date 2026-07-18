@@ -3,7 +3,6 @@ package org.mobilenativefoundation.store6.core.internal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
@@ -89,11 +88,12 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     /**
      * Runs the owned fetch and publishes its terminal outcome to every joined waiter.
      *
-     * Undispatched start enters the guarded coroutine body before this function returns, so
-     * cancellation cleanup is installed when closure races immediately after ticket creation.
+     * Dispatching through [engineScope] keeps a fetcher's synchronous work off the calling thread.
+     * The ticket's parent job and the completion handler give waiters a terminal result when
+     * cancellation prevents the coroutine body from starting or completing normally.
      */
     private fun launchFetch(ticket: FetchTicket) {
-        val fetchJob = engineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+        val fetchJob = engineScope.launch {
             val outcome =
                 try {
                     currentCoroutineContext().ensureActive()

@@ -152,16 +152,23 @@ jobs:
           failed=0
           for artifact_id in "${artifact_ids[@]}"; do
             artifact_dir="${repository}/${artifact_id}/${version}"
-            if [[ ! -d "${artifact_dir}" ]]; then
-              echo "Missing publication directory: ${artifact_dir}" >&2
+            case "${artifact_id}" in
+              store6-core|store6-core-jvm)
+                extension="jar"
+                ;;
+              store6-core-android)
+                extension="aar"
+                ;;
+              *)
+                extension="klib"
+                ;;
+            esac
+            artifact_file="${artifact_dir}/${artifact_id}-${version}.${extension}"
+            if [[ ! -f "${artifact_file}" ]]; then
+              echo "Missing consumable publication artifact: ${artifact_file}" >&2
               failed=1
               continue
             fi
-            if [[ -z "$(find "${artifact_dir}" -maxdepth 1 -type f -print -quit)" ]]; then
-              echo "Publication directory contains no files: ${artifact_dir}" >&2
-              failed=1
-              continue
-            fi
-            echo "Verified ${group_id}:${artifact_id}:${version}"
+            echo "Verified ${group_id}:${artifact_id}:${version} (${extension})"
           done
           exit "${failed}"
