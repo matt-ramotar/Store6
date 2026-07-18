@@ -31,6 +31,12 @@ class Store6MultiplatformConventionPlugin : Plugin<Project> {
             apply("org.jetbrains.kotlinx.binary-compatibility-validator")
         }
 
+        tasks.configureEach {
+            if (name.endsWith("ApiCheck")) {
+                mustRunAfter("${name.removeSuffix("Check")}Dump")
+            }
+        }
+
         extensions.configure<KotlinMultiplatformExtension> {
             explicitApi()
             applyDefaultHierarchyTemplate()
