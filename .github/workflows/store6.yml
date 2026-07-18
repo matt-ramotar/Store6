@@ -39,7 +39,11 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Store6 core
-        run: ./gradlew :store6-core:build --stacktrace
+        run: >
+          ./gradlew :store6-core:build
+          -Pkotlin.native.enableKlibsCrossCompilation=true
+          -Pkotlin.apple.xcodeCompatibility.nowarn=true
+          --stacktrace
 
       - name: Run Store6 quickstart
         run: ./gradlew :store6-quickstart:run --stacktrace
@@ -124,7 +128,11 @@ jobs:
         run: chmod +x gradlew
 
       - name: Publish Store6 core to Maven local without signing
-        run: ./gradlew :store6-core:publishToMavenLocal --stacktrace
+        run: >
+          ./gradlew :store6-core:publishToMavenLocal
+          -Pkotlin.native.enableKlibsCrossCompilation=true
+          -Pkotlin.apple.xcodeCompatibility.nowarn=true
+          --stacktrace
 
       - name: Verify common and target publications
         shell: bash
