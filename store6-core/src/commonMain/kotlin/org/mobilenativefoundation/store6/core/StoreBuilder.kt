@@ -1,5 +1,7 @@
 package org.mobilenativefoundation.store6.core
 
+import org.mobilenativefoundation.store6.core.internal.RealStore
+
 /**
  * Creates a [Store] using the settings supplied by [configure].
  *
@@ -39,6 +41,6 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
         val fetch = requireNotNull(fetcher) {
             "store<K, V> { } requires a fetcher { } block."
         }
-        return TODO("Store engine is not implemented")
+        return RealStore(fetch)
     }
 }

@@ -2,10 +2,18 @@ package org.mobilenativefoundation.store6.core
 
 import app.cash.turbine.test
 import app.cash.turbine.turbineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 
@@ -105,5 +113,150 @@ class StoreConformanceTest {
             cancelAndIgnoreRemainingEvents()
         }
         store.close()
+    }
+
+    @Test
+    fun closeDuringFetch_getWaiterTerminatesPromptly() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val store = store<TestKey, String> {
+            fetcher {
+                started.complete(Unit)
+                gate.await()
+                "v"
+            }
+        }
+        val waiter = backgroundScope.async { runCatching { store.get(TestKey("1")) } }
+        started.await()
+
+        store.close()
+
+        val failure =
+            withContext(Dispatchers.Default) {
+                withTimeout(1_000) { waiter.await() }
+            }.exceptionOrNull()
+        assertIs<CancellationException>(failure)
+    }
+
+    @Test
+    fun closeDuringFetch_streamCollectorTerminatesPromptly() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val store = store<TestKey, String> {
+            fetcher {
+                started.complete(Unit)
+                gate.await()
+                "v"
+            }
+        }
+        val collector = backgroundScope.async {
+            runCatching { store.stream(TestKey("1")).collect() }
+        }
+        started.await()
+
+        store.close()
+
+        val failure =
+            withContext(Dispatchers.Default) {
+                withTimeout(1_000) { collector.await() }
+            }.exceptionOrNull()
+        assertIs<CancellationException>(failure)
+    }
+
+    @Test
+    fun getAfterClose_failsFastWithDeterministicException() = runTest {
+        val store = store<TestKey, String> { fetcher { "v" } }
+        store.close()
+
+        val failure = assertFailsWith<IllegalStateException> {
+            withTimeout(1_000) { store.get(TestKey("1")) }
+        }
+
+        assertEquals("Store is closed.", failure.message)
+    }
+
+    @Test
+    fun streamAfterClose_failsFastWithDeterministicException() = runTest {
+        val store = store<TestKey, String> { fetcher { "v" } }
+        store.close()
+
+        val failure = assertFailsWith<IllegalStateException> {
+            store.stream(TestKey("1"))
+        }
+
+        assertEquals("Store is closed.", failure.message)
+    }
+
+    @Test
+    fun streamCreatedBeforeClose_failsFastWhenCollectedAfterClose() = runTest {
+        val store = store<TestKey, String> { fetcher { "v" } }
+        val stream = store.stream(TestKey("1"))
+        store.close()
+
+        val failure = assertFailsWith<IllegalStateException> {
+            withTimeout(1_000) { stream.collect() }
+        }
+
+        assertEquals("Store is closed.", failure.message)
+    }
+
+    @Test
+    fun nonCooperativeFetcher_closeTerminatesGetBeforeFetcherReleases() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val store = store<TestKey, String> {
+            fetcher {
+                started.complete(Unit)
+                withContext(NonCancellable) { release.await() }
+                "v"
+            }
+        }
+        val waiter = backgroundScope.async { runCatching { store.get(TestKey("1")) } }
+
+        try {
+            started.await()
+            store.close()
+
+            val failure =
+                withContext(Dispatchers.Default) {
+                    withTimeout(1_000) { waiter.await() }
+                }.exceptionOrNull()
+            assertFalse(release.isCompleted)
+            assertIs<CancellationException>(failure)
+        } finally {
+            release.complete(Unit)
+            store.close()
+        }
+    }
+
+    @Test
+    fun nonCooperativeFetcher_closeTerminatesStreamBeforeFetcherReleases() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val store = store<TestKey, String> {
+            fetcher {
+                started.complete(Unit)
+                withContext(NonCancellable) { release.await() }
+                "v"
+            }
+        }
+        val collector = backgroundScope.async {
+            runCatching { store.stream(TestKey("1")).collect() }
+        }
+
+        try {
+            started.await()
+            store.close()
+
+            val failure =
+                withContext(Dispatchers.Default) {
+                    withTimeout(1_000) { collector.await() }
+                }.exceptionOrNull()
+            assertFalse(release.isCompleted)
+            assertIs<CancellationException>(failure)
+        } finally {
+            release.complete(Unit)
+            store.close()
+        }
     }
 }
