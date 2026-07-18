@@ -1,3 +1,48 @@
+public abstract interface annotation class org/mobilenativefoundation/store6/core/DelicateStoreApi : java/lang/annotation/Annotation {
+}
+
+public abstract interface annotation class org/mobilenativefoundation/store6/core/ExperimentalStoreApi : java/lang/annotation/Annotation {
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/Freshness {
+}
+
+public final class org/mobilenativefoundation/store6/core/Freshness$CachedOrFetch : org/mobilenativefoundation/store6/core/Freshness {
+	public static final field INSTANCE Lorg/mobilenativefoundation/store6/core/Freshness$CachedOrFetch;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/core/Freshness$LocalOnly : org/mobilenativefoundation/store6/core/Freshness {
+	public static final field INSTANCE Lorg/mobilenativefoundation/store6/core/Freshness$LocalOnly;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/core/Freshness$MaxAge : org/mobilenativefoundation/store6/core/Freshness {
+	public synthetic fun <init> (JLkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getNotOlderThan-UwyO8pc ()J
+}
+
+public final class org/mobilenativefoundation/store6/core/Freshness$MustBeFresh : org/mobilenativefoundation/store6/core/Freshness {
+	public static final field INSTANCE Lorg/mobilenativefoundation/store6/core/Freshness$MustBeFresh;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/core/Freshness$StaleIfError : org/mobilenativefoundation/store6/core/Freshness {
+	public static final field INSTANCE Lorg/mobilenativefoundation/store6/core/Freshness$StaleIfError;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface annotation class org/mobilenativefoundation/store6/core/InternalStoreApi : java/lang/annotation/Annotation {
+}
+
 public final class org/mobilenativefoundation/store6/core/Origin : java/lang/Enum {
 	public static final field FETCHER Lorg/mobilenativefoundation/store6/core/Origin;
 	public static final field MEMORY Lorg/mobilenativefoundation/store6/core/Origin;
@@ -9,9 +54,20 @@ public final class org/mobilenativefoundation/store6/core/Origin : java/lang/Enu
 }
 
 public abstract interface class org/mobilenativefoundation/store6/core/Store {
+	public abstract fun clear (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun clearAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun clearNamespace (Lorg/mobilenativefoundation/store6/core/StoreNamespace;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun close ()V
-	public abstract fun get (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-	public abstract fun stream (Lorg/mobilenativefoundation/store6/core/StoreKey;)Lkotlinx/coroutines/flow/Flow;
+	public abstract fun get (Lorg/mobilenativefoundation/store6/core/StoreKey;Lorg/mobilenativefoundation/store6/core/Freshness;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun invalidate (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun invalidateAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun invalidateNamespace (Lorg/mobilenativefoundation/store6/core/StoreNamespace;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun stream (Lorg/mobilenativefoundation/store6/core/StoreKey;Lorg/mobilenativefoundation/store6/core/Freshness;)Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class org/mobilenativefoundation/store6/core/Store$DefaultImpls {
+	public static synthetic fun get$default (Lorg/mobilenativefoundation/store6/core/Store;Lorg/mobilenativefoundation/store6/core/StoreKey;Lorg/mobilenativefoundation/store6/core/Freshness;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static synthetic fun stream$default (Lorg/mobilenativefoundation/store6/core/Store;Lorg/mobilenativefoundation/store6/core/StoreKey;Lorg/mobilenativefoundation/store6/core/Freshness;ILjava/lang/Object;)Lkotlinx/coroutines/flow/Flow;
 }
 
 public final class org/mobilenativefoundation/store6/core/StoreBuilder {
@@ -25,7 +81,31 @@ public final class org/mobilenativefoundation/store6/core/StoreBuilderKt {
 public abstract class org/mobilenativefoundation/store6/core/StoreError {
 }
 
+public final class org/mobilenativefoundation/store6/core/StoreError$Conflict : org/mobilenativefoundation/store6/core/StoreError {
+	public final fun getMessage ()Ljava/lang/String;
+	public final fun getServerMeta ()Lorg/mobilenativefoundation/store6/core/StoreMeta;
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreError$Conversion : org/mobilenativefoundation/store6/core/StoreError {
+	public final fun getCause ()Ljava/lang/Throwable;
+	public final fun getMessage ()Ljava/lang/String;
+}
+
 public final class org/mobilenativefoundation/store6/core/StoreError$Fetch : org/mobilenativefoundation/store6/core/StoreError {
+	public final fun getCause ()Ljava/lang/Throwable;
+	public final fun getMessage ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreError$FreshnessUnsatisfiable : org/mobilenativefoundation/store6/core/StoreError {
+	public final fun getMessage ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreError$Missing : org/mobilenativefoundation/store6/core/StoreError {
+	public final fun getKey ()Lorg/mobilenativefoundation/store6/core/StoreKey;
+	public final fun getMessage ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreError$Persistence : org/mobilenativefoundation/store6/core/StoreError {
 	public final fun getCause ()Ljava/lang/Throwable;
 	public final fun getMessage ()Ljava/lang/String;
 }
@@ -39,6 +119,9 @@ public abstract interface class org/mobilenativefoundation/store6/core/StoreKey 
 	public abstract fun getNamespace ()Lorg/mobilenativefoundation/store6/core/StoreNamespace;
 }
 
+public abstract interface class org/mobilenativefoundation/store6/core/StoreMeta {
+}
+
 public final class org/mobilenativefoundation/store6/core/StoreNamespace {
 	public fun <init> (Ljava/lang/String;)V
 	public final fun getValue ()Ljava/lang/String;
@@ -48,14 +131,22 @@ public abstract interface class org/mobilenativefoundation/store6/core/StoreResu
 }
 
 public final class org/mobilenativefoundation/store6/core/StoreResult$Data : org/mobilenativefoundation/store6/core/StoreResult {
+	public final fun getAge-UwyO8pc ()J
 	public final fun getOrigin ()Lorg/mobilenativefoundation/store6/core/Origin;
+	public final fun getRefreshing ()Z
 	public final fun getValue ()Ljava/lang/Object;
+	public final fun isStale ()Z
 }
 
 public final class org/mobilenativefoundation/store6/core/StoreResult$Error : org/mobilenativefoundation/store6/core/StoreResult {
 	public final fun getError ()Lorg/mobilenativefoundation/store6/core/StoreError;
+	public final fun getServedStale ()Z
 }
 
 public final class org/mobilenativefoundation/store6/core/StoreResult$Loading : org/mobilenativefoundation/store6/core/StoreResult {
+}
+
+public final class org/mobilenativefoundation/store6/core/StoreResult$Revalidated : org/mobilenativefoundation/store6/core/StoreResult {
+	public final fun getAge-UwyO8pc ()J
 }
 

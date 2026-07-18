@@ -15,6 +15,7 @@ java {
 
 dependencies {
     compileOnly(libs.android.gradle.plugin)
+    compileOnly(libs.binary.compatibility.validator)
     compileOnly(libs.kotlin.gradle.plugin)
     compileOnly(libs.dokka.gradle.plugin)
     compileOnly(libs.maven.publish.plugin)
@@ -32,6 +33,16 @@ gradlePlugin {
         register("store6MultiplatformConventionPlugin") {
             id = "org.mobilenativefoundation.store.store6.multiplatform"
             implementationClass = "org.mobilenativefoundation.store.tooling.plugins.Store6MultiplatformConventionPlugin"
+        }
+
+        register("store6ObjcSwiftDumpPlugin") {
+            id = "org.mobilenativefoundation.store.store6.swift-dump.objc"
+            implementationClass = "org.mobilenativefoundation.store.tooling.plugins.Store6ObjcSwiftDumpPlugin"
+        }
+
+        register("store6SkieSwiftDumpPlugin") {
+            id = "org.mobilenativefoundation.store.store6.swift-dump.skie"
+            implementationClass = "org.mobilenativefoundation.store.tooling.plugins.Store6SkieSwiftDumpPlugin"
         }
 
         register("androidConventionPlugin") {

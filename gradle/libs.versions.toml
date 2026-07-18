@@ -13,6 +13,7 @@ moleculeGradlePlugin = "1.2.1"
 pagingCompose = "3.3.0-alpha02"
 pagingRuntime = "3.2.1"
 spotlessPluginGradle = "6.4.1"
+skie = "0.10.13"
 junit = "4.13.2"
 kotlinxCoroutines = "1.8.1"
 kotlinxSerialization = "1.6.3"
@@ -63,3 +64,4 @@ binary-compatibility-validator = {module = "org.jetbrains.kotlinx:binary-compati
 ktlint = {id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlintGradle"}
 binary-compatibility-validator = {id = "org.jetbrains.kotlinx.binary-compatibility-validator", version.ref = "binary-compatibility-validator"}
 kover = {id = "org.jetbrains.kotlinx.kover", version.ref = "kover"}
+skie = { id = "co.touchlab.skie", version.ref = "skie" }

@@ -63,3 +63,17 @@ tasks {
 
 // Workaround for https://youtrack.jetbrains.com/issue/KT-62040
 tasks.getByName("wrapper")
+
+tasks.register("refreshSwiftDumps") {
+    dependsOn(
+        ":store6-swift-dumps-objc:refreshSwiftDump",
+        ":store6-swift-dumps-skie:refreshSwiftDump",
+    )
+}
+
+tasks.register("checkSwiftDumps") {
+    dependsOn(
+        ":store6-swift-dumps-objc:checkSwiftDump",
+        ":store6-swift-dumps-skie:checkSwiftDump",
+    )
+}

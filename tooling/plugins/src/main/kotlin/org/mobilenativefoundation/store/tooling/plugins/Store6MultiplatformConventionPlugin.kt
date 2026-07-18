@@ -6,6 +6,8 @@ import com.android.build.api.dsl.LibraryExtension
 import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.KotlinMultiplatform
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
+import kotlinx.validation.ApiValidationExtension
+import kotlinx.validation.ExperimentalBCVApi
 import org.gradle.api.JavaVersion
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -29,6 +31,13 @@ class Store6MultiplatformConventionPlugin : Plugin<Project> {
             apply("com.android.library")
             apply("com.vanniktech.maven.publish")
             apply("org.jetbrains.kotlinx.binary-compatibility-validator")
+        }
+
+        extensions.configure<ApiValidationExtension> {
+            @OptIn(ExperimentalBCVApi::class)
+            klib {
+                enabled = true
+            }
         }
 
         tasks.configureEach {

@@ -14,4 +14,9 @@ public class StoreException internal constructor(
 private fun messageOf(error: StoreError): String =
     when (error) {
         is StoreError.Fetch -> error.message
+        is StoreError.Persistence -> error.message
+        is StoreError.Conversion -> error.message
+        is StoreError.FreshnessUnsatisfiable -> error.message
+        is StoreError.Conflict -> error.message
+        is StoreError.Missing -> error.message
     }

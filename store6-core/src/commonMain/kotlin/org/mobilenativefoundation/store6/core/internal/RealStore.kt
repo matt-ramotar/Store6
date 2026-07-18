@@ -7,8 +7,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
+import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Store
 import org.mobilenativefoundation.store6.core.StoreKey
+import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.StoreResult
 
 /**
@@ -16,7 +19,10 @@ import org.mobilenativefoundation.store6.core.StoreResult
  *
  * Each engine receives its own supervised child scope. Closing the store cancels the parent job
  * and all active engine work without allowing one key's fetch failure to cancel another key.
+ * Freshness parameters are accepted at the surface; the engine currently honors the default
+ * serve-resident-else-fetch posture for every policy (documented on [Freshness]).
  */
+@OptIn(DelicateStoreApi::class)
 internal class RealStore<K : StoreKey, V : Any>(
     fetcher: suspend (K) -> V,
 ) : Store<K, V> {
@@ -32,7 +38,10 @@ internal class RealStore<K : StoreKey, V : Any>(
             )
         }
 
-    override fun stream(key: K): Flow<StoreResult<V>> {
+    override fun stream(
+        key: K,
+        freshness: Freshness,
+    ): Flow<StoreResult<V>> {
         ensureOpen()
         return flow {
             ensureOpen()
@@ -42,9 +51,42 @@ internal class RealStore<K : StoreKey, V : Any>(
         }
     }
 
-    override suspend fun get(key: K): V {
+    override suspend fun get(
+        key: K,
+        freshness: Freshness,
+    ): V {
         ensureOpen()
         return registry.withEngine(key) { engine -> engine.get() }
+    }
+
+    override suspend fun invalidate(key: K) {
+        ensureOpen()
+        registry.withEngine(key) { engine -> engine.invalidate() }
+    }
+
+    override suspend fun invalidateNamespace(namespace: StoreNamespace) {
+        ensureOpen()
+        registry.forEachResident(namespace.value) { engine -> engine.invalidate() }
+    }
+
+    override suspend fun invalidateAll() {
+        ensureOpen()
+        registry.forEachResident(namespace = null) { engine -> engine.invalidate() }
+    }
+
+    override suspend fun clear(key: K) {
+        ensureOpen()
+        registry.withEngine(key) { engine -> engine.clear() }
+    }
+
+    override suspend fun clearNamespace(namespace: StoreNamespace) {
+        ensureOpen()
+        registry.forEachResident(namespace.value) { engine -> engine.clear() }
+    }
+
+    override suspend fun clearAll() {
+        ensureOpen()
+        registry.forEachResident(namespace = null) { engine -> engine.clear() }
     }
 
     override fun close() {
