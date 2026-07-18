@@ -2,6 +2,7 @@ package org.mobilenativefoundation.store6.core.internal
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 
@@ -21,7 +22,10 @@ class TransitionTest {
     @Test
     fun ensureFetch_whenInFlight_joinsExistingTicketWithoutChangingState() {
         val existing = ticket()
-        val state = KeyState(FetchSlot.InFlight(existing))
+        val state =
+            KeyState.Initial.copy(
+                fetch = FetchSlot.InFlight(existing, clearEpochAtLaunch = 0L),
+            )
 
         val result = transition(state, KeyEvent.EnsureFetch(ticket()))
 
@@ -32,20 +36,31 @@ class TransitionTest {
     @Test
     fun settleFetch_withMatchingTicket_returnsToIdle() {
         val current = ticket()
+        val state =
+            KeyState.Initial.copy(
+                fetch = FetchSlot.InFlight(current, clearEpochAtLaunch = 0L),
+                staleEpoch = 1L,
+                clearEpoch = 2L,
+            )
 
         val result = transition(
-            KeyState(FetchSlot.InFlight(current)),
+            state,
             KeyEvent.SettleFetch(current),
         )
 
         assertIs<FetchSlot.Idle>(result.state.fetch)
+        assertEquals(1L, result.state.staleEpoch)
+        assertEquals(2L, result.state.clearEpoch)
         assertIs<KeyEffect.Settled>(result.effect)
     }
 
     @Test
     fun settleFetch_withStaleTicket_preservesCurrentFetch() {
         val current = ticket()
-        val state = KeyState(FetchSlot.InFlight(current))
+        val state =
+            KeyState.Initial.copy(
+                fetch = FetchSlot.InFlight(current, clearEpochAtLaunch = 0L),
+            )
 
         val result = transition(state, KeyEvent.SettleFetch(ticket()))
 
@@ -59,5 +74,111 @@ class TransitionTest {
 
         assertSame(KeyState.Initial, result.state)
         assertIs<KeyEffect.Ignored>(result.effect)
+    }
+
+    @Test
+    fun ensureFetch_recordsClearEpochAtLaunch() {
+        val state = KeyState.Initial.copy(clearEpoch = 7L)
+
+        val result = transition(state, KeyEvent.EnsureFetch(ticket()))
+
+        assertEquals(7L, assertIs<FetchSlot.InFlight>(result.state.fetch).clearEpochAtLaunch)
+    }
+
+    @Test
+    fun commitFetch_matchingTicketAndEpoch_commitsAndSettles() {
+        val current = ticket()
+        val state = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(current, clearEpochAtLaunch = 0L),
+            staleEpoch = 3L,
+        )
+
+        val result = transition(state, KeyEvent.CommitFetch(current))
+
+        assertIs<KeyEffect.Commit>(result.effect)
+        assertIs<FetchSlot.Idle>(result.state.fetch)
+        assertEquals(3L, result.state.staleEpoch) // epochs preserved
+        assertEquals(0L, result.state.clearEpoch)
+    }
+
+    @Test
+    fun commitFetch_afterClearAdvancedEpoch_isSuperseded() {
+        val current = ticket()
+        val state = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(current, clearEpochAtLaunch = 0L),
+            clearEpoch = 1L,
+        )
+
+        val result = transition(state, KeyEvent.CommitFetch(current))
+
+        assertIs<KeyEffect.Superseded>(result.effect)
+        assertSame(state, result.state) // slot kept for the settle path
+    }
+
+    @Test
+    fun commitFetch_staleTicket_isIgnored() {
+        val current = ticket()
+        val state = KeyState.Initial.copy(fetch = FetchSlot.InFlight(current, 0L))
+
+        val result = transition(state, KeyEvent.CommitFetch(ticket()))
+
+        assertIs<KeyEffect.Ignored>(result.effect)
+        assertSame(state, result.state)
+    }
+
+    @Test
+    fun commitFetch_whenIdle_isIgnored() {
+        val result = transition(KeyState.Initial, KeyEvent.CommitFetch(ticket()))
+
+        assertIs<KeyEffect.Ignored>(result.effect)
+    }
+
+    @Test
+    fun invalidate_bumpsOnlyStaleEpoch() {
+        val result = transition(KeyState.Initial, KeyEvent.Invalidate)
+
+        assertIs<KeyEffect.Invalidated>(result.effect)
+        assertEquals(1L, result.state.staleEpoch)
+        assertEquals(0L, result.state.clearEpoch)
+        assertIs<FetchSlot.Idle>(result.state.fetch)
+    }
+
+    @Test
+    fun clear_bumpsBothEpochs_andRequestsResidenceClear() {
+        val result = transition(KeyState.Initial, KeyEvent.Clear)
+
+        assertIs<KeyEffect.ClearResidence>(result.effect)
+        assertEquals(1L, result.state.staleEpoch)
+        assertEquals(1L, result.state.clearEpoch)
+    }
+
+    @Test
+    fun settleFetch_preservesEpochs() {
+        val current = ticket()
+        val state = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(current, clearEpochAtLaunch = 2L),
+            staleEpoch = 5L,
+            clearEpoch = 2L,
+        )
+
+        val result = transition(state, KeyEvent.SettleFetch(current))
+
+        assertIs<FetchSlot.Idle>(result.state.fetch)
+        assertEquals(5L, result.state.staleEpoch) // the landed Initial-reset bug must not return
+        assertEquals(2L, result.state.clearEpoch)
+    }
+
+    @Test
+    fun settleFetch_afterCommitAlreadySettled_isIgnored() {
+        val current = ticket()
+        val committed = transition(
+            KeyState.Initial.copy(fetch = FetchSlot.InFlight(current, 0L)),
+            KeyEvent.CommitFetch(current),
+        )
+
+        val result = transition(committed.state, KeyEvent.SettleFetch(current))
+
+        assertIs<KeyEffect.Ignored>(result.effect)
+        assertSame(committed.state, result.state)
     }
 }
