@@ -53,7 +53,9 @@ abstract class GenerateObjcSwiftDumpTask : DefaultTask() {
     }
 }
 
-@CacheableTask
+@DisableCachingByDefault(
+    because = "SKIE does not expose the generated Swift directory as a declared task output",
+)
 abstract class GenerateSkieSwiftDumpTask : DefaultTask() {
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
@@ -84,7 +86,7 @@ abstract class GenerateSkieSwiftDumpTask : DefaultTask() {
 
         val swiftRoot = generatedSwiftRoot.get().asFile
         if (!swiftRoot.isDirectory) {
-            throw unsupportedSkieLayout(swiftRoot)
+            throw unsupportedSkieLayout(swiftRoot, supportedLayout.get())
         }
 
         val swiftFiles = swiftRoot.walkTopDown()
@@ -92,7 +94,7 @@ abstract class GenerateSkieSwiftDumpTask : DefaultTask() {
             .sortedBy { it.relativeTo(swiftRoot).invariantSeparatorsPath() }
             .toList()
         if (swiftFiles.isEmpty()) {
-            throw unsupportedSkieLayout(swiftRoot)
+            throw unsupportedSkieLayout(swiftRoot, supportedLayout.get())
         }
 
         val output = outputDirectory.get().asFile
@@ -109,13 +111,26 @@ abstract class GenerateSkieSwiftDumpTask : DefaultTask() {
             },
         )
     }
+}
 
-    private fun unsupportedSkieLayout(swiftRoot: File): GradleException =
-        GradleException(
-            "SKIE-generated Swift output is unavailable at ${swiftRoot.path}. " +
-                "The pinned SKIE 0.10.13 layout '${supportedLayout.get()}' was not produced; " +
-                "no supported SKIE output API is available.",
-        )
+@DisableCachingByDefault(because = "Layout validation must run after every SKIE framework link")
+abstract class ValidateSkieSwiftLayoutTask : DefaultTask() {
+    @get:Internal
+    abstract val generatedSwiftRoot: DirectoryProperty
+
+    @get:Input
+    abstract val supportedLayout: Property<String>
+
+    @TaskAction
+    fun validate() {
+        val swiftRoot = generatedSwiftRoot.get().asFile
+        val containsSwiftSource = swiftRoot.isDirectory && swiftRoot.walkTopDown().any {
+            it.isFile && it.extension == "swift"
+        }
+        if (!containsSwiftSource) {
+            throw unsupportedSkieLayout(swiftRoot, supportedLayout.get())
+        }
+    }
 }
 
 @DisableCachingByDefault(because = "Verification task has no outputs")
@@ -216,10 +231,23 @@ class Store6SkieSwiftDumpPlugin : Plugin<Project> {
             val stagedDirectory = layout.buildDirectory.dir("swift-dump")
             val committedDumpDirectory = rootProject.layout.projectDirectory.dir("store6-core/api/swift/skie")
             val generatedSwiftDirectory = layout.buildDirectory.dir(SKIE_GENERATED_SWIFT_LAYOUT)
+            val validateLayout = tasks.register(
+                "validateSkieSwiftLayout",
+                ValidateSkieSwiftLayoutTask::class.java,
+            ) {
+                group = "Store6 verification"
+                description = "Validates the pinned SKIE-generated Swift layout for store6-core."
+                dependsOn("linkDebugFrameworkIosArm64")
+                generatedSwiftRoot.set(generatedSwiftDirectory)
+                supportedLayout.set(SKIE_GENERATED_SWIFT_LAYOUT)
+            }
             val generate = tasks.register("generateSwiftDump", GenerateSkieSwiftDumpTask::class.java) {
                 group = "Store6 verification"
                 description = "Generates the sanitized SKIE dump for store6-core."
-                dependsOn("linkDebugFrameworkIosArm64")
+                dependsOn(validateLayout)
+                doNotTrackState(
+                    "SKIE does not expose the generated Swift directory as a declared task output.",
+                )
                 linkedHeader.set(
                     layout.buildDirectory.file(
                         "bin/iosArm64/debugFramework/Store6CoreSkie.framework/Headers/Store6CoreSkie.h",
@@ -265,6 +293,13 @@ private fun sanitized(raw: String): String =
         .filterNot { volatileVersionLine.containsMatchIn(it) }
         .joinToString("\n")
         .trimEnd() + "\n"
+
+private fun unsupportedSkieLayout(swiftRoot: File, supportedLayout: String): GradleException =
+    GradleException(
+        "SKIE-generated Swift output is unavailable at ${swiftRoot.path}. " +
+            "The pinned SKIE 0.10.13 layout '$supportedLayout' was not produced; " +
+            "no supported SKIE output API is available.",
+    )
 
 private fun recreateDirectory(directory: File) {
     if (directory.exists() && !directory.deleteRecursively()) {
