@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
   pull_request:
-    branches: [ main, 001-walking-skeleton ] # stacked-PR base; remove after 003 retargets to main
+    branches: [ main ]
 
 permissions:
   contents: read
