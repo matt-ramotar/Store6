@@ -183,17 +183,31 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         }
     }
 
-    /** Atomically settles ownership and gives every waiter a terminal ticket outcome. */
+    /** Atomically settles ownership, classifies clear supersession, and completes the ticket. */
     private suspend fun finishFetch(
         ticket: FetchTicket,
         outcome: FetchOutcome,
     ) {
         withContext(NonCancellable) {
-            applyEvent(KeyEvent.SettleFetch(ticket))
-            if (engineJob.isActive) {
-                ticket.outcome.complete(outcome)
-            } else {
-                ticket.outcome.cancel(storeClosedCancellation())
+            stateLock.withLock {
+                val result = transition(mutableState.value, KeyEvent.SettleFetch(ticket))
+                mutableState.value = result.state
+                val classifiedOutcome =
+                    when (result.effect) {
+                        KeyEffect.Superseded -> FetchOutcome.Superseded
+                        KeyEffect.Settled,
+                        KeyEffect.Ignored,
+                        -> outcome
+
+                        else -> error(
+                            "Settle-fetch transition produced an invalid effect: ${result.effect}",
+                        )
+                    }
+                if (engineJob.isActive) {
+                    ticket.outcome.complete(classifiedOutcome)
+                } else {
+                    ticket.outcome.cancel(storeClosedCancellation())
+                }
             }
         }
     }

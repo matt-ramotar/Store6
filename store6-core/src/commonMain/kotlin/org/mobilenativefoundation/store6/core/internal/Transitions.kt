@@ -39,7 +39,7 @@ internal sealed interface KeyEffect {
     /** Assign the fetched value to residence inside the same critical section. */
     data object Commit : KeyEffect
 
-    /** The commit was rejected because a clear advanced the clear epoch after launch. */
+    /** The fetch result was rejected because a clear advanced the clear epoch after launch. */
     data object Superseded : KeyEffect
 
     /** The key was marked stale; no residence change is required. */
@@ -119,7 +119,12 @@ internal fun transition(
                     if (slot.ticket === event.ticket) {
                         KeyTransition(
                             state = state.copy(fetch = FetchSlot.Idle),
-                            effect = KeyEffect.Settled,
+                            effect =
+                                if (slot.clearEpochAtLaunch != state.clearEpoch) {
+                                    KeyEffect.Superseded
+                                } else {
+                                    KeyEffect.Settled
+                                },
                         )
                     } else {
                         KeyTransition(state = state, effect = KeyEffect.Ignored)

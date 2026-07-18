@@ -38,7 +38,7 @@ class TransitionTest {
         val current = ticket()
         val state =
             KeyState.Initial.copy(
-                fetch = FetchSlot.InFlight(current, clearEpochAtLaunch = 0L),
+                fetch = FetchSlot.InFlight(current, clearEpochAtLaunch = 2L),
                 staleEpoch = 1L,
                 clearEpoch = 2L,
             )
@@ -165,6 +165,23 @@ class TransitionTest {
 
         assertIs<FetchSlot.Idle>(result.state.fetch)
         assertEquals(5L, result.state.staleEpoch) // the landed Initial-reset bug must not return
+        assertEquals(2L, result.state.clearEpoch)
+    }
+
+    @Test
+    fun settleFetch_afterClearAdvancedEpoch_isSupersededAndSettled() {
+        val current = ticket()
+        val state = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(current, clearEpochAtLaunch = 1L),
+            staleEpoch = 4L,
+            clearEpoch = 2L,
+        )
+
+        val result = transition(state, KeyEvent.SettleFetch(current))
+
+        assertIs<KeyEffect.Superseded>(result.effect)
+        assertIs<FetchSlot.Idle>(result.state.fetch)
+        assertEquals(4L, result.state.staleEpoch)
         assertEquals(2L, result.state.clearEpoch)
     }
 

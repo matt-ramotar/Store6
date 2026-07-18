@@ -154,6 +154,34 @@ class StoreInvalidationConformanceTest {
     }
 
     @Test
+    fun clearDuringInFlightFetch_thatFails_waiterObservesMissing() = runTest {
+        val fetchStarted = CompletableDeferred<Unit>()
+        val fetchGate = CompletableDeferred<Unit>()
+        val store = store<TestKey, String> {
+            fetcher {
+                fetchStarted.complete(Unit)
+                fetchGate.await()
+                error("fetch failed after clear")
+            }
+        }
+        val waiter = backgroundScope.async { runCatching { store.get(TestKey("1")) } }
+        fetchStarted.await()
+
+        store.clear(TestKey("1"))
+        fetchGate.complete(Unit)
+
+        val failure =
+            withContext(Dispatchers.Default) {
+                withTimeout(5_000) { waiter.await() }
+            }.exceptionOrNull()
+        val exception = assertIs<StoreException>(failure)
+        assertIs<StoreError.Missing>(exception.error)
+        assertTrue(exception.message!!.contains("test/1"))
+        assertTrue(exception.message!!.contains("clear"))
+        store.close()
+    }
+
+    @Test
     fun invalidateNamespace_touchesOnlyMatchingNamespace() = runTest {
         var aCalls = 0
         var bCalls = 0
