@@ -35,6 +35,16 @@ gradlePlugin {
             implementationClass = "org.mobilenativefoundation.store.tooling.plugins.Store6MultiplatformConventionPlugin"
         }
 
+        register("store6ObjcSwiftDumpPlugin") {
+            id = "org.mobilenativefoundation.store.store6.swift-dump.objc"
+            implementationClass = "org.mobilenativefoundation.store.tooling.plugins.Store6ObjcSwiftDumpPlugin"
+        }
+
+        register("store6SkieSwiftDumpPlugin") {
+            id = "org.mobilenativefoundation.store.store6.swift-dump.skie"
+            implementationClass = "org.mobilenativefoundation.store.tooling.plugins.Store6SkieSwiftDumpPlugin"
+        }
+
         register("androidConventionPlugin") {
             id = "org.mobilenativefoundation.store.android"
             implementationClass = "org.mobilenativefoundation.store.tooling.plugins.AndroidConventionPlugin"
