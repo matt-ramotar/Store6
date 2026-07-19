@@ -4,6 +4,35 @@ public abstract interface annotation class org/mobilenativefoundation/store6/cor
 public abstract interface annotation class org/mobilenativefoundation/store6/core/ExperimentalStoreApi : java/lang/annotation/Annotation {
 }
 
+public abstract interface class org/mobilenativefoundation/store6/core/FetcherResult {
+}
+
+public final class org/mobilenativefoundation/store6/core/FetcherResult$Deleted : org/mobilenativefoundation/store6/core/FetcherResult {
+	public static final field INSTANCE Lorg/mobilenativefoundation/store6/core/FetcherResult$Deleted;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/core/FetcherResult$Error : org/mobilenativefoundation/store6/core/FetcherResult {
+	public fun <init> (Ljava/lang/Throwable;)V
+	public final fun getCause ()Ljava/lang/Throwable;
+}
+
+public final class org/mobilenativefoundation/store6/core/FetcherResult$NotModified : org/mobilenativefoundation/store6/core/FetcherResult {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getEtag ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/core/FetcherResult$Success : org/mobilenativefoundation/store6/core/FetcherResult {
+	public fun <init> (Ljava/lang/Object;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/Object;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getEtag ()Ljava/lang/String;
+	public final fun getValue ()Ljava/lang/Object;
+}
+
 public abstract interface class org/mobilenativefoundation/store6/core/Freshness {
 }
 
@@ -72,6 +101,7 @@ public final class org/mobilenativefoundation/store6/core/Store$DefaultImpls {
 
 public final class org/mobilenativefoundation/store6/core/StoreBuilder {
 	public final fun fetcher (Lkotlin/jvm/functions/Function2;)V
+	public final fun fetcherOfResult (Lkotlin/jvm/functions/Function2;)V
 }
 
 public final class org/mobilenativefoundation/store6/core/StoreBuilderKt {
@@ -120,6 +150,8 @@ public abstract interface class org/mobilenativefoundation/store6/core/StoreKey 
 }
 
 public abstract interface class org/mobilenativefoundation/store6/core/StoreMeta {
+	public abstract fun getEtag ()Ljava/lang/String;
+	public abstract fun getWrittenAtEpochMillis ()J
 }
 
 public final class org/mobilenativefoundation/store6/core/StoreNamespace {
