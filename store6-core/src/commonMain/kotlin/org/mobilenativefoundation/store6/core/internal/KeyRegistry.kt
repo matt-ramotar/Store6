@@ -6,7 +6,7 @@ import org.mobilenativefoundation.store6.core.StoreKey
 
 /** Owns exactly one [KeyEngine] for each canonical [KeyId]. */
 internal class KeyRegistry<K : StoreKey, V : Any>(
-    private val createEngine: (K) -> KeyEngine<K, V>,
+    private val createEngine: (K, KeyId) -> KeyEngine<K, V>,
 ) {
     private val lock = Mutex()
     private val engines = HashMap<KeyId, KeyEngine<K, V>>()
@@ -27,7 +27,7 @@ internal class KeyRegistry<K : StoreKey, V : Any>(
                 val id = KeyId.from(key)
                 engines.getOrPut(id) {
                     verifyStableCanonicalId(key, id)
-                    createEngine(key)
+                    createEngine(key, id)
                 }
             }
         return block(engine)

@@ -1,6 +1,10 @@
 package org.mobilenativefoundation.store6.core
 
+import org.mobilenativefoundation.store6.core.internal.Bookkeeper
+import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.RealStore
+import org.mobilenativefoundation.store6.core.internal.SystemWallClock
+import org.mobilenativefoundation.store6.core.internal.WallClock
 
 /**
  * Creates a [Store] using the settings supplied by [configure].
@@ -23,6 +27,8 @@ public fun <K : StoreKey, V : Any> store(
  */
 public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
     private var fetcher: (suspend (K) -> FetcherResult<V>)? = null
+    internal var wallClock: WallClock = SystemWallClock
+    internal var bookkeeper: Bookkeeper = InMemoryBookkeeper()
 
     /**
      * Configures the suspending function used to retrieve a value for a key.
@@ -56,14 +62,6 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
         val fetch = requireNotNull(fetcher) {
             "store<K, V> { } requires a fetcher { } or fetcherOfResult { } block."
         }
-        return RealStore { key ->
-            when (val result = fetch(key)) {
-                is FetcherResult.Success -> result.value
-                is FetcherResult.Error -> throw result.cause
-                is FetcherResult.NotModified,
-                FetcherResult.Deleted,
-                -> error("Rich fetcher results are honored once the engine bridge (T4) lands.")
-            }
-        }
+        return RealStore(fetch, wallClock, bookkeeper)
     }
 }

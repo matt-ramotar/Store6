@@ -23,6 +23,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import org.mobilenativefoundation.store6.core.FetcherResult
+import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreException
@@ -56,7 +58,11 @@ internal fun residenceSatisfies(
  */
 internal class KeyEngine<K : StoreKey, V : Any>(
     private val key: K,
-    private val fetcher: suspend (K) -> V,
+    private val keyId: KeyId,
+    private val fetcher: suspend (K) -> FetcherResult<V>,
+    private val bookkeeper: Bookkeeper,
+    private val validator: FreshnessValidator,
+    private val wallClock: WallClock,
     private val engineScope: CoroutineScope,
 ) {
     private val stateLock = Mutex()
@@ -123,9 +129,27 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 try {
                     currentCoroutineContext().ensureActive()
                     yield()
-                    val value = fetcher(key)
+                    val result = fetcher(key)
                     currentCoroutineContext().ensureActive()
-                    commitFetch(ticket, value)
+                    when (result) {
+                        is FetcherResult.Success -> commitFetch(ticket, result.value)
+                        is FetcherResult.Error -> {
+                            if (result.cause is CancellationException) {
+                                throw result.cause
+                            }
+                            FetchOutcome.Failed(fetchException(result.cause))
+                        }
+                        is FetcherResult.NotModified,
+                        FetcherResult.Deleted,
+                        ->
+                            FetchOutcome.Failed(
+                                fetchException(
+                                    IllegalStateException(
+                                        "Rich fetcher results are honored by the T6 engine rework.",
+                                    ),
+                                ),
+                            )
+                    }
                 } catch (cancellation: CancellationException) {
                     ticket.outcome.cancel(cancellation)
                     settleFetch(ticket)
@@ -237,9 +261,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
     /** Creates the structured exception shared by stream and value-returning operations. */
     private fun fetchException(failure: Throwable): StoreException {
-        val id = KeyId.from(key)
         val message =
-            "Fetch failed for key '${id.namespace}/${id.canonicalId}': ${failure.message}. " +
+            "Fetch failed for key '${keyId.namespace}/${keyId.canonicalId}': ${failure.message}. " +
                 "The fetcher threw; inspect the cause for the underlying failure."
         return StoreException(
             error = StoreError.Fetch(message = message, cause = failure),
@@ -249,9 +272,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
     /** Creates the typed failure for a fetch whose commit was superseded by a concurrent clear. */
     private fun supersededException(): StoreException {
-        val id = KeyId.from(key)
         val message =
-            "Could not return a value for key '${id.namespace}/${id.canonicalId}': clear() " +
+            "Could not return a value for key '${keyId.namespace}/${keyId.canonicalId}': clear() " +
                 "removed the key while its fetch was in flight, so the fetched value was " +
                 "discarded. The value is currently missing; retry the read to trigger a " +
                 "fresh fetch."
@@ -269,7 +291,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
      * reports refreshing = true. Invalidation is observed as level-triggered state — the stale
      * epoch collector re-plans on every change and can never miss a signal.
      */
-    internal fun stream(): Flow<StoreResult<V>> {
+    internal fun stream(freshness: Freshness): Flow<StoreResult<V>> {
         ensureOpen()
         return channelFlow {
             ensureOpen()
@@ -368,7 +390,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
      * revalidate). A committed outcome whose residence was cleared before this waiter could
      * read it reports Missing, exactly like a superseded commit.
      */
-    internal suspend fun get(): V {
+    internal suspend fun get(freshness: Freshness): V {
         ensureOpen()
         residence.value?.let { envelope ->
             if (envelope.staleEpochAtCommit < state.value.staleEpoch) {
