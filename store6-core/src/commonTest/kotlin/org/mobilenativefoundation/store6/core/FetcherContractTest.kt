@@ -1,10 +1,16 @@
 package org.mobilenativefoundation.store6.core
 
+import app.cash.turbine.test
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
+import org.mobilenativefoundation.store6.core.internal.KeyId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FetcherContractTest {
@@ -41,6 +47,198 @@ class FetcherContractTest {
         } finally {
             richStore.close()
             plainStore.close()
+        }
+    }
+
+    @Test
+    fun richSuccess_streamEmitsLoadingThenFetcherData() = runTest {
+        val store = store<TestKey, String> {
+            fetcherOfResult { FetcherResult.Success("v", etag = "e1") }
+        }
+
+        try {
+            store.stream(TestKey("1")).test {
+                assertIs<StoreResult.Loading>(awaitItem())
+                val data = assertIs<StoreResult.Data<String>>(awaitItem())
+                assertEquals("v", data.value)
+                assertEquals(Origin.FETCHER, data.origin)
+                expectNoEvents()
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test
+    fun richError_matchesThrownFetcherFailureForGetAndStream() = runTest {
+        val boom = IllegalStateException("boom")
+        val store = store<TestKey, String> {
+            fetcherOfResult { FetcherResult.Error(boom) }
+        }
+
+        try {
+            val getFailure = assertFailsWith<StoreException> { store.get(TestKey("1")) }
+            val getFetch = assertIs<StoreError.Fetch>(getFailure.error)
+            assertTrue(getFetch.cause === boom)
+
+            store.stream(TestKey("1")).test {
+                assertIs<StoreResult.Loading>(awaitItem())
+                val failure = assertIs<StoreResult.Error>(awaitItem())
+                val streamFetch = assertIs<StoreError.Fetch>(failure.error)
+                assertTrue(streamFetch.cause === boom)
+                expectNoEvents()
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test
+    fun deletedAfterResident_emitsOneLoadingAndOneMissingWithoutLoop() = runTest {
+        var calls = 0
+        val store = store<TestKey, String> {
+            fetcherOfResult {
+                when (++calls) {
+                    1 -> FetcherResult.Success("v1")
+                    2, 3 -> FetcherResult.Deleted
+                    else -> error("unexpected fetch call $calls")
+                }
+            }
+        }
+        val key = TestKey("1")
+
+        try {
+            assertEquals("v1", store.get(key))
+
+            store.stream(key).test {
+                assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+                store.invalidate(key)
+
+                val events = listOf(awaitItem(), awaitItem())
+                assertEquals(1, events.count { it is StoreResult.Loading })
+                val failures = events.filterIsInstance<StoreResult.Error>()
+                assertEquals(1, failures.size)
+                val missing = assertIs<StoreError.Missing>(failures.single().error)
+                assertTrue(missing.message.lowercase().contains("deleted"))
+                expectNoEvents()
+
+                val laterFailure = assertFailsWith<StoreException> { store.get(key) }
+                val laterMissing = assertIs<StoreError.Missing>(laterFailure.error)
+                assertTrue(laterMissing.message.lowercase().contains("deleted"))
+                assertEquals(3, calls)
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test
+    fun deletedOnFirstGet_reportsMissing() = runTest {
+        val store = store<TestKey, String> {
+            fetcherOfResult { FetcherResult.Deleted }
+        }
+
+        try {
+            val failure = assertFailsWith<StoreException> { store.get(TestKey("1")) }
+            val missing = assertIs<StoreError.Missing>(failure.error)
+            assertTrue(missing.message.lowercase().contains("deleted"))
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test
+    fun deletedOnFirstStream_emitsLoadingThenMissingAndStaysLive() = runTest {
+        val store = store<TestKey, String> {
+            fetcherOfResult { FetcherResult.Deleted }
+        }
+
+        try {
+            store.stream(TestKey("1")).test {
+                assertIs<StoreResult.Loading>(awaitItem())
+                val failure = assertIs<StoreResult.Error>(awaitItem())
+                val missing = assertIs<StoreError.Missing>(failure.error)
+                assertTrue(missing.message.lowercase().contains("deleted"))
+                assertEquals(false, failure.servedStale)
+                expectNoEvents()
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test
+    fun notModifiedWithoutResident_reportsMissingForGetAndStream() = runTest {
+        val store = store<TestKey, String> {
+            fetcherOfResult { FetcherResult.NotModified(etag = "e1") }
+        }
+
+        try {
+            val getFailure = assertFailsWith<StoreException> { store.get(TestKey("1")) }
+            val getMissing = assertIs<StoreError.Missing>(getFailure.error)
+            assertTrue(getMissing.message.contains("NotModified"))
+
+            store.stream(TestKey("1")).test {
+                assertIs<StoreResult.Loading>(awaitItem())
+                val failure = assertIs<StoreResult.Error>(awaitItem())
+                val streamMissing = assertIs<StoreError.Missing>(failure.error)
+                assertTrue(streamMissing.message.contains("NotModified"))
+                expectNoEvents()
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test
+    fun successNotModifiedAndDeleted_updateAndForgetBookkeeper() = runTest {
+        var calls = 0
+        val bookkeeper = InMemoryBookkeeper()
+        val clock = FakeWallClock(now = 1_000L)
+        val store = storeWith<TestKey, String>(clock = clock, bookkeeper = bookkeeper) {
+            fetcherOfResult {
+                when (++calls) {
+                    1 -> FetcherResult.Success("v1", etag = "e1")
+                    2 -> FetcherResult.NotModified(etag = "e2")
+                    3 -> FetcherResult.Deleted
+                    else -> error("unexpected fetch call $calls")
+                }
+            }
+        }
+        val key = TestKey("1")
+        val keyId = KeyId.from(key)
+
+        try {
+            assertEquals("v1", store.get(key))
+            val seeded = assertNotNull(bookkeeper.status(keyId))
+            assertEquals("e1", seeded.meta?.etag)
+            assertEquals(1L, seeded.lastSuccessSequence)
+
+            clock.now = 2_000L
+            assertEquals("v1", store.get(key, Freshness.MustBeFresh))
+            val revalidated = assertNotNull(bookkeeper.status(keyId))
+            assertEquals("e2", revalidated.meta?.etag)
+            assertEquals(2L, revalidated.lastSuccessSequence)
+            assertTrue(
+                assertNotNull(revalidated.lastSuccessSequence) >
+                    assertNotNull(seeded.lastSuccessSequence),
+            )
+
+            val deleted =
+                assertFailsWith<StoreException> {
+                    store.get(key, Freshness.MustBeFresh)
+                }
+            val missing = assertIs<StoreError.Missing>(deleted.error)
+            assertTrue(missing.message.lowercase().contains("deleted"))
+            assertNull(bookkeeper.status(keyId))
+            assertEquals(3, calls)
+        } finally {
+            store.close()
         }
     }
 }
