@@ -18,8 +18,10 @@ import org.mobilenativefoundation.store6.core.StoreKey
  * - On normal return, [write] and [delete] provide read-your-writes: a subsequent [reader]
  *   collection starts with the applied row or absence, and the mutation's current-row
  *   notification has been published to every active collection. That notification may still be
- *   queued in downstream operators. A mutation may publish an intermediate row (including
- *   `null`), but it must publish its final current row before returning normally.
+ *   queued in downstream operators. A mutation may publish intermediate rows (including `null`),
+ *   but the notification of its applied row or absence must be that mutation's final notification
+ *   before normal return. Therefore a notification that supersedes a successfully returned
+ *   mutation is ordered after the return boundary.
  * - Mutation completion is exception-atomic for every [Throwable], including
  *   `CancellationException`: normal return means the mutation was applied, while throwing means
  *   it was not applied.

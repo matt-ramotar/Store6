@@ -2,6 +2,7 @@ package org.mobilenativefoundation.store6.core
 
 import org.mobilenativefoundation.store6.core.internal.Bookkeeper
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
+import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.internal.RealStore
 import org.mobilenativefoundation.store6.core.internal.SystemWallClock
 import org.mobilenativefoundation.store6.core.internal.WallClock
@@ -79,10 +80,12 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
         this.sot = sot
     }
 
+    @OptIn(ExperimentalStoreApi::class)
     internal fun build(): Store<K, V> {
         val fetch = requireNotNull(fetcher) {
             "store<K, V> { } requires a fetcher { } or fetcherOfResult { } block."
         }
-        return RealStore(fetch, wallClock, bookkeeper)
+        val sourceOfTruth = sot ?: InMemorySourceOfTruth()
+        return RealStore(fetch, sourceOfTruth, wallClock, bookkeeper)
     }
 }

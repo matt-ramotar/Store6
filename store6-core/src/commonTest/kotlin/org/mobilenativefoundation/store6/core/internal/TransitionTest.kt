@@ -23,23 +23,22 @@ class TransitionTest {
         ticket: FetchTicket,
         value: Any = "value",
         meta: StoreMeta = meta(),
-        residenceRevisionAtStamp: Long = 0L,
     ): KeyEvent.CommitFetch =
-        KeyEvent.CommitFetch(ticket, value, meta, residenceRevisionAtStamp)
+        KeyEvent.CommitFetch(ticket, value, meta)
 
     private fun attribution(
+        owner: FetchTicket = ticket(),
         value: Any = "resident",
         origin: Origin = Origin.SOT,
         meta: StoreMeta = meta(),
         staleEpochAtCommit: Long = 2L,
-        residenceRevisionAtStamp: Long = 3L,
     ): AttributionTag =
         AttributionTag(
+            owner = owner,
             value = value,
             origin = origin,
             meta = meta,
             staleEpochAtCommit = staleEpochAtCommit,
-            residenceRevisionAtStamp = residenceRevisionAtStamp,
         )
 
     @Test
@@ -163,7 +162,6 @@ class TransitionTest {
                 ticket = current,
                 value = value,
                 meta = meta,
-                residenceRevisionAtStamp = 11L,
             ),
         )
 
@@ -172,7 +170,6 @@ class TransitionTest {
         assertEquals(Origin.FETCHER, tag.origin)
         assertSame(meta, tag.meta)
         assertEquals(7L, tag.staleEpochAtCommit)
-        assertEquals(11L, tag.residenceRevisionAtStamp)
         assertEquals(9L, result.state.readerGen)
     }
 

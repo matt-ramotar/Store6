@@ -4,26 +4,40 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.retryWhen
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
+import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
@@ -32,6 +46,8 @@ import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.StoreResult
+import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
 /** Emits every stale epoch that advanced beyond the snapshot used to plan a stream startup. */
@@ -41,59 +57,635 @@ internal fun Flow<KeyState>.staleEpochsAfter(planningEpoch: Long): Flow<Long> =
         .filter { observedEpoch -> observedEpoch > planningEpoch }
 
 /**
- * Coordinates residence, fetch ownership, and invalidation epochs for one canonical key.
+ * Coordinates one canonical key around a single shared source-of-truth reader pipeline.
  *
- * Immutable [KeyState] snapshots change only under [stateLock] by applying the pure
- * [transition] function. Residence is written only inside the same critical section as the
- * state change that authorizes it (commit and clear), which keeps state and residence coherent;
- * a StateFlow assignment is a memory write, not I/O, so this preserves the rule that
- * [stateLock] is never held across I/O. Fetches run in [engineScope] and therefore continue
- * when an individual waiter cancels. Staleness is level-triggered monotone state: streams react
- * to [KeyState.staleEpoch] changes, so a burst of invalidations conflates losslessly.
+ * [writeLock] serializes persistence mutations and ordered bookkeeping. [stateLock] protects the
+ * immutable state snapshot, residence, and its monotone revision. When both locks are needed the
+ * order is always writeLock then stateLock; no lock is held across fetcher I/O.
  */
+@OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 internal class KeyEngine<K : StoreKey, V : Any>(
     private val key: K,
     private val keyId: KeyId,
     private val fetcher: suspend (K) -> FetcherResult<V>,
+    private val sot: SourceOfTruth<K, V>,
     private val bookkeeper: Bookkeeper,
     private val validator: FreshnessValidator,
     private val wallClock: WallClock,
     private val engineScope: CoroutineScope,
+    /** Optional deterministic gate used only by direct engine tests before final initial recapture. */
+    private val beforeInitialDeliveryTestGate: suspend () -> Unit = {},
+    /** Optional deterministic gate used only by direct engine tests after raw reader observation. */
+    private val beforeReaderRecordMappingTestGate: suspend () -> Unit = {},
+    /** Optional deterministic gate used only by direct engine tests inside serialized delivery. */
+    private val beforeReaderDeliveryTestGate: suspend () -> Unit = {},
+    /** Optional deterministic gate used only by direct engine tests before outcome delivery. */
+    private val beforeTicketOutcomeDeliveryTestGate: suspend () -> Unit = {},
+    /** Optional deterministic gate before first classification of a replacement disposition. */
+    private val beforeReplacementDispositionClassificationTestGate: suspend () -> Unit = {},
 ) {
     private val stateLock = Mutex()
-
-    /** Orders metadata mutations; when both locks are needed, this is acquired before stateLock. */
-    private val bookkeepingLock = Mutex()
+    private val writeLock = Mutex()
     private val engineJob: Job = checkNotNull(engineScope.coroutineContext[Job])
-
-    /** Child job that completes as soon as the engine begins cancellation. */
     private val closeSignal: Job = Job(engineJob)
 
     private val mutableState = MutableStateFlow(KeyState.Initial)
-
-    /** Read-only observation surface for immutable fetch-state snapshots. */
     internal val state: StateFlow<KeyState> = mutableState.asStateFlow()
 
     private val residence = MutableStateFlow<ValueEnvelope<V>?>(null)
-    private val residenceEvents = ResidenceEventHub<ValueEnvelope<V>>()
 
-    /** Updates residence and publishes its lossless stream event while stateLock is held. */
-    private fun updateResidence(envelope: ValueEnvelope<V>?) {
-        residence.value = envelope
-        residenceEvents.publish(
-            if (envelope == null) ResidenceEvent.Absent else ResidenceEvent.Value(envelope),
+    /** Changed only by [replaceResidenceLocked] while stateLock is held. */
+    private var residenceRevision: Long = 0L
+
+    /** Lock-serialized source-order boundary for raw observations and active SoT writes. */
+    private val writeObservationBoundary =
+        MutableStateFlow(
+            WriteObservationBoundary(
+                readerGen = 0L,
+                observedAttribution = null,
+                activeAttribution = null,
+                successfulSequence = 0L,
+                latestRawSequence = 0L,
+                activeRawPhase = ActiveRawPhase.Unobserved,
+            ),
         )
+
+    /** Latest durable resolution of raw observations ordered before a successful write return. */
+    private var rawCommitResolution: RawCommitResolution<V>? = null
+
+    /** Completion fence for a destructive persistence mutation; guarded by [stateLock]. */
+    private var destructiveMutationBarrier: CompletableDeferred<Unit>? = null
+
+    /**
+     * One retrying adapter pipeline shared by every active collector for this key.
+     *
+     * Adapter invocation and collection failures are converted before engine mapping. A mapping
+     * or transition defect therefore remains fatal instead of being mislabeled and retried as a
+     * persistence outage.
+     */
+    private val readerRecords: SharedFlow<ReaderRecord<V>> =
+        state
+            .map { it.readerGen }
+            .distinctUntilChanged()
+            .flatMapLatest { readerGen ->
+                var failureReportedForEpisode = false
+                flow { emitAll(sot.reader(key)) }
+                    .map<V?, RawReaderEvent<V>> { value ->
+                        failureReportedForEpisode = false
+                        try {
+                            rawReaderRow(readerGen, value)
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (failure: Throwable) {
+                            throw RawObservationFailure(failure)
+                        }
+                    }
+                    .conflate()
+                    .onCompletion { cause ->
+                        if (cause == null) {
+                            error(
+                                "SourceOfTruth.reader completed normally for key " +
+                                    "'${keyId.namespace}/${keyId.canonicalId}'.",
+                            )
+                        }
+                    }
+                    .retryWhen { failure, _ ->
+                        if (failure is CancellationException) throw failure
+                        if (failure is RawObservationFailure) throw failure.engineFailure
+                        if (!failureReportedForEpisode) {
+                            emit(RawReaderEvent.Failure(readerException(failure)))
+                            failureReportedForEpisode = true
+                        }
+                        delay(READER_RETRY_DELAY_MILLIS)
+                        true
+                    }
+                    .mapNotNull { event ->
+                        when (event) {
+                            is RawReaderEvent.Row -> {
+                                beforeReaderRecordMappingTestGate()
+                                toRecord(readerGen, event)
+                            }
+                            is RawReaderEvent.Failure ->
+                                readerFailureRecord(readerGen, event.exception)
+                        }
+                    }
+            }
+            .shareIn(
+                scope = engineScope,
+                started =
+                    SharingStarted.WhileSubscribed(
+                        stopTimeoutMillis = READER_PIPELINE_GRACE_MILLIS,
+                        replayExpirationMillis = 0L,
+                    ),
+                replay = 1,
+            )
+
+    /** Assigns residence and advances its revision for every accepted observation or mutation. */
+    private fun replaceResidenceLocked(envelope: ValueEnvelope<V>?): Long {
+        residence.value = envelope
+        residenceRevision += 1L
+        return residenceRevision
     }
 
-    /** Applies one event while serializing the state swap, then returns its effect. */
+    /** Captures source order and active-write provenance under [stateLock] before conflation. */
+    private suspend fun rawReaderRow(
+        readerGen: Long,
+        value: V?,
+    ): RawReaderEvent.Row<V> =
+        stateLock.withLock { captureRawReaderRowLocked(readerGen, value) }
+
+    /** Allocates one raw token; the return-boundary CAS may race but mapping cannot. */
+    private fun captureRawReaderRowLocked(
+        readerGen: Long,
+        value: V?,
+    ): RawReaderEvent.Row<V> {
+        while (true) {
+            val current = writeObservationBoundary.value
+            if (current.readerGen != readerGen) {
+                return RawReaderEvent.Row(
+                    value = value,
+                    readerGen = readerGen,
+                    rawObservationSequence = current.latestRawSequence,
+                    attributionAtObservation = current.observedAttribution,
+                    successfulWriteSequenceAtObservation = current.successfulSequence,
+                    activeWriteAttributionAtObservation = current.activeAttribution,
+                )
+            }
+
+            val nextSequence = current.latestRawSequence + 1L
+            val observation =
+                RawWriteObservation(
+                    readerGen = readerGen,
+                    rawSequence = nextSequence,
+                    value = value,
+                    attributionAtObservation = current.observedAttribution,
+                    activeWriteAttributionAtObservation = current.activeAttribution,
+                    successfulWriteSequenceAtObservation = current.successfulSequence,
+                )
+            val matchingAttribution = observation.matchingWriterAttribution()
+            val nextPhase =
+                if (current.activeAttribution == null) {
+                    current.activeRawPhase
+                } else if (matchingAttribution != null) {
+                    ActiveRawPhase.Matching(observation, matchingAttribution)
+                } else {
+                    when (current.activeRawPhase) {
+                        is ActiveRawPhase.Matching ->
+                            ActiveRawPhase.OtherAfterMatching(
+                                matchingObservation = current.activeRawPhase.observation,
+                                observation = observation,
+                            )
+
+                        is ActiveRawPhase.OtherAfterMatching ->
+                            ActiveRawPhase.OtherAfterMatching(
+                                matchingObservation =
+                                    current.activeRawPhase.matchingObservation,
+                                observation = observation,
+                            )
+
+                        ActiveRawPhase.Unobserved,
+                        is ActiveRawPhase.OtherBeforeMatching,
+                        -> ActiveRawPhase.OtherBeforeMatching(observation)
+                    }
+                }
+            val updated =
+                current.copy(
+                    latestRawSequence = nextSequence,
+                    activeRawPhase = nextPhase,
+                )
+            if (writeObservationBoundary.compareAndSet(current, updated)) {
+                return RawReaderEvent.Row(
+                    value = value,
+                    readerGen = readerGen,
+                    rawObservationSequence = nextSequence,
+                    attributionAtObservation = observation.attributionAtObservation,
+                    successfulWriteSequenceAtObservation =
+                        observation.successfulWriteSequenceAtObservation,
+                    activeWriteAttributionAtObservation =
+                        observation.activeWriteAttributionAtObservation,
+                )
+            }
+        }
+    }
+
+    /** Mirrors lock-owned state into the source-order boundary while [stateLock] is held. */
+    private fun syncObservedAttributionLocked(state: KeyState) {
+        val generationChanged = writeObservationBoundary.value.readerGen != state.readerGen
+        if (generationChanged) {
+            rawCommitResolution = null
+        }
+        updateWriteObservationBoundary { current ->
+            if (current.readerGen == state.readerGen) {
+                current.copy(observedAttribution = state.attribution)
+            } else {
+                current.copy(
+                    readerGen = state.readerGen,
+                    observedAttribution = state.attribution,
+                    activeAttribution = null,
+                    activeRawPhase = ActiveRawPhase.Unobserved,
+                )
+            }
+        }
+    }
+
+    /** Applies one CAS-loop boundary update and preserves concurrent raw observations. */
+    private inline fun updateWriteObservationBoundary(
+        transform: (WriteObservationBoundary) -> WriteObservationBoundary,
+    ): WriteObservationBoundary {
+        while (true) {
+            val current = writeObservationBoundary.value
+            val updated = transform(current)
+            if (writeObservationBoundary.compareAndSet(current, updated)) return updated
+        }
+    }
+
+    /** Applies one pure event while serializing the state swap. */
     private suspend fun applyEvent(event: KeyEvent): KeyEffect =
         stateLock.withLock {
             val result = transition(mutableState.value, event)
             mutableState.value = result.state
+            syncObservedAttributionLocked(result.state)
             result.effect
         }
 
-    /** Plans one read against a coherent state snapshot and resident envelope. */
+    /** Maps a reader row only after any exact writer attribution becomes durably committed. */
+    private suspend fun toRecord(
+        readerGen: Long,
+        event: RawReaderEvent.Row<V>,
+    ): ReaderRecord<V>? {
+        var prepared: PreparedReaderRow? = null
+        var decided = false
+        val immediate =
+            stateLock.withLock {
+                val snapshot = mutableState.value
+                if (snapshot.readerGen != readerGen) return@withLock null
+                if (isSupersededRawObservation(event)) {
+                    decided = true
+                    return@withLock null
+                }
+                rawCommitResolution
+                    ?.takeIf {
+                        it.readerGen == readerGen &&
+                            event.rawObservationSequence <= it.rawCommitCutoff
+                    }
+                    ?.let { resolution ->
+                        decided = true
+                        return@withLock if (
+                            event.rawObservationSequence ==
+                            resolution.authoritativeRawSequence
+                        ) {
+                            recordFromConvergedRawLocked(event, resolution)
+                        } else {
+                            null
+                        }
+                    }
+
+                val consumed =
+                    transition(
+                        snapshot,
+                        KeyEvent.ConsumeAttribution(event.attributionAtObservation),
+                    )
+                mutableState.value = consumed.state
+                syncObservedAttributionLocked(consumed.state)
+                val tag = (consumed.effect as KeyEffect.Consumed).tag
+                val value = event.value
+                val matchingAttribution =
+                    value?.let {
+                        when {
+                            tag?.value == value -> tag
+                            tag == null &&
+                                event.activeWriteAttributionAtObservation?.value == value ->
+                                event.activeWriteAttributionAtObservation
+                            else -> null
+                        }
+                    }
+                val activeAttribution = event.activeWriteAttributionAtObservation
+                val activeDisposition = activeAttribution?.owner?.disposition?.value
+                val postReturnProvisional =
+                    matchingAttribution == null &&
+                        activeDisposition is FetchDisposition.Committing &&
+                        activeDisposition.attribution === activeAttribution &&
+                        event.successfulWriteSequenceAtObservation >
+                        activeDisposition.successfulWriteSequenceAtStart
+                if (postReturnProvisional) {
+                    prepared =
+                        PreparedReaderRow(
+                            consumedAttribution = tag,
+                            ownerAttribution = checkNotNull(activeAttribution),
+                            matchingAttribution = null,
+                        )
+                    null
+                } else if (matchingAttribution == null) {
+                    decided = true
+                    mapReaderRowLocked(
+                        readerGen = readerGen,
+                        event = event,
+                        tag = tag,
+                        matchingAttribution = null,
+                    )
+                } else {
+                    when (val disposition = matchingAttribution.owner.disposition.value) {
+                        is FetchDisposition.Committed -> {
+                            decided = true
+                            if (disposition.attribution !== matchingAttribution) {
+                                null
+                            } else {
+                                recordForExactWriterEnvelopeLocked(
+                                    event = event,
+                                    attribution = matchingAttribution,
+                                    consumedAttribution = tag,
+                                )
+                            }
+                        }
+
+                        FetchDisposition.InFlight,
+                        is FetchDisposition.Committing,
+                        -> {
+                            prepared =
+                                PreparedReaderRow(
+                                    consumedAttribution = tag,
+                                    ownerAttribution = matchingAttribution,
+                                    matchingAttribution = matchingAttribution,
+                                )
+                            null
+                        }
+
+                        else -> {
+                            decided = true
+                            null
+                        }
+                    }
+                }
+            }
+        if (decided) return immediate
+        val provisionalRow = prepared ?: return immediate
+
+        val ownerAttribution = provisionalRow.ownerAttribution
+        val matchingAttribution = provisionalRow.matchingAttribution
+        val owner = ownerAttribution.owner
+        val disposition =
+            when (val current = owner.disposition.value) {
+                FetchDisposition.InFlight,
+                is FetchDisposition.Committing,
+                ->
+                    owner.disposition.first { candidate ->
+                        candidate !== FetchDisposition.InFlight &&
+                            candidate !is FetchDisposition.Committing
+                    }
+
+                else -> current
+            }
+        if (
+            disposition !is FetchDisposition.Committed ||
+            disposition.attribution !== ownerAttribution
+        ) {
+            return null
+        }
+
+        return stateLock.withLock {
+            if (mutableState.value.readerGen != readerGen) return@withLock null
+            if (isSupersededRawObservation(event)) return@withLock null
+            rawCommitResolution
+                ?.takeIf {
+                    it.readerGen == readerGen &&
+                        event.rawObservationSequence <= it.rawCommitCutoff
+                }
+                ?.let { resolution ->
+                    return@withLock if (
+                        event.rawObservationSequence == resolution.authoritativeRawSequence
+                    ) {
+                        recordFromConvergedRawLocked(
+                            event = event,
+                            resolution = resolution,
+                            consumedAttributionOverride =
+                                provisionalRow.consumedAttribution,
+                        )
+                    } else {
+                        null
+                    }
+                }
+            if (matchingAttribution != null) {
+                recordForExactWriterEnvelopeLocked(
+                    event = event,
+                    attribution = matchingAttribution,
+                    consumedAttribution = provisionalRow.consumedAttribution,
+                )
+            } else {
+                mapReaderRowLocked(
+                    readerGen = readerGen,
+                    event = event,
+                    tag = provisionalRow.consumedAttribution,
+                    matchingAttribution = null,
+                )
+            }
+        }
+    }
+
+    /** True when conflate has already observed a newer row/absence in this reader generation. */
+    private fun isSupersededRawObservation(event: RawReaderEvent.Row<V>): Boolean {
+        val boundary = writeObservationBoundary.value
+        return boundary.readerGen == event.readerGen &&
+            boundary.latestRawSequence > event.rawObservationSequence
+    }
+
+    /** Reuses commit-side convergence without mutating residence or advancing its revision. */
+    private fun recordFromConvergedRawLocked(
+        event: RawReaderEvent.Row<V>,
+        resolution: RawCommitResolution<V>,
+        consumedAttributionOverride: AttributionTag? = null,
+    ): ReaderRecord<V>? {
+        if (residenceRevision != resolution.residenceRevision) return null
+        if (residence.value !== resolution.envelope) return null
+        val value = event.value
+        return if (value == null) {
+            if (resolution.envelope != null) return null
+            ReaderRecord.Absent(
+                readerGen = event.readerGen,
+                residenceRevision = residenceRevision,
+                successfulWriteSequenceAtObservation =
+                    event.successfulWriteSequenceAtObservation,
+                consumedAttribution =
+                    consumedAttributionOverride ?: resolution.consumedAttribution,
+                activeWriteAttributionAtObservation =
+                    event.activeWriteAttributionAtObservation,
+                rawObservationSequence = event.rawObservationSequence,
+            )
+        } else {
+            val envelope = resolution.envelope ?: return null
+            if (envelope.value != value) return null
+            ReaderRecord.Row(
+                envelope = envelope,
+                readerGen = event.readerGen,
+                residenceRevision = residenceRevision,
+                successfulWriteSequenceAtObservation =
+                    event.successfulWriteSequenceAtObservation,
+                consumedAttribution =
+                    consumedAttributionOverride ?: resolution.consumedAttribution,
+                activeWriteAttributionAtObservation =
+                    event.activeWriteAttributionAtObservation,
+                rawObservationSequence = event.rawObservationSequence,
+            )
+        }
+    }
+
+    /** Returns the exact already-installed writer envelope, avoiding a duplicate revision bump. */
+    private fun recordForExactWriterEnvelopeLocked(
+        event: RawReaderEvent.Row<V>,
+        attribution: AttributionTag,
+        consumedAttribution: AttributionTag?,
+    ): ReaderRecord.Row<V>? {
+        val value = event.value ?: return null
+        val envelope = residence.value ?: return null
+        if (!envelope.matchesWriterAttribution(value, attribution)) return null
+        return ReaderRecord.Row(
+            envelope = envelope,
+            readerGen = event.readerGen,
+            residenceRevision = residenceRevision,
+            successfulWriteSequenceAtObservation =
+                event.successfulWriteSequenceAtObservation,
+            consumedAttribution = consumedAttribution,
+            activeWriteAttributionAtObservation = event.activeWriteAttributionAtObservation,
+            rawObservationSequence = event.rawObservationSequence,
+        )
+    }
+
+    private fun ValueEnvelope<V>.matchesWriterAttribution(
+        value: V,
+        attribution: AttributionTag,
+    ): Boolean =
+        this.value == value &&
+            origin == attribution.origin &&
+            meta === attribution.meta &&
+            staleEpochAtCommit == attribution.staleEpochAtCommit &&
+            directRevalidationOwner == null
+
+    /** Installs one already-authorized adapter observation while [stateLock] is held. */
+    private fun mapReaderRowLocked(
+        readerGen: Long,
+        event: RawReaderEvent.Row<V>,
+        tag: AttributionTag?,
+        matchingAttribution: AttributionTag?,
+    ): ReaderRecord<V> {
+        val value = event.value
+        val record = if (value == null) {
+            val revision = replaceResidenceLocked(null)
+            ReaderRecord.Absent(
+                readerGen = readerGen,
+                residenceRevision = revision,
+                successfulWriteSequenceAtObservation =
+                    event.successfulWriteSequenceAtObservation,
+                consumedAttribution = tag,
+                activeWriteAttributionAtObservation =
+                    event.activeWriteAttributionAtObservation,
+                rawObservationSequence = event.rawObservationSequence,
+            )
+        } else {
+            val current = residence.value
+            val envelope =
+                when {
+                    matchingAttribution != null ->
+                        ValueEnvelope(
+                            value = value,
+                            origin = matchingAttribution.origin,
+                            meta = matchingAttribution.meta,
+                            staleEpochAtCommit = matchingAttribution.staleEpochAtCommit,
+                        )
+
+                    tag != null ->
+                        ValueEnvelope(
+                            value = value,
+                            origin = Origin.SOT,
+                            meta = null,
+                            staleEpochAtCommit = mutableState.value.staleEpoch,
+                        )
+
+                    current != null && current.value == value -> current
+
+                    else ->
+                        ValueEnvelope(
+                            value = value,
+                            origin = Origin.SOT,
+                            meta = null,
+                            staleEpochAtCommit = mutableState.value.staleEpoch,
+                        )
+                }
+            val revision = replaceResidenceLocked(envelope)
+            ReaderRecord.Row(
+                envelope = envelope,
+                readerGen = readerGen,
+                residenceRevision = revision,
+                successfulWriteSequenceAtObservation =
+                    event.successfulWriteSequenceAtObservation,
+                consumedAttribution = tag,
+                activeWriteAttributionAtObservation =
+                    event.activeWriteAttributionAtObservation,
+                rawObservationSequence = event.rawObservationSequence,
+            )
+        }
+        return record
+    }
+
+    /** Converts one adapter outage into a generation-bound record without changing residence. */
+    private suspend fun readerFailureRecord(
+        readerGen: Long,
+        exception: StoreException,
+    ): ReaderRecord<V>? =
+        stateLock.withLock {
+            if (mutableState.value.readerGen != readerGen) return@withLock null
+            ReaderRecord.Failure(exception, readerGen, residenceRevision)
+        }
+
+    /** Waits out destructive mutation tails, then resolves a queued record against live state. */
+    private suspend fun resolveCurrentRecord(record: ReaderRecord<V>): ReaderResolution<V>? {
+        while (true) {
+            var barrier: CompletableDeferred<Unit>? = null
+            val resolved =
+                stateLock.withLock {
+                    barrier = destructiveMutationBarrier
+                    if (barrier == null) {
+                        resolveCurrentRecord(
+                            record = record,
+                            currentReaderGen = mutableState.value.readerGen,
+                            currentResidence = residence.value,
+                            currentResidenceRevision = residenceRevision,
+                        )?.let { current ->
+                            ReaderResolution(
+                                record = current,
+                                state = mutableState.value,
+                            )
+                        }
+                    } else {
+                        null
+                    }
+                }
+            val pending = barrier ?: return resolved
+            pending.await()
+        }
+    }
+
+    /** Installs the fence that prevents reactive delivery from observing a delete mid-tail. */
+    private suspend fun beginDestructiveMutation(): CompletableDeferred<Unit> =
+        stateLock.withLock {
+            check(destructiveMutationBarrier == null) {
+                "A destructive source-of-truth mutation is already active."
+            }
+            CompletableDeferred<Unit>().also { destructiveMutationBarrier = it }
+        }
+
+    /** Releases a destructive fence on every terminal path without stranding waiting readers. */
+    private suspend fun finishDestructiveMutation(barrier: CompletableDeferred<Unit>) {
+        try {
+            stateLock.withLock {
+                if (destructiveMutationBarrier === barrier) {
+                    destructiveMutationBarrier = null
+                }
+            }
+        } finally {
+            barrier.complete(Unit)
+        }
+    }
+
+    /** Plans one read against a coherent snapshot. */
     private fun planFor(
         freshness: Freshness,
         snapshot: KeyState,
@@ -107,251 +699,533 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 epochStale = envelope != null && envelope.staleEpochAtCommit < snapshot.staleEpoch,
                 freshness = freshness,
                 nowEpochMillis = nowEpochMillis,
-                status = null, // Present behavior: durable status feeds planning in 006
+                status = null,
             ),
         )
 
-    /** Plans using the latest state and the injected wall clock. */
     private fun currentPlan(
         freshness: Freshness,
         envelope: ValueEnvelope<V>?,
     ): FetchPlan =
         planFor(freshness, state.value, envelope, wallClock.nowEpochMillis())
 
-    /** Whether this policy serves an invalidated resident while a refresh is attempted. */
     private fun staleServingTolerated(freshness: Freshness): Boolean =
         freshness == Freshness.CachedOrFetch || freshness == Freshness.StaleIfError
 
-    /**
-     * Returns the active ticket, launching a fetch only when the state grants ownership, or
-     * `null` when the current policy plan is already satisfied.
-     *
-     * The wall-clock read happens before [stateLock], and the plan recheck is the linearization
-     * point between a concurrent commit and an Idle-to-InFlight transition.
-     */
-    private suspend fun ensureFetch(freshness: Freshness): FetchTicket? {
-        val now = wallClock.nowEpochMillis()
-        val effect =
+    private fun revalidatedSatisfiesDemand(
+        freshness: Freshness,
+        snapshot: ResidenceSnapshot<V>,
+        plan: FetchPlan,
+    ): Boolean =
+        when (freshness) {
+            Freshness.MustBeFresh ->
+                snapshot.envelope?.let { envelope ->
+                    envelope.origin == Origin.FETCHER &&
+                        envelope.meta != null &&
+                        envelope.staleEpochAtCommit >= snapshot.state.staleEpoch
+                } == true
+
+            Freshness.CachedOrFetch,
+            Freshness.StaleIfError,
+            Freshness.LocalOnly,
+            is Freshness.MaxAge,
+            -> plan is FetchPlan.Skip
+        }
+
+    /** Reserves joined/owned work and returns the exact residence/plan used under stateLock. */
+    private suspend fun reserveFetch(
+        freshness: Freshness,
+        collectorEligibleResidence: ValueEnvelope<V>? = null,
+        enforceCollectorEligibility: Boolean = false,
+    ): FetchReservation<V>? {
+        val planned =
             stateLock.withLock {
                 ensureOpen()
+                val now = wallClock.nowEpochMillis()
                 val snapshot = mutableState.value
-                if (planFor(freshness, snapshot, residence.value, now) is FetchPlan.Skip) {
+                val currentResidence = residence.value
+                val planningResidence =
+                    if (
+                        enforceCollectorEligibility &&
+                        currentResidence?.directRevalidationOwner != null &&
+                        currentResidence !== collectorEligibleResidence
+                    ) {
+                        collectorEligibleResidence
+                    } else {
+                        currentResidence
+                    }
+                val plan = planFor(freshness, snapshot, planningResidence, now)
+                if (plan is FetchPlan.Skip) {
                     return@withLock null
                 }
-                val fresh = FetchTicket(CompletableDeferred<FetchOutcome>(engineJob))
-                val result = transition(snapshot, KeyEvent.EnsureFetch(fresh))
+                val ticket =
+                    FetchTicket(
+                        outcome = CompletableDeferred(engineJob),
+                        requestRevision = residenceRevision,
+                        residenceRevisionAtLaunch =
+                            currentResidence?.let { residenceRevision },
+                        residenceEnvelopeAtLaunch = currentResidence,
+                        staleEpochAtLaunch = snapshot.staleEpoch,
+                        nowEpochMillisAtLaunch = now,
+                    )
+                val result = transition(snapshot, KeyEvent.EnsureFetch(ticket))
                 mutableState.value = result.state
-                result.effect
+                PlannedFetchEffect(
+                    effect = result.effect,
+                    collectorEligibleResidence = planningResidence,
+                    plan = plan,
+                )
             }
 
-        return when (effect) {
-            null -> null
-            is KeyEffect.Launch -> effect.ticket.also(::launchFetch)
-            is KeyEffect.Join -> effect.ticket
-            else -> error("Ensure-fetch transition produced an invalid effect: $effect")
-        }
+        val reservation = planned ?: return null
+        val ticket =
+            when (val effect = reservation.effect) {
+                is KeyEffect.Launch -> effect.ticket.also(::launchFetch)
+                is KeyEffect.Join -> effect.ticket
+                else -> error("Ensure-fetch transition produced an invalid effect: $effect")
+            }
+        return FetchReservation(
+            ticket = ticket,
+            collectorEligibleResidence = reservation.collectorEligibleResidence,
+            plan = reservation.plan,
+        )
     }
 
-    /**
-     * Runs the owned fetch and publishes its terminal outcome to every joined waiter.
-     *
-     * Undispatched start enters the guarded coroutine body before this function returns, so
-     * cancellation cleanup is installed when closure races immediately after ticket creation.
-     */
+    /** Returns only the joined/owned identity for non-collector call sites. */
+    private suspend fun ensureFetch(freshness: Freshness): FetchTicket? =
+        reserveFetch(freshness)?.ticket
+
+    /** Runs the owned fetch independently of any individual waiter. */
     private fun launchFetch(ticket: FetchTicket) {
-        val fetchJob = engineScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            val outcome =
-                try {
-                    currentCoroutineContext().ensureActive()
-                    yield()
-                    val result = fetcher(key)
-                    currentCoroutineContext().ensureActive()
-                    when (result) {
-                        is FetcherResult.Success -> commitFetch(ticket, result.value, result.etag)
-                        is FetcherResult.NotModified -> commitNotModified(ticket, result.etag)
-                        is FetcherResult.Error -> {
-                            if (result.cause is CancellationException) {
-                                throw result.cause
+        val fetchJob =
+            engineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                val outcome =
+                    try {
+                        currentCoroutineContext().ensureActive()
+                        yield()
+                        val result = fetcher(key)
+                        currentCoroutineContext().ensureActive()
+                        when (result) {
+                            is FetcherResult.Success ->
+                                commitFetch(ticket, result.value, result.etag)
+
+                            is FetcherResult.NotModified ->
+                                commitNotModified(ticket, result.etag)
+
+                            is FetcherResult.Error -> {
+                                if (result.cause is CancellationException) throw result.cause
+                                FetchOutcome.Failed(
+                                    exception = fetchResultException(result.cause),
+                                    atEpochMillis = wallClock.nowEpochMillis(),
+                                )
                             }
-                            FetchOutcome.Failed(
-                                exception = fetchResultException(result.cause),
-                                atEpochMillis = wallClock.nowEpochMillis(),
-                            )
+
+                            FetcherResult.Deleted -> commitDeleted(ticket)
                         }
-
-                        FetcherResult.Deleted -> commitDeleted(ticket)
+                    } catch (cancellation: CancellationException) {
+                        ticket.outcome.cancel(cancellation)
+                        settleFetch(ticket)
+                        throw cancellation
+                    } catch (failure: Throwable) {
+                        FetchOutcome.Failed(
+                            exception = fetchException(failure),
+                            atEpochMillis = wallClock.nowEpochMillis(),
+                        )
                     }
-                } catch (cancellation: CancellationException) {
-                    ticket.outcome.cancel(cancellation)
-                    settleFetch(ticket)
-                    throw cancellation
-                } catch (failure: Throwable) {
-                    FetchOutcome.Failed(
-                        exception = fetchException(failure),
-                        atEpochMillis = wallClock.nowEpochMillis(),
-                    )
-                }
 
-            finishFetch(ticket, outcome)
-        }
+                finishFetch(ticket, outcome)
+            }
 
         fetchJob.invokeOnCompletion { failure ->
-            if (failure != null) {
-                ticket.outcome.cancel(storeClosedCancellation())
-            }
+            if (failure != null) ticket.outcome.cancel(storeClosedCancellation())
         }
     }
 
-    /** Commits fetched data unless a clear superseded this ticket. */
+    /** Persists a value, closes raw source order at normal return, then converges the writer. */
     private suspend fun commitFetch(
         ticket: FetchTicket,
         value: V,
         etag: String?,
-    ): FetchOutcome {
-        val meta = EngineStoreMeta(writtenAtEpochMillis = wallClock.nowEpochMillis(), etag = etag)
-        return bookkeepingLock.withLock {
-            val outcome =
+    ): FetchOutcome =
+        writeLock.withLock {
+            val meta = EngineStoreMeta(wallClock.nowEpochMillis(), etag)
+            var attribution: AttributionTag? = null
+            val effect =
                 stateLock.withLock {
-                    val result = transition(
-                        mutableState.value,
-                        KeyEvent.CommitFetch(
-                            ticket = ticket,
-                            value = value,
-                            meta = meta,
-                            residenceRevisionAtStamp = 0L,
-                        ),
-                    )
-                    mutableState.value = result.state
-                    when (result.effect) {
-                        KeyEffect.Commit -> {
-                            updateResidence(
-                                ValueEnvelope(
-                                    value = value,
-                                    origin = Origin.FETCHER,
-                                    meta = meta,
-                                    staleEpochAtCommit = result.state.staleEpoch,
-                                ),
+                    val result =
+                        transition(
+                            mutableState.value,
+                            KeyEvent.CommitFetch(
+                                ticket = ticket,
+                                value = value,
+                                meta = meta,
+                            ),
+                        )
+                    attribution = result.state.attribution
+                    if (result.effect == KeyEffect.Commit) {
+                        val committedAttribution = checkNotNull(attribution)
+                        mutableState.value = result.state
+                        ticket.disposition.value =
+                            FetchDisposition.Committing(
+                                attribution = committedAttribution,
+                                successfulWriteSequenceAtStart =
+                                    writeObservationBoundary.value.successfulSequence,
                             )
-                            FetchOutcome.Committed
+                        updateWriteObservationBoundary { current ->
+                            current.copy(
+                                readerGen = result.state.readerGen,
+                                observedAttribution = committedAttribution,
+                                activeAttribution = committedAttribution,
+                                activeRawPhase = ActiveRawPhase.Unobserved,
+                            )
                         }
+                    } else {
+                        mutableState.value = result.state
+                    }
+                    result.effect
+                }
 
-                        KeyEffect.Superseded -> FetchOutcome.Superseded
-                        else -> error(
-                            "Commit-fetch transition produced an invalid effect: ${result.effect}",
+            when (effect) {
+                KeyEffect.Superseded -> return@withLock FetchOutcome.Superseded
+                KeyEffect.Commit -> Unit
+                else -> error("Commit-fetch transition produced an invalid effect: $effect")
+            }
+
+            val stamped = checkNotNull(attribution)
+            try {
+                sot.write(key, value)
+            } catch (cancellation: CancellationException) {
+                withContext(NonCancellable) {
+                    stateLock.withLock {
+                        terminalizeFailedWriteLocked(
+                            stamped = stamped,
+                            ticket = ticket,
+                            disposition = FetchDisposition.Cancelled,
                         )
                     }
                 }
-            if (outcome == FetchOutcome.Committed) {
-                bookkeeper.recordSuccess(keyId, meta)
+                throw cancellation
+            } catch (failure: Throwable) {
+                val exception = writeException(failure)
+                val atEpochMillis = wallClock.nowEpochMillis()
+                withContext(NonCancellable) {
+                    stateLock.withLock {
+                        terminalizeFailedWriteLocked(
+                            stamped = stamped,
+                            ticket = ticket,
+                            disposition = FetchDisposition.Failed,
+                        )
+                    }
+                }
+                bookkeeper.recordFailure(keyId, atEpochMillis)
+                return@withLock FetchOutcome.Failed(
+                    exception = exception,
+                    atEpochMillis = atEpochMillis,
+                    bookkeepingRecorded = true,
+                )
             }
-            outcome
+
+            // This CAS is the first instruction after normal write return. It separates every
+            // mutation-era observation from later source authority without waiting for stateLock.
+            val closedWriteBoundary = closeSuccessfulWriteBoundary()
+            val committedWriteSequence = withContext(NonCancellable) {
+                val sequence =
+                    stateLock.withLock {
+                        val committed =
+                            convergeSuccessfulWriteLocked(
+                                stamped = stamped,
+                                value = value,
+                                closed = closedWriteBoundary,
+                            )
+                        ticket.disposition.value =
+                            FetchDisposition.Committed(
+                                successfulWriteSequence = committed.successfulWriteSequence,
+                                attribution = stamped,
+                                rawReaderGen = committed.readerGen,
+                                rawCommitCutoff = committed.rawCommitCutoff,
+                                authoritativeRawSequence =
+                                    committed.authoritativeRawSequence,
+                            )
+                        committed.successfulWriteSequence
+                    }
+                bookkeeper.recordSuccess(keyId, meta)
+                sequence
+            }
+            val disposition =
+                ticket.disposition.value as? FetchDisposition.Committed
+                    ?: error("A successful write did not publish Committed disposition.")
+            FetchOutcome.Committed(
+                value = value,
+                successfulWriteSequence = committedWriteSequence,
+                attribution = stamped,
+                rawReaderGen = disposition.rawReaderGen,
+                rawCommitCutoff = disposition.rawCommitCutoff,
+                authoritativeRawSequence = disposition.authoritativeRawSequence,
+            )
+        }
+
+    /** Closes raw source order and converges its durable winner before bookkeeping. */
+    private fun convergeSuccessfulWriteLocked(
+        stamped: AttributionTag,
+        value: V,
+        closed: ClosedWriteBoundary,
+    ): DurableWriteResolution {
+        val matchingObservation = closed.phase.matchingObservationOrNull()
+        val authoritativeRawSequence =
+            matchingObservation?.rawSequence
+
+        // RYW makes the successful writer the winner over every pre-close intermediate. Only the
+        // exact captured matching token may later reuse this installed FETCHER envelope.
+        installWriterEnvelopeLocked(value, stamped)
+        val consumed =
+            transition(
+                mutableState.value,
+                KeyEvent.ConsumeAttribution(matchingObservation?.attributionAtObservation),
+            )
+        mutableState.value = consumed.state
+        val consumedAttribution = (consumed.effect as KeyEffect.Consumed).tag
+        val revoked = transition(consumed.state, KeyEvent.RevokeAttribution)
+        mutableState.value = revoked.state
+
+        syncObservedAttributionLocked(mutableState.value)
+        updateWriteObservationBoundary { current ->
+            if (current.activeAttribution === stamped) {
+                current.copy(
+                    activeAttribution = null,
+                    activeRawPhase = ActiveRawPhase.Unobserved,
+                )
+            } else {
+                current
+            }
+        }
+        rawCommitResolution =
+            RawCommitResolution(
+                readerGen = closed.readerGen,
+                rawCommitCutoff = closed.rawCommitCutoff,
+                authoritativeRawSequence = authoritativeRawSequence,
+                residenceRevision = residenceRevision,
+                envelope = residence.value,
+                consumedAttribution = consumedAttribution,
+            )
+        return DurableWriteResolution(
+            successfulWriteSequence = closed.successfulWriteSequence,
+            readerGen = closed.readerGen,
+            rawCommitCutoff = closed.rawCommitCutoff,
+            authoritativeRawSequence = authoritativeRawSequence,
+        )
+    }
+
+    private fun installWriterEnvelopeLocked(
+        value: V,
+        stamped: AttributionTag,
+    ) {
+        replaceResidenceLocked(
+            ValueEnvelope(
+                value = value,
+                origin = stamped.origin,
+                meta = stamped.meta,
+                staleEpochAtCommit = stamped.staleEpochAtCommit,
+            ),
+        )
+    }
+
+    /** Atomically claims the mutation-era raw phase at normal persistence return. */
+    private fun closeSuccessfulWriteBoundary(): ClosedWriteBoundary {
+        while (true) {
+            val current = writeObservationBoundary.value
+            val nextSequence = current.successfulSequence + 1L
+            val updated =
+                current.copy(
+                    successfulSequence = nextSequence,
+                    activeRawPhase = ActiveRawPhase.Unobserved,
+                )
+            if (writeObservationBoundary.compareAndSet(current, updated)) {
+                return ClosedWriteBoundary(
+                    readerGen = current.readerGen,
+                    rawCommitCutoff = current.latestRawSequence,
+                    phase = current.activeRawPhase,
+                    successfulWriteSequence = nextSequence,
+                )
+            }
         }
     }
 
-    /** Refreshes resident metadata in place for a not-modified response. */
+    /** Atomically revokes failed-write provenance and wakes every captured provisional row. */
+    private fun terminalizeFailedWriteLocked(
+        stamped: AttributionTag,
+        ticket: FetchTicket,
+        disposition: FetchDisposition,
+    ) {
+        require(
+            disposition === FetchDisposition.Failed ||
+                disposition === FetchDisposition.Cancelled,
+        )
+        val revoked = transition(mutableState.value, KeyEvent.RevokeAttribution)
+        mutableState.value = revoked.state
+        syncObservedAttributionLocked(revoked.state)
+        updateWriteObservationBoundary { current ->
+            if (current.activeAttribution === stamped) {
+                current.copy(
+                    activeAttribution = null,
+                    activeRawPhase = ActiveRawPhase.Unobserved,
+                )
+            } else {
+                current
+            }
+        }
+        ticket.disposition.value = disposition
+    }
+
+    /** Applies NotModified only when its launch baseline is still the live residence revision. */
     private suspend fun commitNotModified(
         ticket: FetchTicket,
         etag: String?,
     ): FetchOutcome {
         val now = wallClock.nowEpochMillis()
-        return bookkeepingLock.withLock {
+        return writeLock.withLock {
+            val baseline = ticket.residenceRevisionAtLaunch
             var refreshedMeta: StoreMeta? = null
             val outcome =
                 stateLock.withLock {
-                    val result = transition(
-                        mutableState.value,
-                        KeyEvent.CommitRevalidated(ticket),
-                    )
-                    mutableState.value = result.state
-                    when (result.effect) {
+                    val result =
+                        transition(mutableState.value, KeyEvent.CommitRevalidated(ticket))
+                    val classified =
+                        when (result.effect) {
                         KeyEffect.CommitRevalidation -> {
-                            residence.value?.let { current ->
-                                val meta = EngineStoreMeta(now, etag ?: current.meta.etag)
+                            val current = residence.value
+                            if (baseline == null) {
+                                FetchOutcome.Failed(
+                                    exception = notModifiedWithoutValueException(),
+                                    atEpochMillis = now,
+                                )
+                            } else if (current == null || residenceRevision != baseline) {
+                                FetchOutcome.ObsoleteRevalidation
+                            } else {
+                                val meta = EngineStoreMeta(now, etag ?: current.meta?.etag)
                                 refreshedMeta = meta
-                                updateResidence(
+                                val refreshed =
                                     current.copy(
+                                        origin = Origin.FETCHER,
                                         meta = meta,
                                         staleEpochAtCommit = result.state.staleEpoch,
-                                    ),
-                                )
+                                        directRevalidationOwner = ticket,
+                                    )
+                                val revision = replaceResidenceLocked(refreshed)
+                                FetchOutcome.Revalidated(revision, refreshed)
                             }
-                            FetchOutcome.Revalidated
                         }
 
                         KeyEffect.Superseded -> FetchOutcome.Superseded
                         else -> error(
-                            "Commit-fetch transition produced an invalid effect: ${result.effect}",
+                            "Commit-revalidated transition produced an invalid effect: " +
+                            result.effect,
                         )
                     }
-                }
-            refreshedMeta?.let { bookkeeper.recordSuccess(keyId, it) }
-            outcome
-        }
-    }
-
-    /** Removes residence and metadata for a server-side deletion. */
-    private suspend fun commitDeleted(ticket: FetchTicket): FetchOutcome =
-        bookkeepingLock.withLock {
-            val outcome =
-                stateLock.withLock {
-                    val result = transition(mutableState.value, KeyEvent.CommitDeleted(ticket))
+                    markDisposition(ticket, classified)
                     mutableState.value = result.state
-                    when (result.effect) {
-                        KeyEffect.CommitDelete -> {
-                            updateResidence(null)
-                            FetchOutcome.Deleted
-                        }
-
-                        KeyEffect.Superseded -> FetchOutcome.Superseded
-                        else -> error(
-                            "Commit-deleted transition produced an invalid effect: ${result.effect}",
-                        )
-                    }
+                    syncObservedAttributionLocked(result.state)
+                    classified
                 }
-            if (outcome == FetchOutcome.Deleted) {
-                bookkeeper.forget(keyId)
+            refreshedMeta?.let { meta ->
+                withContext(NonCancellable) { bookkeeper.recordSuccess(keyId, meta) }
             }
             outcome
         }
+    }
 
-    /** Settles fetch ownership even when the owning coroutine has already been cancelled. */
+    /** Applies a server deletion only after its ticket is still proven current. */
+    private suspend fun commitDeleted(ticket: FetchTicket): FetchOutcome =
+        writeLock.withLock {
+            val superseded =
+                stateLock.withLock {
+                    val slot = mutableState.value.fetch as? FetchSlot.InFlight
+                    slot == null ||
+                        slot.ticket !== ticket ||
+                        slot.clearEpochAtLaunch != mutableState.value.clearEpoch
+                }
+            if (superseded) return@withLock FetchOutcome.Superseded
+
+            withContext(NonCancellable) {
+                val barrier = beginDestructiveMutation()
+                try {
+                    val deleteFailure =
+                        try {
+                            sot.delete(key)
+                            null
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (failure: Throwable) {
+                            FetchOutcome.Failed(
+                                exception = serverDeletePersistenceException(failure),
+                                atEpochMillis = wallClock.nowEpochMillis(),
+                            )
+                        }
+                    if (deleteFailure != null) return@withContext deleteFailure
+
+                    stateLock.withLock {
+                        val result =
+                            transition(mutableState.value, KeyEvent.CommitDeleted(ticket))
+                        check(result.effect == KeyEffect.CommitDelete) {
+                            "Commit-deleted transition produced an invalid effect: ${result.effect}"
+                        }
+                        ticket.disposition.value = FetchDisposition.Deleted
+                        mutableState.value = result.state
+                        syncObservedAttributionLocked(result.state)
+                        replaceResidenceLocked(null)
+                    }
+                    bookkeeper.forget(keyId)
+                    FetchOutcome.Deleted
+                } finally {
+                    finishDestructiveMutation(barrier)
+                }
+            }
+        }
+
     private suspend fun settleFetch(ticket: FetchTicket) {
         withContext(NonCancellable) {
-            applyEvent(KeyEvent.SettleFetch(ticket))
+            stateLock.withLock {
+                val result = transition(mutableState.value, KeyEvent.SettleFetch(ticket))
+                mutableState.value = result.state
+            }
         }
     }
 
-    /** Settles ownership, preserving ordered failure bookkeeping without blocking engine close. */
     private suspend fun finishFetch(
         ticket: FetchTicket,
         outcome: FetchOutcome,
     ) {
-        if (outcome is FetchOutcome.Failed) {
-            finishFailedFetch(ticket, outcome)
-        } else {
-            withContext(NonCancellable) {
-                stateLock.withLock {
-                    completeTicket(ticket, classifySettledOutcome(ticket, outcome))
+        when {
+            outcome is FetchOutcome.Failed && outcome.bookkeepingRecorded ->
+                withContext(NonCancellable) {
+                    stateLock.withLock {
+                        completeTicket(ticket, outcome)
+                    }
                 }
-            }
+
+            outcome is FetchOutcome.Failed -> finishFailedFetch(ticket, outcome)
+
+            else ->
+                withContext(NonCancellable) {
+                    stateLock.withLock {
+                        val classified = classifySettledOutcome(ticket, outcome)
+                        completeTicket(ticket, classified)
+                    }
+                }
         }
     }
 
-    /** Orders a failure record with clear/delete while leaving Bookkeeper suspension cancellable. */
     private suspend fun finishFailedFetch(
         ticket: FetchTicket,
         outcome: FetchOutcome.Failed,
     ) {
         try {
-            bookkeepingLock.withLock {
-                val classifiedOutcome =
-                    stateLock.withLock {
-                        classifySettledOutcome(ticket, outcome)
-                    }
-                if (classifiedOutcome is FetchOutcome.Failed) {
-                    bookkeeper.recordFailure(keyId, classifiedOutcome.atEpochMillis)
+            writeLock.withLock {
+                val classified =
+                    stateLock.withLock { classifySettledOutcome(ticket, outcome) }
+                if (classified is FetchOutcome.Failed) {
+                    bookkeeper.recordFailure(keyId, classified.atEpochMillis)
                 }
-                completeTicket(ticket, classifiedOutcome)
+                completeTicket(ticket, classified)
             }
         } catch (cancellation: CancellationException) {
             ticket.outcome.cancel(cancellation)
@@ -360,30 +1234,29 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         }
     }
 
-    /** Applies the settle transition while the caller holds stateLock. */
     private fun classifySettledOutcome(
         ticket: FetchTicket,
         outcome: FetchOutcome,
     ): FetchOutcome {
         val result = transition(mutableState.value, KeyEvent.SettleFetch(ticket))
-        mutableState.value = result.state
-        return when (result.effect) {
+        val classified = when (result.effect) {
             KeyEffect.Superseded -> FetchOutcome.Superseded
             KeyEffect.Settled,
             KeyEffect.Ignored,
             -> outcome
 
-            else -> error(
-                "Settle-fetch transition produced an invalid effect: ${result.effect}",
-            )
+            else -> error("Settle-fetch transition produced an invalid effect: ${result.effect}")
         }
+        markDisposition(ticket, classified)
+        mutableState.value = result.state
+        return classified
     }
 
-    /** Completes or cancels a ticket after its state and bookkeeping are settled. */
     private fun completeTicket(
         ticket: FetchTicket,
         outcome: FetchOutcome,
     ) {
+        markDisposition(ticket, outcome)
         if (engineJob.isActive) {
             ticket.outcome.complete(outcome)
         } else {
@@ -391,369 +1264,2333 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         }
     }
 
-    /** Marks this key stale; resident streams observe the epoch change and re-plan. */
+    private fun markDisposition(
+        ticket: FetchTicket,
+        outcome: FetchOutcome,
+    ) {
+        ticket.disposition.value =
+            when (outcome) {
+                is FetchOutcome.Committed ->
+                    FetchDisposition.Committed(
+                        successfulWriteSequence = outcome.successfulWriteSequence,
+                        attribution = outcome.attribution,
+                        rawReaderGen = outcome.rawReaderGen,
+                        rawCommitCutoff = outcome.rawCommitCutoff,
+                        authoritativeRawSequence = outcome.authoritativeRawSequence,
+                    )
+                is FetchOutcome.Revalidated -> FetchDisposition.Revalidated(outcome.envelope)
+                FetchOutcome.Deleted -> FetchDisposition.Deleted
+                is FetchOutcome.Failed -> FetchDisposition.Failed
+                FetchOutcome.ObsoleteRevalidation -> FetchDisposition.ObsoleteRevalidation
+                FetchOutcome.Superseded -> FetchDisposition.Superseded
+            }
+    }
+
     internal suspend fun invalidate() {
         applyEvent(KeyEvent.Invalidate)
     }
 
-    /**
-     * Destructively removes this key's resident value.
-     *
-     * The epoch bumps and the residence removal share one critical section, so an in-flight
-     * commit observes the new clear epoch (and is superseded) or completed entirely before the
-     * clear (and its value is removed here) — there is no in-between.
-     */
+    /** Deletes persistence first, then performs the irreversible state/bookkeeping tail. */
     internal suspend fun clear() {
-        bookkeepingLock.withLock {
-            stateLock.withLock {
-                val result = transition(mutableState.value, KeyEvent.Clear)
-                mutableState.value = result.state
-                check(result.effect == KeyEffect.ClearResidence) {
-                    "Clear transition produced an invalid effect: ${result.effect}"
+        writeLock.withLock {
+            withContext(NonCancellable) {
+                val barrier = beginDestructiveMutation()
+                try {
+                    try {
+                        sot.delete(key)
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (failure: Throwable) {
+                        throw clearPersistenceException(failure)
+                    }
+
+                    stateLock.withLock {
+                        val result = transition(mutableState.value, KeyEvent.Clear)
+                        mutableState.value = result.state
+                        syncObservedAttributionLocked(result.state)
+                        check(result.effect == KeyEffect.ClearResidence) {
+                            "Clear transition produced an invalid effect: ${result.effect}"
+                        }
+                        replaceResidenceLocked(null)
+                    }
+                    bookkeeper.forget(keyId)
+                } finally {
+                    finishDestructiveMutation(barrier)
                 }
-                updateResidence(null)
             }
-            bookkeeper.forget(keyId)
         }
     }
 
-    /** Creates the structured exception for a thrown fetcher failure. */
-    private fun fetchException(failure: Throwable): StoreException {
-        val message =
-            "Fetch failed for key '${keyId.namespace}/${keyId.canonicalId}': ${failure.message}. " +
-                "The fetcher threw; inspect the cause for the underlying failure."
-        return StoreException(
-            error = StoreError.Fetch(message = message, cause = failure),
-            cause = failure,
-        )
+    /** Direct one-shot hydration used by get and memory-miss stream startup. */
+    private suspend fun hydrateFromSot(): ValueEnvelope<V>? =
+        writeLock.withLock {
+            val capturedRevision = stateLock.withLock { residenceRevision }
+            val row =
+                try {
+                    sot.reader(key).first()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (failure: Throwable) {
+                    throw readerException(failure)
+                }
+
+            stateLock.withLock {
+                val current = residence.value
+                when {
+                    current != null -> current
+                    residenceRevision != capturedRevision -> current
+                    row == null -> residence.value
+
+                    else ->
+                        ValueEnvelope(
+                            value = row,
+                            origin = Origin.SOT,
+                            meta = null,
+                            staleEpochAtCommit = mutableState.value.staleEpoch,
+                        ).also(::replaceResidenceLocked)
+                }
+            }
+        }
+
+    /** Coherent state/residence snapshot used at public delivery boundaries. */
+    private suspend fun residenceSnapshot(): ResidenceSnapshot<V> =
+        stateLock.withLock {
+            ResidenceSnapshot(mutableState.value, residence.value, residenceRevision)
+        }
+
+    /** Distinguishes a newer semantic residence from a same-envelope reader replay. */
+    @Suppress("UNCHECKED_CAST")
+    private fun residenceAdvancedFrom(
+        ticket: FetchTicket,
+        snapshot: ResidenceSnapshot<V>,
+    ): Boolean {
+        val launchEnvelope = ticket.residenceEnvelopeAtLaunch as? ValueEnvelope<V>
+        return snapshot.state.staleEpoch > ticket.staleEpochAtLaunch ||
+            (
+                snapshot.revision != ticket.requestRevision &&
+                    snapshot.envelope != launchEnvelope
+            )
     }
 
-    /** Creates the structured exception for an explicit rich-fetcher failure result. */
-    private fun fetchResultException(failure: Throwable): StoreException {
-        val message =
-            "Fetch failed for key '${keyId.namespace}/${keyId.canonicalId}': ${failure.message}. " +
-                "The fetcher returned FetcherResult.Error; inspect the cause for the " +
-                "underlying failure."
-        return StoreException(
-            error = StoreError.Fetch(message = message, cause = failure),
-            cause = failure,
-        )
-    }
-
-    /** Creates the typed failure for a fetch whose commit was superseded by a concurrent clear. */
-    private fun supersededException(): StoreException {
-        val message =
-            "Could not return a value for key '${keyId.namespace}/${keyId.canonicalId}': clear() " +
-                "removed the key while its fetch was in flight, so the fetched value was " +
-                "discarded. The value is currently missing; retry the read to trigger a " +
-                "fresh fetch."
-        return StoreException(
-            error = StoreError.Missing(key = key, message = message),
-        )
-    }
-
-    /** Creates the typed failure for a server-side deletion. */
-    private fun serverDeletedException(): StoreException {
-        val message =
-            "Could not return a value for key '${keyId.namespace}/${keyId.canonicalId}': the " +
-                "fetcher reported that the server deleted this value, so the local copy was " +
-                "removed. Recreate the value upstream or treat Missing as the empty state."
-        return StoreException(
-            error = StoreError.Missing(key = key, message = message),
-        )
-    }
-
-    /** Creates the typed failure for an absent local-only read. */
-    private fun localOnlyMissingException(): StoreException {
-        val message =
-            "Could not return a value for key '${keyId.namespace}/${keyId.canonicalId}': " +
-                "Freshness.LocalOnly forbids fetching and no local value exists. Seed the key " +
-                "with another policy first or handle StoreError.Missing as the empty state."
-        return StoreException(
-            error = StoreError.Missing(key = key, message = message),
-        )
-    }
-
-    /** Creates the typed failure for a not-modified response without a resident value. */
-    private fun notModifiedWithoutValueException(): StoreException {
-        val message =
-            "Could not return a value for key '${keyId.namespace}/${keyId.canonicalId}': the " +
-                "fetcher returned FetcherResult.NotModified but no local value exists to " +
-                "revalidate. Return FetcherResult.Success with a full value when the client " +
-                "has no cached copy."
-        return StoreException(
-            error = StoreError.Missing(key = key, message = message),
-        )
-    }
-
-    /**
-     * Merges one sequential fetch-outcome watcher with replaying resident data.
-     *
-     * The MustBeFresh initial cycle is awaited inline so its failures are terminal before any
-     * watcher can launch. Later invalidations are observed as level-triggered epoch changes.
-     */
+    /** Builds one live stream with a collector-local serialized delivery controller. */
     internal fun stream(freshness: Freshness): Flow<StoreResult<V>> {
         ensureOpen()
         return channelFlow {
             ensureOpen()
             val producer = this
             val closeHandle =
-                closeSignal.invokeOnCompletion {
-                    producer.cancel(storeClosedCancellation())
-                }
-            var registeredObserver: Channel<ResidenceEvent<ValueEnvelope<V>>>? = null
-
+                closeSignal.invokeOnCompletion { producer.cancel(storeClosedCancellation()) }
             try {
-                val planningNow = wallClock.nowEpochMillis()
-                val (planningState, initial, observer) =
-                    stateLock.withLock {
-                        ensureOpen()
-                        Triple(
-                            mutableState.value,
-                            residence.value,
-                            residenceEvents.register(),
+                val memory = residenceSnapshot()
+                var startupReaderFailure: StoreException? = null
+                if (memory.envelope == null) {
+                    try {
+                        hydrateFromSot()
+                    } catch (failure: StoreException) {
+                        startupReaderFailure = failure
+                    }
+                }
+
+                var planning = residenceSnapshot()
+                var planningEpoch = planning.state.staleEpoch
+                var planningEligibleEnvelope =
+                    if (
+                        planning.envelope?.directRevalidationOwner != null &&
+                        planning.envelope !== memory.envelope
+                    ) {
+                        memory.envelope
+                    } else {
+                        planning.envelope
+                    }
+                var plan =
+                    planFor(
+                        freshness,
+                        planning.state,
+                        planningEligibleEnvelope,
+                        wallClock.nowEpochMillis(),
+                    )
+                val initialReservation =
+                    if (plan is FetchPlan.Skip) {
+                        null
+                    } else {
+                        reserveFetch(
+                            freshness = freshness,
+                            collectorEligibleResidence = planningEligibleEnvelope,
+                            enforceCollectorEligibility =
+                                planning.envelope?.directRevalidationOwner != null &&
+                                    planning.envelope !== planningEligibleEnvelope,
                         )
                     }
-                registeredObserver = observer
-                var planningEpoch = planningState.staleEpoch
-                val plan = planFor(freshness, planningState, initial, planningNow)
-                val serveInitial = initial != null && plan.servesResident
+                val reservedCollectorEnvelope =
+                    initialReservation?.collectorEligibleResidence ?: planningEligibleEnvelope
+                val reservedPlan = initialReservation?.plan ?: plan
+                var initialTicket = initialReservation?.ticket
+                planning = residenceSnapshot()
+                planningEligibleEnvelope =
+                    if (
+                        planning.envelope?.directRevalidationOwner != null &&
+                        planning.envelope !== memory.envelope
+                    ) {
+                        memory.envelope
+                    } else {
+                        planning.envelope
+                    }
+                plan =
+                    planFor(
+                        freshness,
+                        planning.state,
+                        planningEligibleEnvelope,
+                        wallClock.nowEpochMillis(),
+                    )
 
-                if (freshness == Freshness.LocalOnly && initial == null) {
-                    send(StoreResult.Error(localOnlyMissingException().error, servedStale = false))
-                } else if (!serveInitial) {
-                    send(StoreResult.Loading())
-                }
-
-                var initialTicket: FetchTicket? = null
-                if (plan !is FetchPlan.Skip) {
-                    initialTicket = ensureFetch(freshness)
-                }
+                val delivery =
+                    StreamDelivery(
+                        producer = producer,
+                        freshness = freshness,
+                        startupReaderFailure = startupReaderFailure,
+                    )
+                beforeInitialDeliveryTestGate()
+                val initialDelivery = delivery.deliverInitial(
+                    memoryEnvelope = memory.envelope,
+                    memoryRevision = memory.revision,
+                    reservedCollectorEnvelope = reservedCollectorEnvelope,
+                    reservedPlan = reservedPlan,
+                    ticket = initialTicket,
+                )
+                planning = initialDelivery.snapshot
+                plan = initialDelivery.plan
+                initialTicket = initialDelivery.ticket
 
                 if (freshness == Freshness.MustBeFresh && initialTicket != null) {
-                    val terminalError: StoreError? =
-                        when (val outcome = initialTicket.outcome.await()) {
-                            FetchOutcome.Committed -> null
-                            FetchOutcome.Revalidated ->
-                                if (residence.value == null) {
-                                    notModifiedWithoutValueException().error
-                                } else {
-                                    null
-                                }
+                    while (true) {
+                        val ticket = initialTicket ?: break
+                        val outcome = ticket.outcome.await()
+                        when (outcome) {
+                            is FetchOutcome.Committed -> {
+                                delivery.retainCommittedTicket(ticket, outcome)
+                                break
+                            }
 
-                            is FetchOutcome.Failed -> outcome.exception.error
-                            FetchOutcome.Deleted -> serverDeletedException().error
-                            FetchOutcome.Superseded -> supersededException().error
+                            is FetchOutcome.Revalidated -> {
+                                delivery.clearInitialTicket(ticket)
+                                when (val delivered = delivery.deliverRevalidated(outcome)) {
+                                    RevalidatedDelivery.Delivered -> break
+                                    RevalidatedDelivery.Obsolete -> {
+                                        initialTicket = ensureFetch(freshness)
+                                        if (initialTicket == null) break
+                                    }
+
+                                    is RevalidatedDelivery.Replacement ->
+                                        initialTicket = delivered.ticket
+                                }
+                            }
+
+                            FetchOutcome.ObsoleteRevalidation -> {
+                                delivery.clearInitialTicket(ticket)
+                                initialTicket = ensureFetch(freshness)
+                                if (initialTicket == null) break
+                            }
+
+                            is FetchOutcome.Failed -> {
+                                delivery.clearInitialTicket(ticket)
+                                delivery.deliverTerminalError(outcome.exception)
+                                close()
+                                return@channelFlow
+                            }
+
+                            FetchOutcome.Deleted -> {
+                                delivery.clearInitialTicket(ticket)
+                                delivery.deliverTerminalError(serverDeletedException())
+                                close()
+                                return@channelFlow
+                            }
+
+                            FetchOutcome.Superseded -> {
+                                delivery.clearInitialTicket(ticket)
+                                delivery.deliverTerminalError(supersededException())
+                                close()
+                                return@channelFlow
+                            }
                         }
-                    if (terminalError != null) {
-                        send(StoreResult.Error(terminalError, servedStale = false))
-                        close()
-                        return@channelFlow
                     }
-                    val committedEpoch =
-                        stateLock.withLock {
-                            residence.value?.staleEpochAtCommit
-                        }
-                    planningEpoch = maxOf(planningEpoch, committedEpoch ?: planningEpoch)
+                    planning = residenceSnapshot()
+                    planningEpoch =
+                        maxOf(
+                            planningEpoch,
+                            planning.envelope?.staleEpochAtCommit ?: planningEpoch,
+                        )
+                    plan =
+                        planFor(
+                            freshness,
+                            planning.state,
+                            planning.envelope,
+                            wallClock.nowEpochMillis(),
+                        )
                     initialTicket = null
                 }
 
-                val emissionCursor =
-                    StreamEmissionCursor(
-                        initial = initial,
-                        servesInitial = serveInitial,
-                        refreshReserved =
-                            plan !is FetchPlan.Skip || planningState.fetch is FetchSlot.InFlight,
-                    )
-                emissionCursor.initialEmission()?.let { emission ->
-                    send(
-                        toData(
-                            envelope = emission.value,
-                            freshness = freshness,
-                            refreshingOverride = emission.refreshingOverride,
-                        ),
-                    )
-                }
-
-                launch {
-                    initialTicket?.let {
-                        watchOutcome(it, freshness, servedResident = serveInitial)
-                    }
-                    state.staleEpochsAfter(planningEpoch).collect {
-                        refetchWhileUnsatisfied(freshness)
-                    }
-                }
-
-                for (event in observer) {
-                    val observedResidence =
-                        when (event) {
-                            ResidenceEvent.Absent -> null
-                            is ResidenceEvent.Value -> event.value
-                        }
-                    emissionCursor.observe(observedResidence).forEach { emission ->
-                        when (emission) {
-                            StreamEmission.Loading -> send(StoreResult.Loading())
-                            is StreamEmission.Value ->
-                                send(
-                                    toData(
-                                        envelope = emission.value,
-                                        freshness = freshness,
-                                        refreshingOverride = emission.refreshingOverride,
-                                    ),
-                                )
-                        }
-                    }
-                }
+                delivery.start(
+                    planningEpoch = planningEpoch,
+                    initialTicket = initialTicket,
+                    initialPlan = plan,
+                )
+                awaitCancellation()
             } finally {
-                registeredObserver?.let { observer ->
-                    withContext(NonCancellable) {
-                        stateLock.withLock {
-                            residenceEvents.unregister(observer)
-                        }
-                    }
-                }
                 closeHandle.dispose()
             }
         }
     }
 
-    /** Surfaces one fetch outcome into the stream; a superseded commit re-plans. */
-    private suspend fun ProducerScope<StoreResult<V>>.watchOutcome(
-        ticket: FetchTicket,
-        freshness: Freshness,
-        servedResident: Boolean,
+    /** Collector-local sequencer. Every public send occurs while [mutex] is held. */
+    private inner class StreamDelivery(
+        private val producer: ProducerScope<StoreResult<V>>,
+        private val freshness: Freshness,
+        private val startupReaderFailure: StoreException?,
     ) {
-        when (val outcome = ticket.outcome.await()) {
-            FetchOutcome.Committed -> Unit
-            FetchOutcome.Revalidated ->
-                if (residence.value == null) {
-                    send(
-                        StoreResult.Error(
-                            notModifiedWithoutValueException().error,
-                            servedStale = false,
-                        ),
+        private val mutex = Mutex()
+        private var publicHasValue = false
+        private var loadingVisible = false
+        private var localOnlyMissingEmitted = false
+        private var watchedTicket: FetchTicket? = null
+        private var awaitingCommitted: CommittedReaderWait? = null
+        private var handledCommittedTicket: FetchTicket? = null
+        private var latestReaderRecord: ReaderRecord<V>? = null
+        private var publicServedStale = false
+        private var servedStaleForWatchedTicket = false
+        private var lastRevalidationRequestedRevision: Long? = null
+        private var terminalFailedDemand: FetchTicket? = null
+        private var suppressMissingUntilReaderRecovery = startupReaderFailure != null
+        private var serverDeletionObserved = false
+        private var lastDataFingerprint: DataFingerprint<V>? = null
+        private val pendingFailureHandoffs = ArrayDeque<SettledTicketHandoff>()
+        private var ticketLaunchBaseline: TicketLaunchBaselineEntry<V>? = null
+
+        /** Plans only from residence this collector is authorized to observe. */
+        private fun collectorPlanFor(
+            snapshot: ResidenceSnapshot<V>,
+            eligibleBaseline: ValueEnvelope<V>? = lastDataFingerprint?.envelope,
+        ): CollectorFetchPlan<V> {
+            val current = snapshot.envelope
+            val currentIsForeignOwner =
+                current?.directRevalidationOwner != null && current !== eligibleBaseline
+            val eligibleEnvelope = if (currentIsForeignOwner) eligibleBaseline else current
+            return CollectorFetchPlan(
+                eligibleEnvelope = eligibleEnvelope,
+                plan =
+                    planFor(
+                        freshness,
+                        snapshot.state,
+                        eligibleEnvelope,
+                        wallClock.nowEpochMillis(),
+                    ),
+                currentIsForeignOwner = currentIsForeignOwner,
+            )
+        }
+
+        /** Rechecks collector demand under stateLock without changing the ticket's live baseline. */
+        private suspend fun ensureFetchForCollector(
+            collectorPlan: CollectorFetchPlan<V>,
+        ): FetchTicket? {
+            val reservation = reserveFetch(
+                freshness = freshness,
+                collectorEligibleResidence = collectorPlan.eligibleEnvelope,
+                enforceCollectorEligibility = collectorPlan.currentIsForeignOwner,
+            ) ?: return null
+            rememberTicketLaunchBaseline(
+                reservation.ticket,
+                TicketLaunchBaseline(
+                    reservation.collectorEligibleResidence,
+                    reservation.plan,
+                ),
+            )
+            return reservation.ticket
+        }
+
+        private fun rememberTicketLaunchBaseline(
+            ticket: FetchTicket,
+            baseline: TicketLaunchBaseline<V>,
+        ) {
+            ticketLaunchBaseline = TicketLaunchBaselineEntry(ticket, baseline)
+        }
+
+        /** Keeps a mapped SoT value eligible when a later 304 owns only its refreshed metadata. */
+        private fun readerEligibleBaseline(
+            notification: ReaderRecord<V>,
+            current: ValueEnvelope<V>?,
+        ): ValueEnvelope<V>? {
+            val visible = lastDataFingerprint?.envelope
+            if (current != null && current === visible) return current
+            val mapped = (notification as? ReaderRecord.Row<V>)?.envelope
+            return if (
+                current?.directRevalidationOwner != null &&
+                mapped?.directRevalidationOwner == null &&
+                mapped?.value == current.value
+            ) {
+                mapped
+            } else {
+                visible
+            }
+        }
+
+        /** Reconstructs the policy posture that was eligible when [ticket] reserved demand. */
+        private fun launchBaselineFor(
+            ticket: FetchTicket,
+            state: KeyState,
+        ): TicketLaunchBaseline<V> {
+            val remembered = ticketLaunchBaseline?.takeIf { it.ticket === ticket }?.baseline
+            @Suppress("UNCHECKED_CAST")
+            val launchBaseline =
+                remembered ?: run {
+                    val envelope = ticket.residenceEnvelopeAtLaunch as? ValueEnvelope<V>
+                    TicketLaunchBaseline(
+                        envelope = envelope,
+                        plan =
+                            validator.plan(
+                                FreshnessContext(
+                                    hasResidentValue = envelope != null,
+                                    meta = envelope?.meta,
+                                    epochStale =
+                                        envelope != null &&
+                                            envelope.staleEpochAtCommit <
+                                            ticket.staleEpochAtLaunch,
+                                    freshness = freshness,
+                                    nowEpochMillis = ticket.nowEpochMillisAtLaunch,
+                                    status = null,
+                                ),
+                            ),
                     )
                 }
-
-            FetchOutcome.Deleted ->
-                send(StoreResult.Error(serverDeletedException().error, servedStale = false))
-
-            is FetchOutcome.Failed ->
-                send(
-                    StoreResult.Error(
-                        outcome.exception.error,
-                        servedStale = servedResident && staleServingTolerated(freshness),
-                    ),
+            val currentPlan =
+                planFor(
+                    freshness,
+                    state,
+                    launchBaseline.envelope,
+                    wallClock.nowEpochMillis(),
                 )
-
-            FetchOutcome.Superseded -> refetchWhileUnsatisfied(freshness)
+            return TicketLaunchBaseline(
+                envelope = launchBaseline.envelope,
+                plan =
+                    if (launchBaseline.plan.servesResident) {
+                        currentPlan
+                    } else {
+                        launchBaseline.plan
+                    },
+            )
         }
-    }
 
-    /** Fetches until the current freshness plan is satisfied. */
-    private suspend fun ProducerScope<StoreResult<V>>.refetchWhileUnsatisfied(
-        freshness: Freshness,
-    ) {
-        while (true) {
-            val servedResident =
-                residence.value != null && staleServingTolerated(freshness)
-            val ticket = ensureFetch(freshness) ?: return
-            when (val outcome = ticket.outcome.await()) {
-                FetchOutcome.Committed -> return
-                FetchOutcome.Revalidated -> {
-                    if (residence.value == null) {
-                        send(
-                            StoreResult.Error(
-                                notModifiedWithoutValueException().error,
-                                servedStale = false,
+        suspend fun deliverInitial(
+            memoryEnvelope: ValueEnvelope<V>?,
+            memoryRevision: Long,
+            reservedCollectorEnvelope: ValueEnvelope<V>?,
+            reservedPlan: FetchPlan,
+            ticket: FetchTicket?,
+        ): InitialDelivery<V> =
+            mutex.withLock {
+                if (ticket != null) {
+                    rememberTicketLaunchBaseline(
+                        ticket,
+                        TicketLaunchBaseline(reservedCollectorEnvelope, reservedPlan),
+                    )
+                }
+                var snapshot = residenceSnapshot()
+                var collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                var plan = collectorPlan.plan
+                var effectiveTicket = ticket
+                if (plan !is FetchPlan.Skip && effectiveTicket == null) {
+                    effectiveTicket = ensureFetchForCollector(collectorPlan)
+                    snapshot = residenceSnapshot()
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    plan = collectorPlan.plan
+                }
+                val pendingSettledTailAtRecapture =
+                    effectiveTicket != null &&
+                        !effectiveTicket.outcome.isCompleted &&
+                        (snapshot.state.fetch as? FetchSlot.InFlight)?.ticket !== effectiveTicket &&
+                        effectiveTicket.requestRevision != snapshot.revision
+                val pendingExactRevalidation =
+                    pendingSettledTailAtRecapture &&
+                        (effectiveTicket.disposition.value as? FetchDisposition.Revalidated)
+                            ?.envelope === snapshot.envelope
+                if (pendingExactRevalidation) {
+                    if (
+                        reservedCollectorEnvelope != null &&
+                        reservedPlan.servesResident &&
+                        plan.servesResident
+                    ) {
+                        deliverDataLocked(
+                            reservedCollectorEnvelope,
+                            authority = DataDeliveryAuthority.CollectorBaseline,
+                        )
+                    } else {
+                        emitLoadingLocked()
+                    }
+                } else if (
+                    pendingSettledTailAtRecapture &&
+                    (snapshot.envelope == null || !plan.servesResident)
+                ) {
+                    emitLoadingLocked()
+                }
+                val observedOuterOutcome =
+                    when {
+                        effectiveTicket == null -> null
+                        effectiveTicket.outcome.isCompleted -> effectiveTicket.outcome.await()
+                        pendingSettledTailAtRecapture -> effectiveTicket.outcome.await()
+                        else -> null
+                    }
+                if (pendingSettledTailAtRecapture) {
+                    snapshot = residenceSnapshot()
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    plan = collectorPlan.plan
+                }
+                val completedOuterOutcome =
+                    observedOuterOutcome?.takeIf { outcome ->
+                        freshness != Freshness.MustBeFresh &&
+                            effectiveTicket?.let { ticket ->
+                                if (outcome is FetchOutcome.Failed) {
+                                    residenceAdvancedFrom(ticket, snapshot)
+                                } else {
+                                    ticket.requestRevision != snapshot.revision
+                                }
+                            } == true
+                    }
+                val completedExactRevalidation =
+                    (completedOuterOutcome as? FetchOutcome.Revalidated)
+                        ?.takeIf { snapshot.envelope === it.envelope }
+                var completedExactRevalidationDelivery: RevalidatedDelivery? = null
+                if (
+                    completedExactRevalidation != null &&
+                    !revalidatedSatisfiesDemand(
+                        snapshot,
+                        planFor(
+                            freshness,
+                            snapshot.state,
+                            snapshot.envelope,
+                            wallClock.nowEpochMillis(),
+                        ),
+                    )
+                ) {
+                    val revalidationDelivery =
+                        deliverRevalidatedLocked(
+                            outcome = completedExactRevalidation,
+                            watchReplacement = false,
+                        )
+                    completedExactRevalidationDelivery = revalidationDelivery
+                    effectiveTicket =
+                        when (val delivery = revalidationDelivery) {
+                            is RevalidatedDelivery.Replacement -> delivery.ticket
+                            RevalidatedDelivery.Delivered -> null
+                            RevalidatedDelivery.Obsolete -> {
+                                snapshot = residenceSnapshot()
+                                collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                                plan = collectorPlan.plan
+                                if (plan is FetchPlan.Skip) {
+                                    null
+                                } else {
+                                    ensureFetchForCollector(collectorPlan)
+                                }
+                            }
+                        }
+                    snapshot = residenceSnapshot()
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    plan = collectorPlan.plan
+                }
+                if (completedOuterOutcome is FetchOutcome.Committed) {
+                    installCommittedWaitLocked(
+                        checkNotNull(effectiveTicket),
+                        completedOuterOutcome,
+                    )
+                } else if (
+                    completedOuterOutcome != null &&
+                    completedExactRevalidation == null &&
+                    (completedOuterOutcome !is FetchOutcome.Deleted || snapshot.envelope != null)
+                ) {
+                    // The outer ticket no longer covers the final residence. Hand ownership to
+                    // its replacement before the first public send, then surface the old outcome
+                    // with its pre-handoff served-stale state.
+                    val outerTicket = checkNotNull(effectiveTicket)
+                    if (completedOuterOutcome is FetchOutcome.Deleted) {
+                        handleOutcomeLocked(outerTicket, completedOuterOutcome, false)
+                        serverDeletionObserved = false
+                        effectiveTicket = null
+                    }
+                    val replacement =
+                        if (plan is FetchPlan.Skip) null else ensureFetchForCollector(collectorPlan)
+                    if (replacement != null) {
+                        if (completedOuterOutcome is FetchOutcome.Failed) {
+                            enqueueFailureHandoff(
+                                SettledTicketHandoff(
+                                    ticket = outerTicket,
+                                    outcome = completedOuterOutcome,
+                                    servedStale = false,
+                                ),
+                            )
+                        }
+                        effectiveTicket = replacement
+                    }
+                    snapshot = residenceSnapshot()
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    plan = collectorPlan.plan
+                }
+                var initialPublicDeliveryCompleted =
+                    completedExactRevalidationDelivery == RevalidatedDelivery.Delivered ||
+                        (completedExactRevalidationDelivery is RevalidatedDelivery.Replacement &&
+                            completedExactRevalidationDelivery.publicDeliveryCompleted)
+                if (
+                    effectiveTicket != null &&
+                    (effectiveTicket !== ticket || observedOuterOutcome == null)
+                ) {
+                    beforeReplacementDispositionClassificationTestGate()
+                }
+                val classifiedReplacementTickets = mutableSetOf<FetchTicket>()
+                var replacementClassifications = 0
+                var replacementClassificationCapped = false
+                var replacementCommitRetainedServableRow = false
+                var replacementCommittingTailRetained = false
+                replacementClassification@ while (!initialPublicDeliveryCompleted) {
+                    val candidate = effectiveTicket ?: break
+                    if (candidate === ticket && observedOuterOutcome != null) break
+                    snapshot = residenceSnapshot()
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    plan = collectorPlan.plan
+                    val disposition = candidate.disposition.value
+                    if (disposition is FetchDisposition.InFlight) break
+                    val originalServableBaseline =
+                        candidate === ticket &&
+                            reservedCollectorEnvelope != null &&
+                            reservedPlan.servesResident &&
+                            collectorPlan.plan.servesResident &&
+                            collectorPlan.eligibleEnvelope == reservedCollectorEnvelope
+                    if (disposition is FetchDisposition.Committing) {
+                        if (originalServableBaseline) {
+                            deliverDataLocked(
+                                envelope = checkNotNull(reservedCollectorEnvelope),
+                                originOverride =
+                                    if (
+                                        canRestampMemoryOrigin(
+                                            memoryEnvelope = memoryEnvelope,
+                                            memoryRevision = memoryRevision,
+                                            currentEnvelope = snapshot.envelope,
+                                            currentRevision = snapshot.revision,
+                                        )
+                                    ) {
+                                        Origin.MEMORY
+                                    } else {
+                                        null
+                                    },
+                                authority = DataDeliveryAuthority.CollectorBaseline,
+                            )
+                        } else if (
+                            collectorPlan.eligibleEnvelope == null ||
+                            !collectorPlan.plan.servesResident ||
+                            collectorPlan.eligibleEnvelope.value == disposition.attribution.value
+                        ) {
+                            emitLoadingLocked()
+                        }
+                        replacementCommittingTailRetained = true
+                        break@replacementClassification
+                    }
+                    if (++replacementClassifications > 32) {
+                        if (
+                            collectorPlan.eligibleEnvelope == null ||
+                            !collectorPlan.plan.servesResident
+                        ) {
+                            emitLoadingLocked()
+                        }
+                        replacementClassificationCapped = true
+                        break@replacementClassification
+                    }
+                    if (!classifiedReplacementTickets.add(candidate)) {
+                        break@replacementClassification
+                    }
+                    var revalidationReplacementReservedBeforeTail: FetchTicket? = null
+                    when (disposition) {
+                        is FetchDisposition.Committed -> {
+                            if (
+                                candidate === ticket ||
+                                collectorPlan.eligibleEnvelope == null ||
+                                !collectorPlan.plan.servesResident ||
+                                collectorPlan.eligibleEnvelope.value ==
+                                disposition.attribution.value
+                            ) {
+                                emitLoadingLocked()
+                            } else {
+                                replacementCommitRetainedServableRow = true
+                            }
+                        }
+
+                        is FetchDisposition.Revalidated -> {
+                            if (snapshot.envelope === disposition.envelope) {
+                                val baseline = launchBaselineFor(candidate, snapshot.state)
+                                val currentPlan =
+                                    planFor(
+                                        freshness,
+                                        snapshot.state,
+                                        snapshot.envelope,
+                                        wallClock.nowEpochMillis(),
+                                    )
+                                val currentSatisfiesDemand =
+                                    revalidatedSatisfiesDemand(snapshot, currentPlan)
+                                val replacement =
+                                    if (currentSatisfiesDemand) {
+                                        null
+                                    } else {
+                                        ensureFetchForCollector(
+                                            CollectorFetchPlan(
+                                                eligibleEnvelope = baseline.envelope,
+                                                plan = baseline.plan,
+                                                currentIsForeignOwner =
+                                                    snapshot.envelope
+                                                        ?.directRevalidationOwner != null &&
+                                                        snapshot.envelope !== baseline.envelope,
+                                            ),
+                                        )
+                                    }
+                                revalidationReplacementReservedBeforeTail = replacement
+                                if (currentSatisfiesDemand || replacement != null) {
+                                    if (
+                                        baseline.envelope != null &&
+                                        baseline.plan.servesResident
+                                    ) {
+                                        deliverDataLocked(
+                                            baseline.envelope,
+                                            authority = DataDeliveryAuthority.CollectorBaseline,
+                                        )
+                                    } else {
+                                        emitLoadingLocked()
+                                    }
+                                }
+                            } else if (
+                                collectorPlan.eligibleEnvelope == null ||
+                                !collectorPlan.plan.servesResident
+                            ) {
+                                emitLoadingLocked()
+                            }
+                        }
+
+                        else -> {
+                            if (
+                                collectorPlan.eligibleEnvelope == null ||
+                                !collectorPlan.plan.servesResident
+                            ) {
+                                emitLoadingLocked()
+                            }
+                        }
+                    }
+
+                    val outcome = candidate.outcome.await()
+                    snapshot = residenceSnapshot()
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    plan = collectorPlan.plan
+                    when (outcome) {
+                        is FetchOutcome.Committed -> {
+                            installCommittedWaitLocked(candidate, outcome)
+                            break@replacementClassification
+                        }
+
+                        is FetchOutcome.Revalidated -> {
+                            if (revalidationReplacementReservedBeforeTail != null) {
+                                effectiveTicket = revalidationReplacementReservedBeforeTail
+                                initialPublicDeliveryCompleted = true
+                                continue@replacementClassification
+                            }
+                            if (snapshot.envelope !== outcome.envelope) {
+                                effectiveTicket =
+                                    if (plan is FetchPlan.Skip) {
+                                        null
+                                    } else {
+                                        ensureFetchForCollector(collectorPlan)
+                                    }
+                                continue@replacementClassification
+                            }
+                            when (
+                                val delivery =
+                                    deliverRevalidatedLocked(
+                                        outcome = outcome,
+                                        watchReplacement = false,
+                                    )
+                            ) {
+                                RevalidatedDelivery.Delivered -> {
+                                    effectiveTicket = null
+                                    initialPublicDeliveryCompleted = true
+                                }
+
+                                RevalidatedDelivery.Obsolete -> {
+                                    snapshot = residenceSnapshot()
+                                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                                    plan = collectorPlan.plan
+                                    effectiveTicket =
+                                        if (plan is FetchPlan.Skip) {
+                                            null
+                                        } else {
+                                            ensureFetchForCollector(collectorPlan)
+                                        }
+                                }
+
+                                is RevalidatedDelivery.Replacement -> {
+                                    effectiveTicket = delivery.ticket
+                                    initialPublicDeliveryCompleted =
+                                        delivery.publicDeliveryCompleted
+                                }
+                            }
+                        }
+
+                        is FetchOutcome.Failed -> {
+                            if (residenceAdvancedFrom(candidate, snapshot)) {
+                                enqueueFailureHandoff(
+                                    SettledTicketHandoff(
+                                        ticket = candidate,
+                                        outcome = outcome,
+                                        servedStale = publicServedStale,
+                                    ),
+                                )
+                                effectiveTicket =
+                                    if (plan is FetchPlan.Skip) {
+                                        null
+                                    } else {
+                                        ensureFetchForCollector(collectorPlan)
+                                    }
+                                continue@replacementClassification
+                            }
+                            break@replacementClassification
+                        }
+
+                        FetchOutcome.Deleted -> {
+                            handleOutcomeLocked(candidate, outcome, false)
+                            effectiveTicket = null
+                            initialPublicDeliveryCompleted = true
+                        }
+
+                        FetchOutcome.ObsoleteRevalidation,
+                        FetchOutcome.Superseded,
+                        -> {
+                            effectiveTicket =
+                                if (plan is FetchPlan.Skip) {
+                                    null
+                                } else {
+                                    ensureFetchForCollector(collectorPlan)
+                                }
+                        }
+                    }
+                }
+                snapshot = residenceSnapshot()
+                collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                plan = collectorPlan.plan
+                val currentResidencePlan =
+                    planFor(
+                        freshness,
+                        snapshot.state,
+                        snapshot.envelope,
+                        wallClock.nowEpochMillis(),
+                    )
+                val reservedBaselineCurrentPlan =
+                    planFor(
+                        freshness,
+                        snapshot.state,
+                        reservedCollectorEnvelope,
+                        wallClock.nowEpochMillis(),
+                    )
+                val memoryOverride =
+                    canRestampMemoryOrigin(
+                        memoryEnvelope = memoryEnvelope,
+                        memoryRevision = memoryRevision,
+                        currentEnvelope = snapshot.envelope,
+                        currentRevision = snapshot.revision,
+                    )
+                if (effectiveTicket != null) {
+                    if (watchedTicket !== effectiveTicket) {
+                        watchedTicket = effectiveTicket
+                        servedStaleForWatchedTicket = publicServedStale
+                    }
+                    lastRevalidationRequestedRevision = effectiveTicket.requestRevision
+                } else if (awaitingCommitted == null) {
+                    watchedTicket = null
+                }
+                when {
+                    initialPublicDeliveryCompleted -> Unit
+
+                    replacementCommittingTailRetained -> Unit
+
+                    // The loop already emitted Loading when the final residence was absent or
+                    // withheld. A policy-servable different row stays silent here until the
+                    // retained effective-ticket watcher classifies its ordered tail.
+                    replacementClassificationCapped -> Unit
+
+                    pendingSettledTailAtRecapture &&
+                        awaitingCommitted != null &&
+                        snapshot.envelope != null &&
+                        plan !is FetchPlan.Skip &&
+                        plan.servesResident -> Unit
+
+                    completedExactRevalidation != null &&
+                        completedExactRevalidationDelivery == null &&
+                        reservedPlan.servesResident &&
+                        reservedBaselineCurrentPlan.servesResident &&
+                        reservedCollectorEnvelope != null &&
+                        ticket?.residenceRevisionAtLaunch == ticket?.requestRevision &&
+                        revalidatedSatisfiesDemand(snapshot, currentResidencePlan) ->
+                        deliverDataLocked(
+                            envelope = reservedCollectorEnvelope,
+                            originOverride =
+                                if (
+                                    canRestampMemoryOrigin(
+                                        memoryEnvelope = memoryEnvelope,
+                                        memoryRevision = memoryRevision,
+                                        currentEnvelope = reservedCollectorEnvelope,
+                                        currentRevision = checkNotNull(ticket).requestRevision,
+                                    )
+                                ) {
+                                    Origin.MEMORY
+                                } else {
+                                    null
+                                },
+                            authority = DataDeliveryAuthority.CollectorBaseline,
+                        )
+
+                    replacementCommitRetainedServableRow && awaitingCommitted != null -> Unit
+
+                    awaitingCommitted != null ||
+                        (completedExactRevalidation != null &&
+                            completedExactRevalidationDelivery == null) ->
+                        emitLoadingLocked()
+
+                    collectorPlan.currentIsForeignOwner &&
+                        collectorPlan.eligibleEnvelope != null &&
+                        plan.servesResident ->
+                        deliverDataLocked(
+                            envelope = collectorPlan.eligibleEnvelope,
+                            originOverride =
+                                if (collectorPlan.eligibleEnvelope === memoryEnvelope) {
+                                    Origin.MEMORY
+                                } else {
+                                    null
+                                },
+                            authority = DataDeliveryAuthority.CollectorBaseline,
+                        )
+
+                    collectorPlan.currentIsForeignOwner -> emitLoadingLocked()
+
+                    freshness == Freshness.LocalOnly && collectorPlan.eligibleEnvelope == null -> {
+                        if (startupReaderFailure == null) emitLocalOnlyMissingLocked()
+                    }
+
+                    collectorPlan.eligibleEnvelope != null && plan.servesResident ->
+                        deliverDataLocked(
+                            envelope = collectorPlan.eligibleEnvelope,
+                            originOverride = if (memoryOverride) Origin.MEMORY else null,
+                            authority =
+                                if (
+                                    memoryOverride ||
+                                    collectorPlan.eligibleEnvelope.directRevalidationOwner != null
+                                ) {
+                                    DataDeliveryAuthority.CollectorBaseline
+                                } else {
+                                    DataDeliveryAuthority.Generic
+                                },
+                        )
+
+                    else -> emitLoadingLocked()
+                }
+                startupReaderFailure?.let { emitErrorLocked(it) }
+                if (
+                    !replacementClassificationCapped &&
+                    !replacementCommittingTailRetained &&
+                    awaitingCommitted == null &&
+                    effectiveTicket?.disposition?.value !is FetchDisposition.Revalidated &&
+                    effectiveTicket?.disposition?.value !is FetchDisposition.Committing &&
+                    effectiveTicket?.disposition?.value !is FetchDisposition.Committed
+                ) {
+                    flushPendingFailureHandoffsLocked()
+                }
+                InitialDelivery(snapshot, plan, effectiveTicket)
+            }
+
+        suspend fun deliverRevalidated(
+            outcome: FetchOutcome.Revalidated,
+        ): RevalidatedDelivery =
+            mutex.withLock {
+                deliverRevalidatedLocked(outcome, watchReplacement = false)
+            }
+
+        /** Rechecks policy after a 304 because epochs and wall-clock age may advance meanwhile. */
+        private suspend fun deliverRevalidatedLocked(
+            outcome: FetchOutcome.Revalidated,
+            watchReplacement: Boolean,
+        ): RevalidatedDelivery {
+            var snapshot = residenceSnapshot()
+            if (snapshot.envelope !== outcome.envelope) return RevalidatedDelivery.Obsolete
+            var plan =
+                planFor(
+                    freshness,
+                    snapshot.state,
+                    snapshot.envelope,
+                    wallClock.nowEpochMillis(),
+                )
+            var demandSatisfied = revalidatedSatisfiesDemand(snapshot, plan)
+
+            var replacement: FetchTicket? = null
+            if (!demandSatisfied) {
+                replacement =
+                    ensureFetchForCollector(
+                        CollectorFetchPlan(
+                            eligibleEnvelope = snapshot.envelope,
+                            plan = plan,
+                            currentIsForeignOwner = false,
+                        ),
+                    )
+                if (replacement != null) {
+                    if (watchReplacement) {
+                        watchTicketLocked(replacement)
+                    } else {
+                        watchedTicket = replacement
+                        servedStaleForWatchedTicket = publicServedStale
+                        lastRevalidationRequestedRevision = replacement.requestRevision
+                    }
+                }
+                snapshot = residenceSnapshot()
+                if (snapshot.envelope !== outcome.envelope) {
+                    return replacement?.let {
+                        RevalidatedDelivery.Replacement(
+                            ticket = it,
+                            publicDeliveryCompleted = false,
+                        )
+                    }
+                        ?: RevalidatedDelivery.Obsolete
+                }
+                plan =
+                    planFor(
+                        freshness,
+                        snapshot.state,
+                        snapshot.envelope,
+                        wallClock.nowEpochMillis(),
+                    )
+                demandSatisfied = revalidatedSatisfiesDemand(snapshot, plan)
+            }
+
+            if (
+                replacement != null &&
+                replacement.disposition.value !is FetchDisposition.InFlight
+            ) {
+                return RevalidatedDelivery.Replacement(
+                    ticket = replacement,
+                    publicDeliveryCompleted = false,
+                )
+            }
+
+            serverDeletionObserved = false
+            val envelope = checkNotNull(snapshot.envelope)
+            when {
+                demandSatisfied ->
+                    deliverDataLocked(
+                        envelope,
+                        authority = DataDeliveryAuthority.OwnerOutcome,
+                    )
+
+                plan.servesResident ->
+                    deliverDataLocked(
+                        envelope,
+                        authority = DataDeliveryAuthority.OwnerOutcome,
+                    )
+                else -> emitLoadingLocked()
+            }
+            return replacement?.let {
+                RevalidatedDelivery.Replacement(
+                    ticket = it,
+                    publicDeliveryCompleted = true,
+                )
+            }
+                ?: RevalidatedDelivery.Delivered
+        }
+
+        private fun revalidatedSatisfiesDemand(
+            snapshot: ResidenceSnapshot<V>,
+            plan: FetchPlan,
+        ): Boolean = this@KeyEngine.revalidatedSatisfiesDemand(freshness, snapshot, plan)
+
+        private fun ReaderRecord.Row<V>.snapshot(state: KeyState): ResidenceSnapshot<V> =
+            ResidenceSnapshot(
+                state = state,
+                envelope = envelope,
+                revision = residenceRevision,
+            )
+
+        /** Keeps an equal late reader replay inside the demand already settled by a failure. */
+        private fun failedDemandStillCovers(snapshot: ResidenceSnapshot<V>): Boolean {
+            val failedTicket = terminalFailedDemand ?: return false
+            if (residenceAdvancedFrom(failedTicket, snapshot)) {
+                terminalFailedDemand = null
+                return false
+            }
+            lastRevalidationRequestedRevision = snapshot.revision
+            return true
+        }
+
+        suspend fun clearInitialTicket(ticket: FetchTicket) {
+            mutex.withLock {
+                if (watchedTicket === ticket) watchedTicket = null
+                if (awaitingCommitted?.ticket === ticket) awaitingCommitted = null
+                if (handledCommittedTicket === ticket) handledCommittedTicket = null
+            }
+        }
+
+        suspend fun retainCommittedTicket(
+            ticket: FetchTicket,
+            outcome: FetchOutcome.Committed,
+        ) {
+            mutex.withLock { retainCommittedTicketLocked(ticket, outcome) }
+        }
+
+        suspend fun deliverTerminalError(exception: StoreException) {
+            mutex.withLock { emitErrorLocked(exception, servedStaleOverride = false) }
+        }
+
+        fun start(
+            planningEpoch: Long,
+            initialTicket: FetchTicket?,
+            initialPlan: FetchPlan,
+        ) {
+            if (initialTicket != null) {
+                watchedTicket = initialTicket
+                if (initialPlan !is FetchPlan.Skip) {
+                    lastRevalidationRequestedRevision = initialTicket.requestRevision
+                }
+                observeCommittedDisposition(initialTicket)
+            }
+
+            producer.launch {
+                readerRecords.collect { record -> deliverRecord(record) }
+            }
+            producer.launch {
+                initialTicket?.let { ticket ->
+                    val outcome = ticket.outcome.await()
+                    beforeTicketOutcomeDeliveryTestGate()
+                    mutex.withLock {
+                        deliverWatchedOutcomeLocked(ticket, outcome)
+                    }
+                }
+                state.staleEpochsAfter(planningEpoch).collect {
+                    mutex.withLock {
+                        serverDeletionObserved = false
+                        requestAndDeliverLocked(
+                            forceRequest = true,
+                            suppressResidentIfVisible = true,
+                        )
+                    }
+                }
+            }
+        }
+
+        private suspend fun deliverRecord(record: ReaderRecord<V>) {
+            mutex.withLock {
+                beforeReaderDeliveryTestGate()
+                if (record !is ReaderRecord.Failure) latestReaderRecord = record
+                deliverReaderRecordLocked(record)
+            }
+        }
+
+        /** Resolves and delivers one pipeline notification without leaving the delivery mutex. */
+        private suspend fun deliverReaderRecordLocked(record: ReaderRecord<V>) {
+            val resolution = resolveCurrentRecord(record) ?: return
+            when (val resolved = resolution.record) {
+                is ReaderRecord.Failure -> emitErrorLocked(resolved.exception)
+                is ReaderRecord.Row ->
+                    deliverRowLocked(
+                        notification = record,
+                        initialResolution = resolution,
+                    )
+
+                is ReaderRecord.Absent ->
+                    deliverAbsentLocked(record as ReaderRecord.Absent)
+            }
+        }
+
+        /** Plans a current row, reserving work before delivery and rechecking after suspension. */
+        private suspend fun deliverRowLocked(
+            notification: ReaderRecord<V>,
+            initialResolution: ReaderResolution<V>,
+        ) {
+            installCompletedCommittedWaitIfNeededLocked()
+            var resolution = initialResolution
+            var row = resolution.record as ReaderRecord.Row<V>
+            suppressMissingUntilReaderRecovery = false
+            serverDeletionObserved = false
+
+            val committedWait = awaitingCommitted
+            if (committedWait != null && !isCausallyCurrent(notification, committedWait)) return
+            val authorizedByCommittedWait = committedWait != null
+            if (committedWait != null) clearCommittedWaitLocked(committedWait)
+
+            val observedTicket = watchedTicket
+            val observedOutcome =
+                observedTicket
+                    ?.takeIf { it.outcome.isCompleted }
+                    ?.outcome
+                    ?.await()
+            if (
+                observedTicket != null &&
+                row.envelope.directRevalidationOwner === observedTicket &&
+                (notification as? ReaderRecord.Row<V>)?.envelope?.value == row.envelope.value
+            ) {
+                // A replay mapped before this collector's 304 must not replace its exact fresh
+                // owner while the ordered watcher is still responsible for direct delivery.
+                return
+            }
+            var collectorPlan =
+                collectorPlanFor(
+                    snapshot = row.snapshot(resolution.state),
+                    eligibleBaseline = readerEligibleBaseline(notification, row.envelope),
+                )
+            var rowPlan = collectorPlan.plan
+            var demandSatisfied =
+                envelopeSatisfiesDemand(
+                    collectorPlan.eligibleEnvelope,
+                    resolution.state,
+                    rowPlan,
+                )
+            if (demandSatisfied) {
+                terminalFailedDemand = null
+                lastRevalidationRequestedRevision = row.residenceRevision
+            } else {
+                failedDemandStillCovers(row.snapshot(resolution.state))
+            }
+
+            val settledTicket = observedTicket
+            val completedSettledOutcome =
+                observedOutcome?.takeIf { outcome ->
+                    settledTicket?.let { ticket ->
+                        if (outcome is FetchOutcome.Failed) {
+                            residenceAdvancedFrom(
+                                ticket,
+                                ResidenceSnapshot(
+                                    state = resolution.state,
+                                    envelope = row.envelope,
+                                    revision = row.residenceRevision,
+                                ),
+                            )
+                        } else {
+                            ticket.requestRevision != row.residenceRevision
+                        }
+                    } == true
+                }
+            if (completedSettledOutcome is FetchOutcome.Deleted) {
+                if (watchedTicket === settledTicket) watchedTicket = null
+                handleOutcomeLocked(
+                    checkNotNull(settledTicket),
+                    completedSettledOutcome,
+                    servedStaleForWatchedTicket,
+                )
+                serverDeletionObserved = false
+            }
+
+            val pendingTicket = watchedTicket
+            val pendingSlot = resolution.state.fetch as? FetchSlot.InFlight
+            val durableWriterRowReady =
+                demandSatisfied &&
+                    (
+                        authorizedByCommittedWait ||
+                            pendingTicket?.let {
+                                isOwnDurablyCommittedRow(notification, it)
+                            } == true
+                    )
+            if (
+                pendingTicket != null &&
+                pendingTicket === settledTicket &&
+                observedOutcome == null &&
+                pendingSlot?.ticket !== pendingTicket &&
+                !durableWriterRowReady
+            ) {
+                // Slot settlement can precede ordered persistence/bookkeeping tails. Retain every
+                // other row until the exact outcome can install its causal or replacement handoff.
+                return
+            }
+
+            if (
+                rowPlan !is FetchPlan.Skip &&
+                !demandSatisfied &&
+                settledTicket != null &&
+                completedSettledOutcome != null &&
+                completedSettledOutcome !is FetchOutcome.Deleted
+            ) {
+                val outcome = completedSettledOutcome
+                if (outcome !is FetchOutcome.Committed) {
+                    val oldServedStale = servedStaleForWatchedTicket
+                    if (outcome is FetchOutcome.Failed) {
+                        enqueueFailureHandoff(
+                            SettledTicketHandoff(
+                                ticket = settledTicket,
+                                outcome = outcome,
+                                servedStale = oldServedStale,
                             ),
                         )
                     }
+                    val replacement = ensureFetchForCollector(collectorPlan)
+                    if (replacement != null) {
+                        watchTicketLocked(replacement)
+                    } else if (watchedTicket === settledTicket) {
+                        watchedTicket = null
+                    }
+
+                    // The replacement reservation can suspend. Only the exact row that caused
+                    // the handoff may now be served as refreshing.
+                    val current = resolveCurrentRecord(notification)
+                    val currentRow = current?.record as? ReaderRecord.Row<V>
+                    if (current == null || currentRow == null || !isSameResolvedRow(row, currentRow)) {
+                        return
+                    }
+                    resolution = current
+                    row = currentRow
+                    collectorPlan =
+                        collectorPlanFor(
+                            snapshot =
+                                ResidenceSnapshot(
+                                    state = resolution.state,
+                                    envelope = row.envelope,
+                                    revision = row.residenceRevision,
+                                ),
+                            eligibleBaseline = readerEligibleBaseline(notification, row.envelope),
+                        )
+                    rowPlan = collectorPlan.plan
+                    demandSatisfied =
+                        envelopeSatisfiesDemand(
+                            collectorPlan.eligibleEnvelope,
+                            resolution.state,
+                            rowPlan,
+                        )
+                    if (demandSatisfied) {
+                        terminalFailedDemand = null
+                        lastRevalidationRequestedRevision = row.residenceRevision
+                    } else {
+                        failedDemandStillCovers(row.snapshot(resolution.state))
+                    }
+                }
+            }
+
+            if (
+                rowPlan !is FetchPlan.Skip &&
+                !demandSatisfied &&
+                watchedTicket == null &&
+                lastRevalidationRequestedRevision != row.residenceRevision
+            ) {
+                ensureFetchForCollector(collectorPlan)?.let(::watchTicketLocked)
+
+                // ensureFetch can suspend while another observation wins. The original row is
+                // only deliverable if generation, residence revision, and content all survived.
+                val current = resolveCurrentRecord(notification) ?: return
+                val currentRow = current.record as? ReaderRecord.Row<V> ?: return
+                if (!isSameResolvedRow(row, currentRow)) return
+                resolution = current
+                row = currentRow
+                collectorPlan =
+                    collectorPlanFor(
+                        snapshot =
+                            ResidenceSnapshot(
+                                state = resolution.state,
+                                envelope = row.envelope,
+                                revision = row.residenceRevision,
+                            ),
+                        eligibleBaseline = readerEligibleBaseline(notification, row.envelope),
+                    )
+                rowPlan = collectorPlan.plan
+                demandSatisfied =
+                    envelopeSatisfiesDemand(
+                        collectorPlan.eligibleEnvelope,
+                        resolution.state,
+                        rowPlan,
+                    )
+                if (demandSatisfied) {
+                    terminalFailedDemand = null
+                    lastRevalidationRequestedRevision = row.residenceRevision
+                } else {
+                    failedDemandStillCovers(row.snapshot(resolution.state))
+                }
+            }
+
+            val eligibleEnvelope = collectorPlan.eligibleEnvelope
+            when {
+                demandSatisfied && eligibleEnvelope != null ->
+                    deliverDataLocked(
+                        eligibleEnvelope,
+                        authority =
+                            if (eligibleEnvelope.directRevalidationOwner != null) {
+                                DataDeliveryAuthority.CollectorBaseline
+                            } else {
+                                DataDeliveryAuthority.Generic
+                            },
+                    )
+
+                rowPlan.servesResident && eligibleEnvelope != null ->
+                    deliverDataLocked(
+                        eligibleEnvelope,
+                        authority =
+                            if (eligibleEnvelope.directRevalidationOwner != null) {
+                                DataDeliveryAuthority.CollectorBaseline
+                            } else {
+                                DataDeliveryAuthority.Generic
+                            },
+                    )
+                else -> emitLoadingLocked()
+            }
+            flushPendingFailureHandoffsLocked()
+        }
+
+        /** Suppresses only an already-mapped pre-outcome absence while its writer echo catches up. */
+        private suspend fun deliverAbsentLocked(notification: ReaderRecord.Absent) {
+            val pendingTicket = watchedTicket
+            if (pendingTicket != null && !pendingTicket.outcome.isCompleted) {
+                val committing =
+                    pendingTicket.disposition.value as? FetchDisposition.Committing
+                if (
+                    committing != null &&
+                    notification.consumedAttribution !== committing.attribution &&
+                    notification.activeWriteAttributionAtObservation !== committing.attribution
+                ) {
                     return
+                }
+            }
+            installCompletedCommittedWaitIfNeededLocked()
+            val committedWait = awaitingCommitted
+            if (committedWait != null && !isCausallyCurrent(notification, committedWait)) return
+            if (committedWait != null) clearCommittedWaitLocked(committedWait)
+            suppressMissingUntilReaderRecovery = false
+            if (publicHasValue || freshness != Freshness.LocalOnly) {
+                emitLoadingLocked()
+            }
+            if (pendingFailureHandoffs.isNotEmpty()) {
+                flushPendingFailureHandoffsLocked()
+            }
+            failedDemandStillCovers(residenceSnapshot())
+            requestAndDeliverLocked(forceRequest = false)
+            flushPendingFailureHandoffsLocked()
+        }
+
+        private fun enqueueFailureHandoff(handoff: SettledTicketHandoff) {
+            if (pendingFailureHandoffs.none { it.ticket === handoff.ticket }) {
+                pendingFailureHandoffs.addLast(handoff)
+            }
+        }
+
+        private suspend fun flushPendingFailureHandoffsLocked() {
+            while (pendingFailureHandoffs.isNotEmpty()) {
+                val handoff = pendingFailureHandoffs.removeFirst()
+                surfaceTerminalOutcomeLocked(handoff.outcome, handoff.servedStale)
+            }
+        }
+
+        private suspend fun deliverCurrentPlanStateLocked() {
+            val snapshot = residenceSnapshot()
+            val collectorPlan = collectorPlanFor(snapshot)
+            val eligibleEnvelope = collectorPlan.eligibleEnvelope
+            if (eligibleEnvelope != null && collectorPlan.plan.servesResident) {
+                deliverDataLocked(
+                    eligibleEnvelope,
+                    authority =
+                        if (eligibleEnvelope.directRevalidationOwner != null) {
+                            DataDeliveryAuthority.CollectorBaseline
+                        } else {
+                            DataDeliveryAuthority.Generic
+                        },
+                )
+            } else {
+                emitLoadingLocked()
+            }
+        }
+
+        private fun envelopeSatisfiesDemand(
+            envelope: ValueEnvelope<V>?,
+            state: KeyState,
+            plan: FetchPlan,
+        ): Boolean {
+            if (envelope == null) return false
+            return when (freshness) {
+                Freshness.CachedOrFetch,
+                Freshness.StaleIfError,
+                Freshness.MustBeFresh,
+                ->
+                    envelope.origin == Origin.FETCHER &&
+                        envelope.meta != null &&
+                        envelope.staleEpochAtCommit >= state.staleEpoch
+
+                Freshness.LocalOnly,
+                is Freshness.MaxAge,
+                -> plan is FetchPlan.Skip
+            }
+        }
+
+        /** Authorizes only the exact writer row after durable return, never a CAS fallback. */
+        private fun isOwnDurablyCommittedRow(
+            notification: ReaderRecord<V>,
+            ticket: FetchTicket,
+        ): Boolean {
+            val row = notification as? ReaderRecord.Row<V> ?: return false
+            val disposition = ticket.disposition.value as? FetchDisposition.Committed
+                ?: return false
+            if (row.envelope.value != disposition.attribution.value) return false
+            return row.consumedAttribution === disposition.attribution ||
+                row.activeWriteAttributionAtObservation === disposition.attribution
+        }
+
+        /** Installs a completed commit before the current reader notification is classified. */
+        private suspend fun installCompletedCommittedWaitIfNeededLocked() {
+            val ticket = watchedTicket ?: return
+            if (handledCommittedTicket === ticket) return
+            if (!ticket.outcome.isCompleted) return
+            val outcome = ticket.outcome.await()
+            if (outcome !is FetchOutcome.Committed) return
+
+            installCommittedWaitLocked(ticket, outcome)
+        }
+
+        /** True only when this raw observation belongs at or after the completed write. */
+        private fun isCausallyCurrent(
+            notification: ReaderRecord<V>,
+            wait: CommittedReaderWait,
+        ): Boolean {
+            val rawSequence =
+                when (notification) {
+                    is ReaderRecord.Row -> notification.rawObservationSequence
+                    is ReaderRecord.Absent -> notification.rawObservationSequence
+                    is ReaderRecord.Failure -> return false
+                }
+            if (
+                notification.readerGen == wait.rawReaderGen &&
+                rawSequence <= wait.rawCommitCutoff
+            ) {
+                return wait.authoritativeRawSequence != null &&
+                    rawSequence == wait.authoritativeRawSequence
+            }
+            return when (notification) {
+                is ReaderRecord.Row -> notification.successfulWriteSequenceAtObservation >=
+                    wait.successfulWriteSequenceAtOutcome
+
+                is ReaderRecord.Absent -> notification.successfulWriteSequenceAtObservation >=
+                    wait.successfulWriteSequenceAtOutcome
+
+                is ReaderRecord.Failure -> false
+            }
+        }
+
+        private suspend fun installCommittedWaitLocked(
+            ticket: FetchTicket,
+            outcome: FetchOutcome.Committed,
+        ) {
+            installCommittedWaitLocked(
+                ticket = ticket,
+                successfulWriteSequence = outcome.successfulWriteSequence,
+                attribution = outcome.attribution,
+                rawReaderGen = outcome.rawReaderGen,
+                rawCommitCutoff = outcome.rawCommitCutoff,
+                authoritativeRawSequence = outcome.authoritativeRawSequence,
+            )
+        }
+
+        private suspend fun installCommittedWaitLocked(
+            ticket: FetchTicket,
+            disposition: FetchDisposition.Committed,
+        ) {
+            installCommittedWaitLocked(
+                ticket = ticket,
+                successfulWriteSequence = disposition.successfulWriteSequence,
+                attribution = disposition.attribution,
+                rawReaderGen = disposition.rawReaderGen,
+                rawCommitCutoff = disposition.rawCommitCutoff,
+                authoritativeRawSequence = disposition.authoritativeRawSequence,
+            )
+        }
+
+        private fun installCommittedWaitLocked(
+            ticket: FetchTicket,
+            successfulWriteSequence: Long,
+            attribution: AttributionTag,
+            rawReaderGen: Long,
+            rawCommitCutoff: Long,
+            authoritativeRawSequence: Long?,
+        ) {
+            handledCommittedTicket = ticket
+            awaitingCommitted =
+                CommittedReaderWait(
+                    ticket = ticket,
+                    successfulWriteSequenceAtOutcome = successfulWriteSequence,
+                    attribution = attribution,
+                    rawReaderGen = rawReaderGen,
+                    rawCommitCutoff = rawCommitCutoff,
+                    authoritativeRawSequence = authoritativeRawSequence,
+                )
+        }
+
+        private suspend fun retainCommittedTicketLocked(
+            ticket: FetchTicket,
+            outcome: FetchOutcome.Committed,
+        ) {
+            if (watchedTicket !== ticket) return
+            installCommittedWaitLocked(ticket, outcome)
+            when (val latest = latestReaderRecord) {
+                is ReaderRecord.Row,
+                is ReaderRecord.Absent,
+                -> deliverReaderRecordLocked(latest)
+
+                null,
+                is ReaderRecord.Failure,
+                -> Unit
+            }
+        }
+
+        private suspend fun reprocessLatestReaderRecordLocked() {
+            when (val latest = latestReaderRecord) {
+                is ReaderRecord.Row,
+                is ReaderRecord.Absent,
+                -> deliverReaderRecordLocked(latest)
+
+                null,
+                is ReaderRecord.Failure,
+                -> Unit
+            }
+        }
+
+        private fun clearCommittedWaitLocked(wait: CommittedReaderWait) {
+            if (awaitingCommitted === wait) awaitingCommitted = null
+            if (wait.ticket.outcome.isCompleted) {
+                if (watchedTicket === wait.ticket) watchedTicket = null
+                if (handledCommittedTicket === wait.ticket) handledCommittedTicket = null
+            }
+        }
+
+        private suspend fun requestAndDeliverLocked(
+            forceRequest: Boolean,
+            suppressResidentIfVisible: Boolean = false,
+        ) {
+            if (awaitingCommitted != null) return
+            val observedTicket = watchedTicket
+            val observedOutcome =
+                observedTicket
+                    ?.takeIf { it.outcome.isCompleted }
+                    ?.outcome
+                    ?.await()
+            if (observedOutcome != null) {
+                if (observedOutcome is FetchOutcome.Committed) {
+                    retainCommittedTicketLocked(checkNotNull(observedTicket), observedOutcome)
+                    if (awaitingCommitted != null) return
+                } else {
+                    return
+                }
+            }
+            var snapshot = residenceSnapshot()
+            var collectorPlan = collectorPlanFor(snapshot)
+            var plan = collectorPlan.plan
+            if (forceRequest) {
+                terminalFailedDemand = null
+            } else if (
+                plan is FetchPlan.Skip ||
+                envelopeSatisfiesDemand(
+                    collectorPlan.eligibleEnvelope,
+                    snapshot.state,
+                    plan,
+                )
+            ) {
+                terminalFailedDemand = null
+            } else {
+                failedDemandStillCovers(snapshot)
+            }
+
+            if (freshness == Freshness.LocalOnly) {
+                val envelope = collectorPlan.eligibleEnvelope
+                if (envelope != null) {
+                    deliverDataLocked(
+                        envelope,
+                        authority =
+                            if (envelope.directRevalidationOwner != null) {
+                                DataDeliveryAuthority.CollectorBaseline
+                            } else {
+                                DataDeliveryAuthority.Generic
+                            },
+                    )
+                } else if (!suppressMissingUntilReaderRecovery) {
+                    if (publicHasValue) emitLoadingLocked()
+                    emitLocalOnlyMissingLocked()
+                }
+                return
+            }
+
+            var ticket: FetchTicket? = null
+            if (
+                plan !is FetchPlan.Skip &&
+                watchedTicket == null &&
+                !(serverDeletionObserved && snapshot.envelope == null) &&
+                (forceRequest || lastRevalidationRequestedRevision != snapshot.revision)
+            ) {
+                ticket = ensureFetchForCollector(collectorPlan)
+                ticket?.let(::watchTicketLocked)
+                snapshot = residenceSnapshot()
+                collectorPlan = collectorPlanFor(snapshot)
+                plan = collectorPlan.plan
+            }
+
+            val eligibleEnvelope = collectorPlan.eligibleEnvelope
+            when {
+                eligibleEnvelope != null && plan.servesResident -> {
+                    val sameResidenceAlreadyVisible =
+                        publicHasValue &&
+                            lastDataFingerprint == DataFingerprint(eligibleEnvelope)
+                    if (!suppressResidentIfVisible || !sameResidenceAlreadyVisible) {
+                        deliverDataLocked(
+                            eligibleEnvelope,
+                            authority =
+                                if (eligibleEnvelope.directRevalidationOwner != null) {
+                                    DataDeliveryAuthority.CollectorBaseline
+                                } else {
+                                    DataDeliveryAuthority.Generic
+                                },
+                        )
+                    } else {
+                        refreshVisibleStaleOwnershipLocked()
+                    }
+                }
+
+                eligibleEnvelope != null && plan is FetchPlan.Skip ->
+                    deliverDataLocked(
+                        eligibleEnvelope,
+                        authority =
+                            if (eligibleEnvelope.directRevalidationOwner != null) {
+                                DataDeliveryAuthority.CollectorBaseline
+                            } else {
+                                DataDeliveryAuthority.Generic
+                            },
+                    )
+
+                plan !is FetchPlan.Skip -> emitLoadingLocked()
+                else -> emitLocalOnlyMissingLocked()
+            }
+
+            ticket?.let(::watchTicketLocked)
+        }
+
+        private fun watchTicketLocked(ticket: FetchTicket) {
+            // ensureFetch may join work launched against an older residence. Associate this
+            // collector with the actual ticket boundary so a newer revision can replan later.
+            terminalFailedDemand = null
+            lastRevalidationRequestedRevision = ticket.requestRevision
+            if (watchedTicket === ticket) return
+            watchedTicket = ticket
+            servedStaleForWatchedTicket = publicServedStale
+            observeCommittedDisposition(ticket)
+            producer.launch {
+                val outcome = ticket.outcome.await()
+                beforeTicketOutcomeDeliveryTestGate()
+                mutex.withLock {
+                    deliverWatchedOutcomeLocked(ticket, outcome)
+                }
+            }
+        }
+
+        /** Wakes a retained writer row at durable return, before ordered bookkeeping completes. */
+        private fun observeCommittedDisposition(ticket: FetchTicket) {
+            producer.launch {
+                val terminal =
+                    ticket.disposition.first {
+                        it !is FetchDisposition.InFlight &&
+                            it !is FetchDisposition.Committing
+                    }
+                val committed = terminal as? FetchDisposition.Committed ?: return@launch
+                mutex.withLock {
+                    if (
+                        watchedTicket === ticket &&
+                        handledCommittedTicket !== ticket
+                    ) {
+                        installCommittedWaitLocked(ticket, committed)
+                        reprocessLatestReaderRecordLocked()
+                    }
+                }
+            }
+        }
+
+        private suspend fun deliverWatchedOutcomeLocked(
+            ticket: FetchTicket,
+            outcome: FetchOutcome,
+        ) {
+            if (watchedTicket !== ticket) return
+            if (
+                outcome is FetchOutcome.Committed &&
+                handledCommittedTicket === ticket
+            ) {
+                if (awaitingCommitted?.ticket === ticket) return
+                watchedTicket = null
+                reprocessLatestReaderRecordLocked()
+                if (handledCommittedTicket === ticket) handledCommittedTicket = null
+                return
+            }
+            var servedStaleForTicket = servedStaleForWatchedTicket
+            if (outcome is FetchOutcome.Failed) {
+                val advancedResidence = residenceAdvancedFrom(ticket, residenceSnapshot())
+                if (advancedResidence) {
+                    enqueueFailureHandoff(
+                        SettledTicketHandoff(
+                            ticket = ticket,
+                            outcome = outcome,
+                            servedStale = servedStaleForTicket,
+                        ),
+                    )
+                }
+                reprocessLatestReaderRecordLocked()
+                if (watchedTicket !== ticket) return
+                if (advancedResidence) {
+                    watchedTicket = null
+                    val snapshot = residenceSnapshot()
+                    val collectorPlan = collectorPlanFor(snapshot)
+                    val plan = collectorPlan.plan
+                    if (plan !is FetchPlan.Skip) {
+                        val replacement = ensureFetchForCollector(collectorPlan)
+                        replacement?.let(::watchTicketLocked)
+                        if (replacement == null) {
+                            deliverCurrentPlanStateLocked()
+                            flushPendingFailureHandoffsLocked()
+                        }
+                    } else {
+                        flushPendingFailureHandoffsLocked()
+                    }
+                    return
+                }
+                if (pendingFailureHandoffs.isNotEmpty()) {
+                    deliverCurrentPlanStateLocked()
+                    flushPendingFailureHandoffsLocked()
+                    servedStaleForTicket = servedStaleForWatchedTicket
+                }
+            }
+            if (outcome !is FetchOutcome.Committed) watchedTicket = null
+            handleOutcomeLocked(ticket, outcome, servedStaleForTicket)
+            if (
+                outcome !is FetchOutcome.Committed &&
+                outcome !is FetchOutcome.Failed
+            ) {
+                reprocessLatestReaderRecordLocked()
+                flushPendingFailureHandoffsLocked()
+            }
+        }
+
+        private suspend fun handleOutcomeLocked(
+            ticket: FetchTicket,
+            outcome: FetchOutcome,
+            servedStaleForTicket: Boolean,
+        ) {
+            when (outcome) {
+                is FetchOutcome.Committed ->
+                    retainCommittedTicketLocked(ticket, outcome)
+
+                is FetchOutcome.Revalidated -> {
+                    if (
+                        deliverRevalidatedLocked(outcome, watchReplacement = true) ==
+                        RevalidatedDelivery.Obsolete
+                    ) {
+                        requestAndDeliverLocked(forceRequest = true)
+                    }
+                }
+
+                FetchOutcome.ObsoleteRevalidation ->
+                    requestAndDeliverLocked(forceRequest = true)
+
+                is FetchOutcome.Failed -> {
+                    surfaceTerminalOutcomeLocked(outcome, servedStaleForTicket)
+                    val snapshot = residenceSnapshot()
+                    if (residenceAdvancedFrom(ticket, snapshot)) {
+                        requestAndDeliverLocked(forceRequest = false)
+                    } else {
+                        terminalFailedDemand = ticket
+                    }
                 }
 
                 FetchOutcome.Deleted -> {
-                    send(StoreResult.Error(serverDeletedException().error, servedStale = false))
-                    return
+                    serverDeletionObserved = true
+                    surfaceTerminalOutcomeLocked(outcome, servedStaleForTicket)
                 }
 
-                is FetchOutcome.Failed -> {
-                    send(StoreResult.Error(outcome.exception.error, servedStale = servedResident))
-                    return
+                FetchOutcome.Superseded -> requestAndDeliverLocked(forceRequest = true)
+            }
+        }
+
+        private suspend fun surfaceTerminalOutcomeLocked(
+            outcome: FetchOutcome,
+            servedStaleForTicket: Boolean,
+        ) {
+            when (outcome) {
+                is FetchOutcome.Failed ->
+                    emitErrorLocked(
+                        outcome.exception,
+                        servedStaleOverride = servedStaleForTicket,
+                    )
+
+                FetchOutcome.Deleted -> {
+                    emitLoadingLocked()
+                    emitErrorLocked(serverDeletedException(), servedStaleOverride = false)
                 }
 
-                FetchOutcome.Superseded -> Unit
+                else -> error("Only terminal outcomes can be surfaced by this helper: $outcome")
+            }
+        }
+
+        private suspend fun deliverDataLocked(
+            envelope: ValueEnvelope<V>,
+            originOverride: Origin? = null,
+            authority: DataDeliveryAuthority = DataDeliveryAuthority.Generic,
+        ): DataDeliveryDecision {
+            val fingerprint =
+                DataFingerprint(
+                    envelope = envelope,
+                )
+            if (
+                envelope.directRevalidationOwner != null &&
+                authority == DataDeliveryAuthority.Generic &&
+                !(publicHasValue && lastDataFingerprint == fingerprint)
+            ) {
+                refreshVisibleStaleOwnershipLocked()
+                return DataDeliveryDecision.ForeignDirectRevalidation
+            }
+            val snapshot = state.value
+            val refreshing = snapshot.fetch is FetchSlot.InFlight
+            val data =
+                toData(
+                    envelope = envelope,
+                    freshness = freshness,
+                    originOverride = originOverride,
+                    refreshingOverride = refreshing,
+                )
+            if (lastDataFingerprint == fingerprint && publicHasValue) {
+                publicServedStale = data.isStale && staleServingTolerated(freshness)
+                if (watchedTicket != null) {
+                    servedStaleForWatchedTicket = publicServedStale
+                }
+                return DataDeliveryDecision.AlreadyVisible
+            }
+            producer.send(data)
+            lastDataFingerprint = fingerprint
+            publicHasValue = true
+            loadingVisible = false
+            localOnlyMissingEmitted = false
+            publicServedStale = data.isStale && staleServingTolerated(freshness)
+            if (watchedTicket != null) {
+                servedStaleForWatchedTicket = publicServedStale
+            }
+            return DataDeliveryDecision.Delivered
+        }
+
+        private fun refreshVisibleStaleOwnershipLocked() {
+            val visibleEnvelope = lastDataFingerprint?.envelope
+            publicServedStale =
+                publicHasValue &&
+                    visibleEnvelope != null &&
+                    toData(
+                        envelope = visibleEnvelope,
+                        freshness = freshness,
+                    ).isStale &&
+                    staleServingTolerated(freshness)
+            if (watchedTicket != null) {
+                servedStaleForWatchedTicket = publicServedStale
+            }
+        }
+
+        private suspend fun emitLoadingLocked() {
+            if (loadingVisible) return
+            producer.send(StoreResult.Loading())
+            loadingVisible = true
+            publicHasValue = false
+            publicServedStale = false
+            servedStaleForWatchedTicket = false
+            lastDataFingerprint = null
+        }
+
+        private suspend fun emitLocalOnlyMissingLocked() {
+            if (localOnlyMissingEmitted) return
+            producer.send(
+                StoreResult.Error(
+                    error = localOnlyMissingException().error,
+                    servedStale = false,
+                ),
+            )
+            localOnlyMissingEmitted = true
+            publicHasValue = false
+            loadingVisible = false
+            publicServedStale = false
+            servedStaleForWatchedTicket = false
+            lastDataFingerprint = null
+        }
+
+        private suspend fun emitErrorLocked(
+            exception: StoreException,
+            servedStaleOverride: Boolean? = null,
+        ) {
+            producer.send(
+                StoreResult.Error(
+                    error = exception.error,
+                    servedStale = servedStaleOverride ?: publicServedStale,
+                ),
+            )
+        }
+    }
+
+    /** Returns a value according to policy, hydrating persistence before planning on a miss. */
+    internal suspend fun get(freshness: Freshness): V {
+        ensureOpen()
+        while (true) {
+            var envelope = residence.value
+            if (envelope == null) envelope = hydrateFromSot()
+            val plan = currentPlan(freshness, envelope)
+
+            if (plan is FetchPlan.Skip) {
+                return envelope?.value ?: throw localOnlyMissingException()
+            }
+
+            if (
+                envelope != null &&
+                plan.servesResident &&
+                freshness != Freshness.StaleIfError
+            ) {
+                ensureFetch(freshness)
+                return envelope.value
+            }
+
+            val ticket = ensureFetch(freshness) ?: continue
+            when (val outcome = ticket.outcome.await()) {
+                is FetchOutcome.Committed -> return committedValue(outcome)
+
+                is FetchOutcome.Revalidated -> {
+                    val snapshot = residenceSnapshot()
+                    if (snapshot.envelope === outcome.envelope) {
+                        val plan =
+                            planFor(
+                                freshness,
+                                snapshot.state,
+                                snapshot.envelope,
+                                wallClock.nowEpochMillis(),
+                            )
+                        if (revalidatedSatisfiesDemand(freshness, snapshot, plan)) {
+                            snapshot.envelope?.let { return it.value }
+                        }
+                    }
+                }
+
+                FetchOutcome.ObsoleteRevalidation -> Unit
+
+                is FetchOutcome.Failed ->
+                    if (freshness == Freshness.StaleIfError && envelope != null) {
+                        return envelope.value
+                    } else {
+                        throw outcome.exception
+                    }
+
+                FetchOutcome.Superseded -> throw supersededException()
+                FetchOutcome.Deleted -> throw serverDeletedException()
             }
         }
     }
 
-    /** Computes an honest Data emission from typed metadata and the current state snapshot. */
+    @Suppress("UNCHECKED_CAST")
+    private fun committedValue(outcome: FetchOutcome.Committed): V = outcome.value as V
+
+    /** Renders nullable metadata conservatively while retaining saturating landed age behavior. */
     private fun toData(
         envelope: ValueEnvelope<V>,
         freshness: Freshness,
+        originOverride: Origin? = null,
         refreshingOverride: Boolean? = null,
     ): StoreResult.Data<V> {
         val snapshot = state.value
-        val now = wallClock.nowEpochMillis()
-        val elapsedMillis =
-            if (now <= envelope.meta.writtenAtEpochMillis) {
-                0L
+        val meta = envelope.meta
+        val age =
+            if (meta == null) {
+                Duration.ZERO
             } else {
-                val delta = now - envelope.meta.writtenAtEpochMillis
-                if (delta < 0L) Long.MAX_VALUE else delta
+                val now = wallClock.nowEpochMillis()
+                val elapsedMillis =
+                    if (now <= meta.writtenAtEpochMillis) {
+                        0L
+                    } else {
+                        val delta = now - meta.writtenAtEpochMillis
+                        if (delta < 0L) Long.MAX_VALUE else delta
+                    }
+                elapsedMillis.milliseconds
             }
-        val age = elapsedMillis.milliseconds
         val epochStale = envelope.staleEpochAtCommit < snapshot.staleEpoch
-        val ageStale = freshness is Freshness.MaxAge && age > freshness.notOlderThan
+        val ageStale = freshness is Freshness.MaxAge && meta != null && age > freshness.notOlderThan
         return StoreResult.Data(
             value = envelope.value,
-            origin = envelope.origin,
+            origin = originOverride ?: envelope.origin,
             age = age,
-            isStale = epochStale || ageStale,
+            isStale = meta == null || epochStale || ageStale,
             refreshing = refreshingOverride ?: (snapshot.fetch is FetchSlot.InFlight),
         )
     }
 
-    /** Returns a value according to the requested freshness policy. */
-    internal suspend fun get(freshness: Freshness): V {
-        ensureOpen()
-        val envelope = residence.value
-        val plan = currentPlan(freshness, envelope)
-
-        if (plan is FetchPlan.Skip) {
-            return envelope?.value ?: throw localOnlyMissingException()
-        }
-
-        if (envelope != null && plan.servesResident && freshness != Freshness.StaleIfError) {
-            ensureFetch(freshness)
-            return envelope.value
-        }
-
-        val ticket =
-            ensureFetch(freshness)
-                ?: return residence.value?.value ?: throw supersededException()
-
-        return when (val outcome = ticket.outcome.await()) {
-            FetchOutcome.Committed -> residence.value?.value ?: throw supersededException()
-            FetchOutcome.Revalidated ->
-                residence.value?.value ?: throw notModifiedWithoutValueException()
-
-            is FetchOutcome.Failed ->
-                if (freshness == Freshness.StaleIfError && envelope != null) {
-                    envelope.value
-                } else {
-                    throw outcome.exception
-                }
-
-            FetchOutcome.Superseded -> throw supersededException()
-            FetchOutcome.Deleted -> throw serverDeletedException()
-        }
+    private fun fetchException(failure: Throwable): StoreException {
+        val message =
+            "Fetch failed for key '${keyId.namespace}/${keyId.canonicalId}': ${failure.message}. " +
+                "The fetcher threw; inspect the cause for the underlying failure."
+        return StoreException(StoreError.Fetch(message, failure), failure)
     }
 
-    /** Fails deterministically when this engine's store scope is no longer active. */
+    private fun fetchResultException(failure: Throwable): StoreException {
+        val message =
+            "Fetch failed for key '${keyId.namespace}/${keyId.canonicalId}': ${failure.message}. " +
+                "The fetcher returned FetcherResult.Error; inspect the cause for the " +
+                "underlying failure."
+        return StoreException(StoreError.Fetch(message, failure), failure)
+    }
+
+    private fun readerException(failure: Throwable): StoreException {
+        val message =
+            "Reading the source of truth failed for key " +
+                "'${keyId.namespace}/${keyId.canonicalId}': ${failure.message}. " +
+                "Durable data could not be observed; inspect the cause and retry the read."
+        return StoreException(StoreError.Persistence(message, failure), failure)
+    }
+
+    private fun writeException(failure: Throwable): StoreException {
+        val message =
+            "Persisting the fetched value failed for key " +
+                "'${keyId.namespace}/${keyId.canonicalId}': ${failure.message}. " +
+                "The fetch succeeded but the source of truth rejected the write; inspect the " +
+                "cause and retry the read."
+        return StoreException(StoreError.Persistence(message, failure), failure)
+    }
+
+    private fun clearPersistenceException(failure: Throwable): StoreException {
+        val message =
+            "clear() failed for key '${keyId.namespace}/${keyId.canonicalId}': the source of " +
+                "truth delete threw: ${failure.message}. The row may still exist; inspect the " +
+                "cause and retry clear()."
+        return StoreException(StoreError.Persistence(message, failure), failure)
+    }
+
+    private fun serverDeletePersistenceException(failure: Throwable): StoreException {
+        val message =
+            "Applying the server-side deletion failed for key " +
+                "'${keyId.namespace}/${keyId.canonicalId}': the source of truth delete threw: " +
+                "${failure.message}. The row may still exist; the deletion was not applied — " +
+                "retry the read."
+        return StoreException(StoreError.Persistence(message, failure), failure)
+    }
+
+    private fun supersededException(): StoreException {
+        val message =
+            "Could not return a value for key '${keyId.namespace}/${keyId.canonicalId}': clear() " +
+                "removed the key while its fetch was in flight, so the fetched value was " +
+                "discarded. The value is currently missing; retry the read to trigger a fresh " +
+                "fetch."
+        return StoreException(StoreError.Missing(key, message))
+    }
+
+    private fun serverDeletedException(): StoreException {
+        val message =
+            "Could not return a value for key '${keyId.namespace}/${keyId.canonicalId}': the " +
+                "fetcher reported that the server deleted this value, so the local copy was " +
+                "removed. Recreate the value upstream or treat Missing as the empty state."
+        return StoreException(StoreError.Missing(key, message))
+    }
+
+    private fun localOnlyMissingException(): StoreException {
+        val message =
+            "Could not return a value for key '${keyId.namespace}/${keyId.canonicalId}': " +
+                "Freshness.LocalOnly forbids fetching and no local value exists. Seed the key " +
+                "with another policy first or handle StoreError.Missing as the empty state."
+        return StoreException(StoreError.Missing(key, message))
+    }
+
+    private fun notModifiedWithoutValueException(): StoreException {
+        val message =
+            "Could not return a value for key '${keyId.namespace}/${keyId.canonicalId}': the " +
+                "fetcher returned FetcherResult.NotModified but no local value exists to " +
+                "revalidate. Return FetcherResult.Success with a full value when the client has " +
+                "no cached copy."
+        return StoreException(StoreError.Missing(key, message))
+    }
+
     private fun ensureOpen() {
-        if (!engineJob.isActive) {
-            throw storeClosedException()
+        if (!engineJob.isActive) throw storeClosedException()
+    }
+
+    private data class ResidenceSnapshot<V : Any>(
+        val state: KeyState,
+        val envelope: ValueEnvelope<V>?,
+        val revision: Long,
+    )
+
+    private data class PlannedFetchEffect<V : Any>(
+        val effect: KeyEffect,
+        val collectorEligibleResidence: ValueEnvelope<V>?,
+        val plan: FetchPlan,
+    )
+
+    private data class FetchReservation<V : Any>(
+        val ticket: FetchTicket,
+        val collectorEligibleResidence: ValueEnvelope<V>?,
+        val plan: FetchPlan,
+    )
+
+    /** Marks an engine-side raw-stamping defect so the adapter retry boundary rethrows it. */
+    private class RawObservationFailure(
+        val engineFailure: Throwable,
+    ) : RuntimeException(engineFailure)
+
+    /** Raw observations made while one exact SoT write is active. */
+    private sealed interface ActiveRawPhase {
+        data object Unobserved : ActiveRawPhase
+
+        class OtherBeforeMatching(
+            val observation: RawWriteObservation,
+        ) : ActiveRawPhase
+
+        class Matching(
+            val observation: RawWriteObservation,
+            val attribution: AttributionTag,
+        ) : ActiveRawPhase
+
+        class OtherAfterMatching(
+            val matchingObservation: RawWriteObservation,
+            val observation: RawWriteObservation,
+        ) : ActiveRawPhase
+    }
+
+    /** One source-ordered nullable adapter row captured before pipeline conflation. */
+    private data class RawWriteObservation(
+        val readerGen: Long,
+        val rawSequence: Long,
+        val value: Any?,
+        val attributionAtObservation: AttributionTag?,
+        val activeWriteAttributionAtObservation: AttributionTag?,
+        val successfulWriteSequenceAtObservation: Long,
+    ) {
+        /** Returns only the exact active writer tag under the value-bound fallback rule. */
+        fun matchingWriterAttribution(): AttributionTag? {
+            val active = activeWriteAttributionAtObservation ?: return null
+            val observed = attributionAtObservation
+            return when {
+                value == null -> null
+                observed != null ->
+                    active.takeIf { observed === active && observed.value == value }
+                active.value == value -> active
+                else -> null
+            }
         }
     }
+
+    private fun ActiveRawPhase.matchingObservationOrNull(): RawWriteObservation? =
+        when (this) {
+            ActiveRawPhase.Unobserved -> null
+            is ActiveRawPhase.OtherBeforeMatching -> null
+            is ActiveRawPhase.Matching -> observation
+            is ActiveRawPhase.OtherAfterMatching -> matchingObservation
+        }
+
+    private data class WriteObservationBoundary(
+        val readerGen: Long,
+        val observedAttribution: AttributionTag?,
+        val activeAttribution: AttributionTag?,
+        val successfulSequence: Long,
+        val latestRawSequence: Long,
+        val activeRawPhase: ActiveRawPhase,
+    )
+
+    private data class ClosedWriteBoundary(
+        val readerGen: Long,
+        val rawCommitCutoff: Long,
+        val phase: ActiveRawPhase,
+        val successfulWriteSequence: Long,
+    )
+
+    private data class DurableWriteResolution(
+        val successfulWriteSequence: Long,
+        val readerGen: Long,
+        val rawCommitCutoff: Long,
+        val authoritativeRawSequence: Long?,
+    )
+
+    private data class RawCommitResolution<V : Any>(
+        val readerGen: Long,
+        val rawCommitCutoff: Long,
+        val authoritativeRawSequence: Long?,
+        val residenceRevision: Long,
+        val envelope: ValueEnvelope<V>?,
+        val consumedAttribution: AttributionTag?,
+    )
+
+    private data class PreparedReaderRow(
+        val consumedAttribution: AttributionTag?,
+        val ownerAttribution: AttributionTag,
+        val matchingAttribution: AttributionTag?,
+    )
+
+    private data class ReaderResolution<V : Any>(
+        val record: ReaderRecord<V>,
+        val state: KeyState,
+    )
+
+    private data class InitialDelivery<V : Any>(
+        val snapshot: ResidenceSnapshot<V>,
+        val plan: FetchPlan,
+        val ticket: FetchTicket?,
+    )
+
+    private data class CollectorFetchPlan<V : Any>(
+        val eligibleEnvelope: ValueEnvelope<V>?,
+        val plan: FetchPlan,
+        val currentIsForeignOwner: Boolean,
+    )
+
+    private data class TicketLaunchBaseline<V : Any>(
+        val envelope: ValueEnvelope<V>?,
+        val plan: FetchPlan,
+    )
+
+    private data class TicketLaunchBaselineEntry<V : Any>(
+        val ticket: FetchTicket,
+        val baseline: TicketLaunchBaseline<V>,
+    )
+
+    private enum class DataDeliveryAuthority {
+        Generic,
+        CollectorBaseline,
+        OwnerOutcome,
+    }
+
+    private enum class DataDeliveryDecision {
+        Delivered,
+        AlreadyVisible,
+        ForeignDirectRevalidation,
+    }
+
+    private sealed interface RevalidatedDelivery {
+        data object Delivered : RevalidatedDelivery
+
+        data object Obsolete : RevalidatedDelivery
+
+        data class Replacement(
+            val ticket: FetchTicket,
+            val publicDeliveryCompleted: Boolean,
+        ) : RevalidatedDelivery
+    }
+
+    private data class SettledTicketHandoff(
+        val ticket: FetchTicket,
+        val outcome: FetchOutcome,
+        val servedStale: Boolean,
+    )
+
+    private data class CommittedReaderWait(
+        val ticket: FetchTicket,
+        val successfulWriteSequenceAtOutcome: Long,
+        val attribution: AttributionTag,
+        val rawReaderGen: Long,
+        val rawCommitCutoff: Long,
+        val authoritativeRawSequence: Long?,
+    )
+
+    private data class DataFingerprint<V : Any>(
+        val envelope: ValueEnvelope<V>,
+    )
 }
+
+/** MEMORY is honest only while the exact envelope and its monotone revision remain current. */
+internal fun <V : Any> canRestampMemoryOrigin(
+    memoryEnvelope: ValueEnvelope<V>?,
+    memoryRevision: Long,
+    currentEnvelope: ValueEnvelope<V>?,
+    currentRevision: Long,
+): Boolean =
+    memoryEnvelope != null &&
+        currentEnvelope === memoryEnvelope &&
+        currentRevision == memoryRevision

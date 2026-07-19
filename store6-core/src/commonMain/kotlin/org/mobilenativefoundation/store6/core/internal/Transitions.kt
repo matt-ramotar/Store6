@@ -15,7 +15,6 @@ internal sealed interface KeyEvent {
         val ticket: FetchTicket,
         val value: Any,
         val meta: StoreMeta,
-        val residenceRevisionAtStamp: Long,
     ) : KeyEvent
 
     /** Reports that the fetch represented by [ticket] revalidated the resident value. */
@@ -145,12 +144,11 @@ internal fun transition(
                                 state = state.copy(
                                     fetch = FetchSlot.Idle,
                                     attribution = AttributionTag(
+                                        owner = event.ticket,
                                         value = event.value,
                                         origin = Origin.FETCHER,
                                         meta = event.meta,
                                         staleEpochAtCommit = state.staleEpoch,
-                                        residenceRevisionAtStamp =
-                                            event.residenceRevisionAtStamp,
                                     ),
                                 ),
                                 effect = KeyEffect.Commit,

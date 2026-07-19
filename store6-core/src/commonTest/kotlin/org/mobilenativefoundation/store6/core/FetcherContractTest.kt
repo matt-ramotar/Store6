@@ -241,4 +241,28 @@ class FetcherContractTest {
             store.close()
         }
     }
+
+    @Test
+    fun notModifiedWithNullEtag_retainsPreviousEtag() = runTest {
+        var calls = 0
+        val bookkeeper = InMemoryBookkeeper()
+        val store = storeWith<TestKey, String>(bookkeeper = bookkeeper) {
+            fetcherOfResult {
+                when (++calls) {
+                    1 -> FetcherResult.Success("v1", etag = "e1")
+                    2 -> FetcherResult.NotModified(etag = null)
+                    else -> error("unexpected fetch call $calls")
+                }
+            }
+        }
+        val key = TestKey("1")
+
+        try {
+            assertEquals("v1", store.get(key))
+            assertEquals("v1", store.get(key, Freshness.MustBeFresh))
+            assertEquals("e1", bookkeeper.status(KeyId.from(key))?.meta?.etag)
+        } finally {
+            store.close()
+        }
+    }
 }

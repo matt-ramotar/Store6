@@ -69,7 +69,7 @@ internal object DefaultFreshnessValidator : FreshnessValidator {
         }
 
     private fun FreshnessContext.cachedOrFetchPlan(): FetchPlan =
-        if (!hasResidentValue || epochStale) {
+        if (!hasResidentValue || meta == null || epochStale) {
             FetchPlan.Fetch(servesResidentWhileFetching = hasResidentValue)
         } else {
             FetchPlan.Skip

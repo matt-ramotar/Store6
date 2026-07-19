@@ -4,17 +4,18 @@ import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreMeta
 
 /**
- * Consume-once attribution for a future pipeline emission.
+ * Consume-once attribution owned by the exact fetch [owner] for a future pipeline emission.
  *
  * This tag applies only when a future pipeline row `==` [value]. A different or absent emission
- * consumes and discards it; equal external content is indistinguishable residue.
+ * consumes and discards it; equal external content is indistinguishable residue. Matching writer
+ * rows remain outside residence until [owner] publishes an exact durable commit disposition.
  */
 internal class AttributionTag(
+    val owner: FetchTicket,
     val value: Any,
     val origin: Origin,
     val meta: StoreMeta,
     val staleEpochAtCommit: Long,
-    val residenceRevisionAtStamp: Long,
 )
 
 /** Immutable state governing fetch ownership and invalidation epochs for one canonical key. */

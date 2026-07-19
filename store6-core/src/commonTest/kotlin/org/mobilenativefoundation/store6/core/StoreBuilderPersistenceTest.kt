@@ -5,12 +5,11 @@ import kotlinx.coroutines.test.runTest
 import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 @OptIn(ExperimentalStoreApi::class)
 class StoreBuilderPersistenceTest {
     @Test
-    fun persistenceRegistration_keepsCurrentBuildBehaviorUnchanged() = runTest {
+    fun persistenceRegistration_wiresFetchedWritesIntoTheSelectedSourceOfTruth() = runTest {
         val sourceOfTruth = InMemorySourceOfTruth<TestKey, String>()
         val store = store<TestKey, String> {
             persistence(sourceOfTruth)
@@ -19,9 +18,31 @@ class StoreBuilderPersistenceTest {
 
         assertEquals("fetched", store.get(TestKey("key")))
         sourceOfTruth.reader(TestKey("key")).test {
-            assertNull(awaitItem())
+            assertEquals("fetched", awaitItem())
             cancelAndIgnoreRemainingEvents()
         }
         store.close()
+    }
+
+    @Test
+    fun prepopulatedPersistence_localOnlyGetHydratesWithoutFetching() = runTest {
+        val sourceOfTruth = InMemorySourceOfTruth<TestKey, String>()
+        val key = TestKey("key")
+        sourceOfTruth.write(key, "durable")
+        var fetchCalls = 0
+        val store = store<TestKey, String> {
+            persistence(sourceOfTruth)
+            fetcher {
+                fetchCalls += 1
+                "network"
+            }
+        }
+
+        try {
+            assertEquals("durable", store.get(key, Freshness.LocalOnly))
+            assertEquals(0, fetchCalls)
+        } finally {
+            store.close()
+        }
     }
 }

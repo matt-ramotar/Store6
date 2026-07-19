@@ -8,12 +8,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
+import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Store
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.StoreResult
+import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 
 /**
  * Store implementation backed by one supervised [KeyEngine] per canonical key.
@@ -23,9 +25,10 @@ import org.mobilenativefoundation.store6.core.StoreResult
  * Freshness policies are honored per the [Freshness] contract; planning is delegated to the
  * engine's validator.
  */
-@OptIn(DelicateStoreApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 internal class RealStore<K : StoreKey, V : Any>(
     fetcher: suspend (K) -> FetcherResult<V>,
+    sot: SourceOfTruth<K, V>,
     wallClock: WallClock,
     bookkeeper: Bookkeeper,
 ) : Store<K, V> {
@@ -38,6 +41,7 @@ internal class RealStore<K : StoreKey, V : Any>(
                 key = key,
                 keyId = id,
                 fetcher = fetcher,
+                sot = sot,
                 bookkeeper = bookkeeper,
                 validator = DefaultFreshnessValidator,
                 wallClock = wallClock,
