@@ -1,12 +1,19 @@
 package org.mobilenativefoundation.store6.core.internal
 
+import app.cash.turbine.test
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import org.mobilenativefoundation.store6.core.FakeWallClock
+import org.mobilenativefoundation.store6.core.FetcherResult
+import org.mobilenativefoundation.store6.core.Freshness
+import org.mobilenativefoundation.store6.core.StoreResult
+import org.mobilenativefoundation.store6.core.TestKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.assertIs
 
 class KeyEnginePlanningTest {
     @Test
@@ -22,32 +29,50 @@ class KeyEnginePlanningTest {
     }
 
     @Test
-    fun residenceCommittedBeforeEnsureFetchLock_satisfiesRecheck() {
-        val state = KeyState.Initial.copy(staleEpoch = 3L)
+    fun mustBeFreshInvalidationDuringSuccessfulInitialFetch_isSatisfiedByCommit() = runTest {
+        val key = TestKey("1")
+        var calls = 0
+        val firstStarted = CompletableDeferred<Unit>()
+        val firstGate = CompletableDeferred<Unit>()
+        val secondStarted = CompletableDeferred<Unit>()
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = {
+                    when (++calls) {
+                        1 -> {
+                            firstStarted.complete(Unit)
+                            firstGate.await()
+                            FetcherResult.Success("v1")
+                        }
 
-        assertTrue(
-            residenceSatisfies(
-                state = state,
-                residentStaleEpochAtCommit = 3L,
-            ),
-        )
-    }
+                        2 -> {
+                            secondStarted.complete(Unit)
+                            FetcherResult.Success("v2")
+                        }
 
-    @Test
-    fun staleOrAbsentResidence_doesNotSatisfyRecheck() {
-        val state = KeyState.Initial.copy(staleEpoch = 3L)
+                        else -> error("unexpected fetch call $calls")
+                    }
+                },
+                bookkeeper = InMemoryBookkeeper(),
+                validator = DefaultFreshnessValidator,
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+            )
 
-        assertFalse(
-            residenceSatisfies(
-                state = state,
-                residentStaleEpochAtCommit = 2L,
-            ),
-        )
-        assertFalse(
-            residenceSatisfies(
-                state = state,
-                residentStaleEpochAtCommit = null,
-            ),
-        )
+        engine.stream(Freshness.MustBeFresh).test {
+            assertIs<StoreResult.Loading>(awaitItem())
+            firstStarted.await()
+            engine.invalidate()
+            firstGate.complete(Unit)
+
+            assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+            testScheduler.runCurrent()
+            assertEquals(1, calls)
+            assertFalse(secondStarted.isCompleted)
+            expectNoEvents()
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 }

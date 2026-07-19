@@ -21,6 +21,10 @@ internal class EngineStoreMeta(
  * This interface is a freeze candidate for issue 008; durable implementations arrive in issue
  * 006. A bookkeeper is a leaf-level lock owner, and its lock must never be co-held with an
  * engine's `stateLock`.
+ *
+ * Mutation methods are operationally infallible: implementations absorb or report their own
+ * storage failures and do not throw them through this interface. Cooperative cancellation may
+ * still propagate as `CancellationException`; implementations must not suppress it.
  */
 internal interface Bookkeeper {
     suspend fun recordSuccess(

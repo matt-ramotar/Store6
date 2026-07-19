@@ -20,8 +20,8 @@ import org.mobilenativefoundation.store6.core.StoreResult
  *
  * Each engine receives its own supervised child scope. Closing the store cancels the parent job
  * and all active engine work without allowing one key's fetch failure to cancel another key.
- * Freshness parameters are accepted at the surface; the engine currently honors the default
- * serve-resident-else-fetch posture for every policy (documented on [Freshness]).
+ * Freshness policies are honored per the [Freshness] contract; planning is delegated to the
+ * engine's validator.
  */
 @OptIn(DelicateStoreApi::class)
 internal class RealStore<K : StoreKey, V : Any>(

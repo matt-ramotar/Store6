@@ -12,6 +12,11 @@ internal sealed interface KeyEvent {
         val ticket: FetchTicket,
     ) : KeyEvent
 
+    /** Reports that the fetch represented by [ticket] observed a server-side deletion. */
+    class CommitDeleted(
+        val ticket: FetchTicket,
+    ) : KeyEvent
+
     /** Reports that the fetch represented by [ticket] reached a terminal outcome. */
     class SettleFetch(
         val ticket: FetchTicket,
@@ -38,6 +43,9 @@ internal sealed interface KeyEffect {
 
     /** Assign the fetched value to residence inside the same critical section. */
     data object Commit : KeyEffect
+
+    /** Null out residence and forget bookkeeping: the server deleted the value. */
+    data object CommitDelete : KeyEffect
 
     /** The fetch result was rejected because a clear advanced the clear epoch after launch. */
     data object Superseded : KeyEffect
@@ -106,6 +114,34 @@ internal fun transition(
                             KeyTransition(
                                 state = state.copy(fetch = FetchSlot.Idle),
                                 effect = KeyEffect.Commit,
+                            )
+                    }
+
+                FetchSlot.Idle ->
+                    KeyTransition(state = state, effect = KeyEffect.Ignored)
+            }
+
+        is KeyEvent.CommitDeleted ->
+            when (val slot = state.fetch) {
+                is FetchSlot.InFlight ->
+                    when {
+                        slot.ticket !== event.ticket ->
+                            KeyTransition(state = state, effect = KeyEffect.Ignored)
+
+                        slot.clearEpochAtLaunch != state.clearEpoch ->
+                            KeyTransition(state = state, effect = KeyEffect.Superseded)
+
+                        else ->
+                            KeyTransition(
+                                // staleEpoch deliberately unchanged: a deleted key is absent-and-
+                                // satisfied, so streams are not driven into a refetch loop; the
+                                // next demand fetches. clearEpoch advances because the removal is
+                                // destructive.
+                                state = state.copy(
+                                    fetch = FetchSlot.Idle,
+                                    clearEpoch = state.clearEpoch + 1,
+                                ),
+                                effect = KeyEffect.CommitDelete,
                             )
                     }
 

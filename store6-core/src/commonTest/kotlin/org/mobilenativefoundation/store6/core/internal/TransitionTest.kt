@@ -198,4 +198,57 @@ class TransitionTest {
         assertIs<KeyEffect.Ignored>(result.effect)
         assertSame(committed.state, result.state)
     }
+
+    @Test
+    fun commitDeleted_matchingTicketAndEpoch_settlesAndRequestsDeleteCommit() {
+        val owner = ticket()
+        val state = KeyState.Initial.copy(fetch = FetchSlot.InFlight(owner, clearEpochAtLaunch = 0L))
+        val result = transition(state, KeyEvent.CommitDeleted(owner))
+        assertEquals(KeyEffect.CommitDelete, result.effect)
+        assertEquals(FetchSlot.Idle, result.state.fetch)
+        assertEquals(1L, result.state.clearEpoch)
+        assertEquals(0L, result.state.staleEpoch) // no stale bump: deletion must not drive refetch loops
+    }
+
+    @Test
+    fun commitDeleted_afterClearAdvancedEpoch_isSuperseded() {
+        val owner = ticket()
+        val state = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(owner, clearEpochAtLaunch = 0L),
+            staleEpoch = 1L,
+            clearEpoch = 1L,
+        )
+        val result = transition(state, KeyEvent.CommitDeleted(owner))
+        assertEquals(KeyEffect.Superseded, result.effect)
+        assertSame(state, result.state)
+    }
+
+    @Test
+    fun commitDeleted_staleTicket_isIgnored() {
+        val state = KeyState.Initial.copy(fetch = FetchSlot.InFlight(ticket(), clearEpochAtLaunch = 0L))
+        val result = transition(state, KeyEvent.CommitDeleted(ticket()))
+        assertEquals(KeyEffect.Ignored, result.effect)
+        assertSame(state, result.state)
+    }
+
+    @Test
+    fun commitDeleted_whenIdle_isIgnored() {
+        val result = transition(KeyState.Initial, KeyEvent.CommitDeleted(ticket()))
+        assertEquals(KeyEffect.Ignored, result.effect)
+        assertSame(KeyState.Initial, result.state)
+    }
+
+    @Test
+    fun commitDeleted_preservesStaleEpochUnderPriorInvalidations() {
+        val owner = ticket()
+        val state = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(owner, clearEpochAtLaunch = 2L),
+            staleEpoch = 5L,
+            clearEpoch = 2L,
+        )
+        val result = transition(state, KeyEvent.CommitDeleted(owner))
+        assertEquals(KeyEffect.CommitDelete, result.effect)
+        assertEquals(5L, result.state.staleEpoch)
+        assertEquals(3L, result.state.clearEpoch)
+    }
 }

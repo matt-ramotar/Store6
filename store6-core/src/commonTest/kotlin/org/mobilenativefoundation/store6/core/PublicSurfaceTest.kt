@@ -61,9 +61,9 @@ class PublicSurfaceTest {
         }
     }
 
-    /** Freshness values are accepted everywhere; the single 003 posture is honored for all. */
+    /** Freshness values are accepted everywhere and apply their documented postures. */
     @Test
-    fun allFreshnessValues_acceptedAndHonorDefaultPosture() = runTest {
+    fun allFreshnessValues_acceptedWithHonestPostures() = runTest {
         val store = store<TestKey, String> { fetcher { "v" } }
         val policies = listOf(
             Freshness.CachedOrFetch,
@@ -76,6 +76,7 @@ class PublicSurfaceTest {
             assertEquals("v", store.get(TestKey("k"), policy))
         }
         store.stream(TestKey("k"), Freshness.MustBeFresh).test {
+            assertIs<StoreResult.Loading>(awaitItem())
             assertIs<StoreResult.Data<String>>(awaitItem())
             cancelAndIgnoreRemainingEvents()
         }

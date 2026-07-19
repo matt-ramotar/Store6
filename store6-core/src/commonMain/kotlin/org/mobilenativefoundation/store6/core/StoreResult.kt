@@ -8,7 +8,7 @@ import kotlin.time.Duration
  * @param V the type of data carried by [Data]
  */
 public sealed interface StoreResult<out V> {
-    /** Indicates that the store is retrieving a value and has no resident value to emit. */
+    /** Indicates that the store has no servable resident value under the policy in effect. */
     public class Loading internal constructor() : StoreResult<Nothing>
 
     /**
@@ -26,7 +26,10 @@ public sealed interface StoreResult<out V> {
         /** Elapsed time since [value] was committed to the store. */
         public val age: Duration,
 
-        /** Whether [value] has been invalidated and a fresher value should be expected. */
+        /**
+         * Whether the value was invalidated, or exceeds the age bound of the freshness policy in
+         * effect for this observation.
+         */
         public val isStale: Boolean,
 
         /** Whether a fetch was in flight for this key when this result was emitted. */
@@ -37,15 +40,18 @@ public sealed interface StoreResult<out V> {
      * Confirmation that the current value is still fresh without a new value being produced —
      * the not-modified signal of a conditional fetch.
      *
-     * Present behavior: never emitted; conditional fetches arrive with the freshness engine.
-     * The type is part of the frozen result vocabulary so its arrival is not a breaking change.
+     * Present behavior: not yet emitted; a NotModified fetch refreshes metadata and re-emits
+     * [Data] until conditional revalidation lands with the invalidation engine.
      */
     public class Revalidated internal constructor(
         /** Elapsed time since the value was last committed, measured at revalidation. */
         public val age: Duration,
     ) : StoreResult<Nothing>
 
-    /** A retrieval failure emitted without terminating the observed stream. */
+    /**
+     * A retrieval failure; it terminates the observed stream only in the MustBeFresh initial
+     * cycle, otherwise the stream stays live.
+     */
     public class Error internal constructor(
         /** The structured error describing the failure. */
         public val error: StoreError,
@@ -53,8 +59,9 @@ public sealed interface StoreResult<out V> {
         /**
          * Whether a stale value was served alongside this failure under a stale-tolerant policy.
          *
-         * Present behavior: always `false`; stale-if-error serving arrives with the freshness
-         * engine.
+         * `true` when an invalidated resident was served and its refresh failed under
+         * [Freshness.CachedOrFetch] or [Freshness.StaleIfError]; `false` when no resident was
+         * served or the policy withheld it.
          */
         public val servedStale: Boolean,
     ) : StoreResult<Nothing>

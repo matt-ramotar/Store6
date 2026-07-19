@@ -32,11 +32,18 @@ internal sealed interface FetchOutcome {
     /** The fetched value was committed before the outcome became observable. */
     data object Committed : FetchOutcome
 
-    /** The fetch failed with [exception]. */
+    /** The fetch failed with [exception] at [atEpochMillis]. */
     class Failed(
         val exception: StoreException,
+        val atEpochMillis: Long,
     ) : FetchOutcome
 
     /** The fetch succeeded but a clear advanced the clear epoch after launch; the value was discarded. */
     data object Superseded : FetchOutcome
+
+    /** The fetcher reported not-modified; resident metadata was refreshed in place. */
+    data object Revalidated : FetchOutcome
+
+    /** The fetcher reported server-side deletion; residence was destructively removed. */
+    data object Deleted : FetchOutcome
 }

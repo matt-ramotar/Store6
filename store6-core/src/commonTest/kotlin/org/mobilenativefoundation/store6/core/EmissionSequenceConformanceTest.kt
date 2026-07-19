@@ -2,7 +2,9 @@ package org.mobilenativefoundation.store6.core
 
 import app.cash.turbine.test
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -141,7 +143,9 @@ class EmissionSequenceConformanceTest {
                 assertTrue(fetch.cause === boom)
                 assertFalse(failure.servedStale)
 
-                withTimeout(1_000) { secondStarted.await() }
+                withContext(Dispatchers.Default) {
+                    withTimeout(1_000) { secondStarted.await() }
+                }
                 expectNoEvents()
                 secondGate.complete(Unit)
 
