@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
+import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Store
 import org.mobilenativefoundation.store6.core.StoreKey
@@ -19,21 +20,27 @@ import org.mobilenativefoundation.store6.core.StoreResult
  *
  * Each engine receives its own supervised child scope. Closing the store cancels the parent job
  * and all active engine work without allowing one key's fetch failure to cancel another key.
- * Freshness parameters are accepted at the surface; the engine currently honors the default
- * serve-resident-else-fetch posture for every policy (documented on [Freshness]).
+ * Freshness policies are honored per the [Freshness] contract; planning is delegated to the
+ * engine's validator.
  */
 @OptIn(DelicateStoreApi::class)
 internal class RealStore<K : StoreKey, V : Any>(
-    fetcher: suspend (K) -> V,
+    fetcher: suspend (K) -> FetcherResult<V>,
+    wallClock: WallClock,
+    bookkeeper: Bookkeeper,
 ) : Store<K, V> {
     private val storeJob = SupervisorJob()
     private val storeScope = CoroutineScope(Dispatchers.Default + storeJob)
     private val registry =
-        KeyRegistry<K, V> { key ->
+        KeyRegistry<K, V> { key, id ->
             val engineJob = SupervisorJob(storeJob)
             KeyEngine(
                 key = key,
+                keyId = id,
                 fetcher = fetcher,
+                bookkeeper = bookkeeper,
+                validator = DefaultFreshnessValidator,
+                wallClock = wallClock,
                 engineScope = CoroutineScope(storeScope.coroutineContext + engineJob),
             )
         }
@@ -46,7 +53,7 @@ internal class RealStore<K : StoreKey, V : Any>(
         return flow {
             ensureOpen()
             registry.withEngine(key) { engine ->
-                emitAll(engine.stream())
+                emitAll(engine.stream(freshness))
             }
         }
     }
@@ -56,7 +63,7 @@ internal class RealStore<K : StoreKey, V : Any>(
         freshness: Freshness,
     ): V {
         ensureOpen()
-        return registry.withEngine(key) { engine -> engine.get() }
+        return registry.withEngine(key) { engine -> engine.get(freshness) }
     }
 
     override suspend fun invalidate(key: K) {

@@ -6,9 +6,9 @@
 #import <Foundation/NSString.h>
 #import <Foundation/NSValue.h>
 
-@class Store6CoreFreshnessCachedOrFetch, Store6CoreFreshnessLocalOnly, Store6CoreFreshnessMustBeFresh, Store6CoreFreshnessStaleIfError, Store6CoreKotlinArray<T>, Store6CoreKotlinEnum<E>, Store6CoreKotlinEnumCompanion, Store6CoreKotlinException, Store6CoreKotlinIllegalStateException, Store6CoreKotlinRuntimeException, Store6CoreKotlinThrowable, Store6CoreOrigin, Store6CoreStoreBuilder<K, V>, Store6CoreStoreError, Store6CoreStoreNamespace;
+@class Store6CoreFetcherResultDeleted, Store6CoreFreshnessCachedOrFetch, Store6CoreFreshnessLocalOnly, Store6CoreFreshnessMustBeFresh, Store6CoreFreshnessStaleIfError, Store6CoreKotlinArray<T>, Store6CoreKotlinEnum<E>, Store6CoreKotlinEnumCompanion, Store6CoreKotlinException, Store6CoreKotlinIllegalStateException, Store6CoreKotlinRuntimeException, Store6CoreKotlinThrowable, Store6CoreOrigin, Store6CoreStoreBuilder<K, V>, Store6CoreStoreError, Store6CoreStoreNamespace;
 
-@protocol Store6CoreFreshness, Store6CoreKotlinComparable, Store6CoreKotlinFunction, Store6CoreKotlinIterator, Store6CoreKotlinSuspendFunction1, Store6CoreKotlinx_coroutines_coreFlow, Store6CoreKotlinx_coroutines_coreFlowCollector, Store6CoreStore, Store6CoreStoreKey, Store6CoreStoreMeta, Store6CoreStoreResult;
+@protocol Store6CoreFetcherResult, Store6CoreFreshness, Store6CoreKotlinComparable, Store6CoreKotlinFunction, Store6CoreKotlinIterator, Store6CoreKotlinSuspendFunction1, Store6CoreKotlinx_coroutines_coreFlow, Store6CoreKotlinx_coroutines_coreFlowCollector, Store6CoreStore, Store6CoreStoreKey, Store6CoreStoreMeta, Store6CoreStoreResult;
 
 NS_ASSUME_NONNULL_BEGIN
 #pragma clang diagnostic push
@@ -142,6 +142,45 @@ __attribute__((swift_name("KotlinBoolean")))
 @interface Store6CoreBoolean : Store6CoreNumber
 - (instancetype)initWithBool:(BOOL)value;
 + (instancetype)numberWithBool:(BOOL)value;
+@end
+
+__attribute__((swift_name("FetcherResult")))
+@protocol Store6CoreFetcherResult
+@required
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultDeleted")))
+@interface Store6CoreFetcherResultDeleted : Store6CoreBase <Store6CoreFetcherResult>
++ (instancetype)alloc __attribute__((unavailable));
++ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
++ (instancetype)deleted __attribute__((swift_name("init()")));
+@property (class, readonly, getter=shared) Store6CoreFetcherResultDeleted *shared __attribute__((swift_name("shared")));
+- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
+- (NSUInteger)hash __attribute__((swift_name("hash()")));
+- (NSString *)description __attribute__((swift_name("description()")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultError")))
+@interface Store6CoreFetcherResultError : Store6CoreBase <Store6CoreFetcherResult>
+- (instancetype)initWithCause:(Store6CoreKotlinThrowable *)cause __attribute__((swift_name("init(cause:)"))) __attribute__((objc_designated_initializer));
+@property (readonly) Store6CoreKotlinThrowable *cause __attribute__((swift_name("cause")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultNotModified")))
+@interface Store6CoreFetcherResultNotModified : Store6CoreBase <Store6CoreFetcherResult>
+- (instancetype)initWithEtag:(NSString * _Nullable)etag __attribute__((swift_name("init(etag:)"))) __attribute__((objc_designated_initializer));
+@property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultSuccess")))
+@interface Store6CoreFetcherResultSuccess<V> : Store6CoreBase <Store6CoreFetcherResult>
+- (instancetype)initWithValue:(V)value etag:(NSString * _Nullable)etag __attribute__((swift_name("init(value:etag:)"))) __attribute__((objc_designated_initializer));
+@property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
+@property (readonly) V value __attribute__((swift_name("value")));
 @end
 
 __attribute__((swift_name("Freshness")))
@@ -289,6 +328,7 @@ __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("StoreBuilder")))
 @interface Store6CoreStoreBuilder<K, V> : Store6CoreBase
 - (void)fetcherFetch:(id<Store6CoreKotlinSuspendFunction1>)fetch __attribute__((swift_name("fetcher(fetch:)")));
+- (void)fetcherOfResultFetch:(id<Store6CoreKotlinSuspendFunction1>)fetch __attribute__((swift_name("fetcherOfResult(fetch:)")));
 @end
 
 __attribute__((swift_name("StoreError")))
@@ -395,6 +435,8 @@ __attribute__((swift_name("StoreKey")))
 __attribute__((swift_name("StoreMeta")))
 @protocol Store6CoreStoreMeta
 @required
+@property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
+@property (readonly) int64_t writtenAtEpochMillis __attribute__((swift_name("writtenAtEpochMillis")));
 @end
 
 __attribute__((objc_subclassing_restricted))

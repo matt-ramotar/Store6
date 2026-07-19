@@ -6,9 +6,9 @@
 #import <Foundation/NSString.h>
 #import <Foundation/NSValue.h>
 
-@class SCS__SkieSuspendWrappersKt, SCSUShort, SCSULong, SCSUInt, SCSUByte, SCSStoreResultRevalidated, SCSStoreResultLoading, SCSStoreResultError, SCSStoreResultData<V>, SCSStoreNamespace, SCSStoreException, SCSStoreErrorPersistence, SCSStoreErrorMissing, SCSStoreErrorFreshnessUnsatisfiable, SCSStoreErrorFetch, SCSStoreErrorConversion, SCSStoreErrorConflict, SCSStoreError, SCSStoreBuilderKt, SCSStoreBuilder<K, V>, SCSSkie_SuspendResultSuccess, SCSSkie_SuspendResultError, SCSSkie_SuspendResultCanceled, SCSSkie_SuspendResult, SCSSkie_SuspendHandler, SCSSkie_CancellationHandler, SCSSkieKotlinStateFlow<T>, SCSSkieKotlinSharedFlow<T>, SCSSkieKotlinOptionalStateFlow<T>, SCSSkieKotlinOptionalSharedFlow<T>, SCSSkieKotlinOptionalMutableStateFlow<T>, SCSSkieKotlinOptionalMutableSharedFlow<T>, SCSSkieKotlinOptionalFlow<T>, SCSSkieKotlinMutableStateFlow<T>, SCSSkieKotlinMutableSharedFlow<T>, SCSSkieKotlinFlow<T>, SCSSkieColdFlowIterator<E>, SCSShort, SCSOrigin, SCSNumber, SCSMutableSet<ObjectType>, SCSMutableDictionary<KeyType, ObjectType>, SCSLong, SCSKotlinThrowable, SCSKotlinRuntimeException, SCSKotlinIllegalStateException, SCSKotlinException, SCSKotlinEnumCompanion, SCSKotlinEnum<E>, SCSKotlinCancellationException, SCSKotlinArray<T>, SCSInt, SCSFreshnessStaleIfError, SCSFreshnessMustBeFresh, SCSFreshnessMaxAge, SCSFreshnessLocalOnly, SCSFreshnessCachedOrFetch, SCSFloat, SCSDouble, SCSByte, SCSBoolean, SCSBase, NSString, NSSet<ObjectType>, NSObject, NSNumber, NSMutableSet<ObjectType>, NSMutableDictionary<KeyType, ObjectType>, NSMutableArray<ObjectType>, NSError, NSDictionary<KeyType, ObjectType>, NSArray<ObjectType>;
+@class SCS__SkieSuspendWrappersKt, SCSUShort, SCSULong, SCSUInt, SCSUByte, SCSStoreResultRevalidated, SCSStoreResultLoading, SCSStoreResultError, SCSStoreResultData<V>, SCSStoreNamespace, SCSStoreException, SCSStoreErrorPersistence, SCSStoreErrorMissing, SCSStoreErrorFreshnessUnsatisfiable, SCSStoreErrorFetch, SCSStoreErrorConversion, SCSStoreErrorConflict, SCSStoreError, SCSStoreBuilderKt, SCSStoreBuilder<K, V>, SCSSkie_SuspendResultSuccess, SCSSkie_SuspendResultError, SCSSkie_SuspendResultCanceled, SCSSkie_SuspendResult, SCSSkie_SuspendHandler, SCSSkie_CancellationHandler, SCSSkieKotlinStateFlow<T>, SCSSkieKotlinSharedFlow<T>, SCSSkieKotlinOptionalStateFlow<T>, SCSSkieKotlinOptionalSharedFlow<T>, SCSSkieKotlinOptionalMutableStateFlow<T>, SCSSkieKotlinOptionalMutableSharedFlow<T>, SCSSkieKotlinOptionalFlow<T>, SCSSkieKotlinMutableStateFlow<T>, SCSSkieKotlinMutableSharedFlow<T>, SCSSkieKotlinFlow<T>, SCSSkieColdFlowIterator<E>, SCSShort, SCSOrigin, SCSNumber, SCSMutableSet<ObjectType>, SCSMutableDictionary<KeyType, ObjectType>, SCSLong, SCSKotlinThrowable, SCSKotlinRuntimeException, SCSKotlinIllegalStateException, SCSKotlinException, SCSKotlinEnumCompanion, SCSKotlinEnum<E>, SCSKotlinCancellationException, SCSKotlinArray<T>, SCSInt, SCSFreshnessStaleIfError, SCSFreshnessMustBeFresh, SCSFreshnessMaxAge, SCSFreshnessLocalOnly, SCSFreshnessCachedOrFetch, SCSFloat, SCSFetcherResultSuccess<V>, SCSFetcherResultNotModified, SCSFetcherResultError, SCSFetcherResultDeleted, SCSDouble, SCSByte, SCSBoolean, SCSBase, NSString, NSSet<ObjectType>, NSObject, NSNumber, NSMutableSet<ObjectType>, NSMutableDictionary<KeyType, ObjectType>, NSMutableArray<ObjectType>, NSError, NSDictionary<KeyType, ObjectType>, NSArray<ObjectType>;
 
-@protocol SCSStoreResult, SCSStoreMeta, SCSStoreKey, SCSStore, SCSSkie_DispatcherDelegate, SCSKotlinx_coroutines_coreStateFlow, SCSKotlinx_coroutines_coreSharedFlow, SCSKotlinx_coroutines_coreRunnable, SCSKotlinx_coroutines_coreMutableStateFlow, SCSKotlinx_coroutines_coreMutableSharedFlow, SCSKotlinx_coroutines_coreFlowCollector, SCSKotlinx_coroutines_coreFlow, SCSKotlinSuspendFunction1, SCSKotlinIterator, SCSKotlinFunction, SCSKotlinComparable, SCSFreshness, NSCopying;
+@protocol SCSStoreResult, SCSStoreMeta, SCSStoreKey, SCSStore, SCSSkie_DispatcherDelegate, SCSKotlinx_coroutines_coreStateFlow, SCSKotlinx_coroutines_coreSharedFlow, SCSKotlinx_coroutines_coreRunnable, SCSKotlinx_coroutines_coreMutableStateFlow, SCSKotlinx_coroutines_coreMutableSharedFlow, SCSKotlinx_coroutines_coreFlowCollector, SCSKotlinx_coroutines_coreFlow, SCSKotlinSuspendFunction1, SCSKotlinIterator, SCSKotlinFunction, SCSKotlinComparable, SCSFreshness, SCSFetcherResult, NSCopying;
 
 // Due to an Obj-C/Swift interop limitation, SKIE cannot generate Swift types with a lambda type argument.
 // Example of such type is: A<() -> Unit> where A<T> is a generic class.
@@ -478,6 +478,45 @@ __attribute__((swift_name("Skie_SuspendResult.Success")))
 - (NSString *)description __attribute__((swift_name("description()")));
 @end
 
+__attribute__((swift_name("FetcherResult")))
+@protocol SCSFetcherResult
+@required
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultDeleted")))
+@interface SCSFetcherResultDeleted : SCSBase <SCSFetcherResult>
+@property (class, readonly, getter=shared) SCSFetcherResultDeleted *shared __attribute__((swift_name("shared")));
++ (instancetype)alloc __attribute__((unavailable));
++ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
++ (instancetype)deleted __attribute__((swift_name("init()")));
+- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
+- (NSUInteger)hash __attribute__((swift_name("hash()")));
+- (NSString *)description __attribute__((swift_name("description()")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultError")))
+@interface SCSFetcherResultError : SCSBase <SCSFetcherResult>
+@property (readonly) SCSKotlinThrowable *cause __attribute__((swift_name("cause")));
+- (instancetype)initWithCause:(SCSKotlinThrowable *)cause __attribute__((swift_name("init(cause:)"))) __attribute__((objc_designated_initializer));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultNotModified")))
+@interface SCSFetcherResultNotModified : SCSBase <SCSFetcherResult>
+@property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
+- (instancetype)initWithEtag:(NSString * _Nullable)etag __attribute__((swift_name("init(etag:)"))) __attribute__((objc_designated_initializer));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultSuccess")))
+@interface SCSFetcherResultSuccess<V> : SCSBase <SCSFetcherResult>
+@property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
+@property (readonly) V value __attribute__((swift_name("value")));
+- (instancetype)initWithValue:(V)value etag:(NSString * _Nullable)etag __attribute__((swift_name("init(value:etag:)"))) __attribute__((objc_designated_initializer));
+@end
+
 __attribute__((swift_name("Freshness")))
 @protocol SCSFreshness
 @required
@@ -623,6 +662,7 @@ __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("StoreBuilder")))
 @interface SCSStoreBuilder<K, V> : SCSBase
 - (void)fetcherFetch:(id<SCSKotlinSuspendFunction1>)fetch __attribute__((swift_name("fetcher(fetch:)")));
+- (void)fetcherOfResultFetch:(id<SCSKotlinSuspendFunction1>)fetch __attribute__((swift_name("fetcherOfResult(fetch:)")));
 @end
 
 __attribute__((swift_name("StoreError")))
@@ -729,6 +769,8 @@ __attribute__((swift_name("StoreKey")))
 __attribute__((swift_name("StoreMeta")))
 @protocol SCSStoreMeta
 @required
+@property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
+@property (readonly) int64_t writtenAtEpochMillis __attribute__((swift_name("writtenAtEpochMillis")));
 @end
 
 __attribute__((objc_subclassing_restricted))

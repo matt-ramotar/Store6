@@ -50,7 +50,43 @@ abstract interface org.mobilenativefoundation.store6.core/StoreKey { // org.mobi
     abstract fun canonicalId(): kotlin/String // org.mobilenativefoundation.store6.core/StoreKey.canonicalId|canonicalId(){}[0]
 }
 
-abstract interface org.mobilenativefoundation.store6.core/StoreMeta // org.mobilenativefoundation.store6.core/StoreMeta|null[0]
+abstract interface org.mobilenativefoundation.store6.core/StoreMeta { // org.mobilenativefoundation.store6.core/StoreMeta|null[0]
+    abstract val etag // org.mobilenativefoundation.store6.core/StoreMeta.etag|{}etag[0]
+        abstract fun <get-etag>(): kotlin/String? // org.mobilenativefoundation.store6.core/StoreMeta.etag.<get-etag>|<get-etag>(){}[0]
+    abstract val writtenAtEpochMillis // org.mobilenativefoundation.store6.core/StoreMeta.writtenAtEpochMillis|{}writtenAtEpochMillis[0]
+        abstract fun <get-writtenAtEpochMillis>(): kotlin/Long // org.mobilenativefoundation.store6.core/StoreMeta.writtenAtEpochMillis.<get-writtenAtEpochMillis>|<get-writtenAtEpochMillis>(){}[0]
+}
+
+sealed interface <#A: out kotlin/Any> org.mobilenativefoundation.store6.core/FetcherResult { // org.mobilenativefoundation.store6.core/FetcherResult|null[0]
+    final class <#A1: kotlin/Any> Success : org.mobilenativefoundation.store6.core/FetcherResult<#A1> { // org.mobilenativefoundation.store6.core/FetcherResult.Success|null[0]
+        constructor <init>(#A1, kotlin/String? = ...) // org.mobilenativefoundation.store6.core/FetcherResult.Success.<init>|<init>(1:0;kotlin.String?){}[0]
+
+        final val etag // org.mobilenativefoundation.store6.core/FetcherResult.Success.etag|{}etag[0]
+            final fun <get-etag>(): kotlin/String? // org.mobilenativefoundation.store6.core/FetcherResult.Success.etag.<get-etag>|<get-etag>(){}[0]
+        final val value // org.mobilenativefoundation.store6.core/FetcherResult.Success.value|{}value[0]
+            final fun <get-value>(): #A1 // org.mobilenativefoundation.store6.core/FetcherResult.Success.value.<get-value>|<get-value>(){}[0]
+    }
+
+    final class Error : org.mobilenativefoundation.store6.core/FetcherResult<kotlin/Nothing> { // org.mobilenativefoundation.store6.core/FetcherResult.Error|null[0]
+        constructor <init>(kotlin/Throwable) // org.mobilenativefoundation.store6.core/FetcherResult.Error.<init>|<init>(kotlin.Throwable){}[0]
+
+        final val cause // org.mobilenativefoundation.store6.core/FetcherResult.Error.cause|{}cause[0]
+            final fun <get-cause>(): kotlin/Throwable // org.mobilenativefoundation.store6.core/FetcherResult.Error.cause.<get-cause>|<get-cause>(){}[0]
+    }
+
+    final class NotModified : org.mobilenativefoundation.store6.core/FetcherResult<kotlin/Nothing> { // org.mobilenativefoundation.store6.core/FetcherResult.NotModified|null[0]
+        constructor <init>(kotlin/String? = ...) // org.mobilenativefoundation.store6.core/FetcherResult.NotModified.<init>|<init>(kotlin.String?){}[0]
+
+        final val etag // org.mobilenativefoundation.store6.core/FetcherResult.NotModified.etag|{}etag[0]
+            final fun <get-etag>(): kotlin/String? // org.mobilenativefoundation.store6.core/FetcherResult.NotModified.etag.<get-etag>|<get-etag>(){}[0]
+    }
+
+    final object Deleted : org.mobilenativefoundation.store6.core/FetcherResult<kotlin/Nothing> { // org.mobilenativefoundation.store6.core/FetcherResult.Deleted|null[0]
+        final fun equals(kotlin/Any?): kotlin/Boolean // org.mobilenativefoundation.store6.core/FetcherResult.Deleted.equals|equals(kotlin.Any?){}[0]
+        final fun hashCode(): kotlin/Int // org.mobilenativefoundation.store6.core/FetcherResult.Deleted.hashCode|hashCode(){}[0]
+        final fun toString(): kotlin/String // org.mobilenativefoundation.store6.core/FetcherResult.Deleted.toString|toString(){}[0]
+    }
+}
 
 sealed interface <#A: out kotlin/Any?> org.mobilenativefoundation.store6.core/StoreResult { // org.mobilenativefoundation.store6.core/StoreResult|null[0]
     final class <#A1: kotlin/Any?> Data : org.mobilenativefoundation.store6.core/StoreResult<#A1> { // org.mobilenativefoundation.store6.core/StoreResult.Data|null[0]
@@ -116,6 +152,7 @@ sealed interface org.mobilenativefoundation.store6.core/Freshness { // org.mobil
 
 final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core/StoreBuilder { // org.mobilenativefoundation.store6.core/StoreBuilder|null[0]
     final fun fetcher(kotlin.coroutines/SuspendFunction1<#A, #B>) // org.mobilenativefoundation.store6.core/StoreBuilder.fetcher|fetcher(kotlin.coroutines.SuspendFunction1<1:0,1:1>){}[0]
+    final fun fetcherOfResult(kotlin.coroutines/SuspendFunction1<#A, org.mobilenativefoundation.store6.core/FetcherResult<#B>>) // org.mobilenativefoundation.store6.core/StoreBuilder.fetcherOfResult|fetcherOfResult(kotlin.coroutines.SuspendFunction1<1:0,org.mobilenativefoundation.store6.core.FetcherResult<1:1>>){}[0]
 }
 
 final class org.mobilenativefoundation.store6.core/StoreException : kotlin/RuntimeException { // org.mobilenativefoundation.store6.core/StoreException|null[0]

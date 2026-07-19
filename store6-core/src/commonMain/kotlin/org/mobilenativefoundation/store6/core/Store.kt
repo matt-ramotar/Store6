@@ -19,14 +19,17 @@ public interface Store<K : StoreKey, out V : Any> {
      * Observes retrieval state and values for [key].
      *
      * Fetch failures are emitted as [StoreResult.Error] values rather than thrown to the
-     * collector; the flow stays live after a failure. The flow remains active until its
-     * collector is cancelled or the store is closed, and continues to report later values,
-     * including refetches triggered by invalidation and the absent-value transition after a
-     * clear. Concurrent collectors and callers for one key share a single fetch.
+     * collector. A [Freshness.MustBeFresh] initial-cycle failure emits one error and completes
+     * the flow; every other failure leaves the flow live. Otherwise, the flow remains active
+     * until its collector is cancelled or the store is closed, and continues to report later
+     * values, including refetches triggered by invalidation and the absent-value transition
+     * after a clear. Concurrent collectors and callers for one key share a single fetch.
      *
-     * Present behavior: [freshness] is accepted but the engine honors the default
-     * serve-resident-else-fetch posture for every policy until the freshness engine lands, as
-     * documented on [Freshness].
+     * [Freshness.CachedOrFetch] serves a resident value and refreshes it after invalidation;
+     * [Freshness.MaxAge] withholds an invalidated or over-age resident until a fetch succeeds;
+     * [Freshness.MustBeFresh] always withholds residence and treats an initial-cycle failure as
+     * terminal; [Freshness.StaleIfError] serves invalidated residence while reporting a failed
+     * refresh; and [Freshness.LocalOnly] never fetches.
      *
      * @param key the key to observe
      * @param freshness the freshness policy applied to this observation
@@ -40,19 +43,19 @@ public interface Store<K : StoreKey, out V : Any> {
     ): Flow<StoreResult<V>>
 
     /**
-     * Returns the value for [key], using a resident value when one is available.
+     * Returns the value for [key] according to [freshness].
      *
-     * A stale resident value is served immediately and refreshed in the background. When no
-     * resident value exists, the call joins the key's single in-flight fetch or starts one.
-     *
-     * Present behavior: [freshness] is accepted but the engine honors the default
-     * serve-resident-else-fetch posture for every policy until the freshness engine lands.
+     * [Freshness.CachedOrFetch] returns residence immediately and refreshes it in the background
+     * after invalidation. [Freshness.MaxAge] and [Freshness.MustBeFresh] block for a qualifying
+     * fetch. [Freshness.StaleIfError] blocks after invalidation and returns the resident value only
+     * when the refresh fails. [Freshness.LocalOnly] never fetches.
      *
      * @param key the key whose value is requested
      * @param freshness the freshness policy applied to this read
      * @return the resolved value
-     * @throws StoreException when no value can be returned: the fetch failed, or a concurrent
-     * [clear] removed the key while its fetch was in flight ([StoreError.Missing])
+     * @throws StoreException when no value can be returned: the fetch failed, a concurrent
+     * [clear] removed the key while its fetch was in flight, [Freshness.LocalOnly] found no local
+     * value, or the server reported deletion ([StoreError.Missing])
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun get(

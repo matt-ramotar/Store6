@@ -3,10 +3,14 @@ package org.mobilenativefoundation.store6.core
 /**
  * Typed freshness and identity metadata attached to stored values.
  *
- * At this stage the interface is a marker: it exists so that [StoreError.Conflict] can carry a
- * typed server-side metadata payload from day one instead of an untyped placeholder. The full
- * shape (written-at instant, optional entity tag) is introduced with the freshness engine and is
- * an open review item — no timestamp representation is committed here because kotlin.time's
- * Instant is not stable on the current language floor.
+ * [StoreResult.Data.age] and age-bounded [Freshness] policies derive from this metadata; an untyped
+ * metadata channel does not exist anywhere in Store. Milliseconds since the Unix epoch are used
+ * because no stable cross-platform instant type exists on the current language floor.
  */
-public interface StoreMeta
+public interface StoreMeta {
+    /** The wall-clock time at which the value was written, in Unix epoch milliseconds. */
+    public val writtenAtEpochMillis: Long
+
+    /** The optional entity tag associated with the value. */
+    public val etag: String?
+}
