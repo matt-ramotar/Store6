@@ -212,7 +212,15 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         return bookkeepingLock.withLock {
             val outcome =
                 stateLock.withLock {
-                    val result = transition(mutableState.value, KeyEvent.CommitFetch(ticket))
+                    val result = transition(
+                        mutableState.value,
+                        KeyEvent.CommitFetch(
+                            ticket = ticket,
+                            value = value,
+                            meta = meta,
+                            residenceRevisionAtStamp = 0L,
+                        ),
+                    )
                     mutableState.value = result.state
                     when (result.effect) {
                         KeyEffect.Commit -> {
@@ -250,10 +258,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             var refreshedMeta: StoreMeta? = null
             val outcome =
                 stateLock.withLock {
-                    val result = transition(mutableState.value, KeyEvent.CommitFetch(ticket))
+                    val result = transition(
+                        mutableState.value,
+                        KeyEvent.CommitRevalidated(ticket),
+                    )
                     mutableState.value = result.state
                     when (result.effect) {
-                        KeyEffect.Commit -> {
+                        KeyEffect.CommitRevalidation -> {
                             residence.value?.let { current ->
                                 val meta = EngineStoreMeta(now, etag ?: current.meta.etag)
                                 refreshedMeta = meta

@@ -1,5 +1,8 @@
 package org.mobilenativefoundation.store6.core.internal
 
+import org.mobilenativefoundation.store6.core.Origin
+import org.mobilenativefoundation.store6.core.StoreMeta
+
 /** An input applied to the immutable state for a canonical key. */
 internal sealed interface KeyEvent {
     /** Requests a fetch, offering [fresh] as the ticket if no fetch is active. */
@@ -7,8 +10,16 @@ internal sealed interface KeyEvent {
         val fresh: FetchTicket,
     ) : KeyEvent
 
-    /** Reports that the fetch represented by [ticket] produced a value ready to commit. */
+    /** Reports that the fetch represented by [ticket] produced [value] ready to commit. */
     class CommitFetch(
+        val ticket: FetchTicket,
+        val value: Any,
+        val meta: StoreMeta,
+        val residenceRevisionAtStamp: Long,
+    ) : KeyEvent
+
+    /** Reports that the fetch represented by [ticket] revalidated the resident value. */
+    class CommitRevalidated(
         val ticket: FetchTicket,
     ) : KeyEvent
 
@@ -27,6 +38,14 @@ internal sealed interface KeyEvent {
 
     /** Destructively removes the key's value and supersedes any in-flight fetch commit. */
     data object Clear : KeyEvent
+
+    /** Returns and clears [observed] only when it is still the current consume-once tag. */
+    class ConsumeAttribution(
+        val observed: AttributionTag?,
+    ) : KeyEvent
+
+    /** Revokes the current consume-once attribution tag. */
+    data object RevokeAttribution : KeyEvent
 }
 
 /** A side effect for the engine to interpret after a pure state transition. */
@@ -41,8 +60,11 @@ internal sealed interface KeyEffect {
         val ticket: FetchTicket,
     ) : KeyEffect
 
-    /** Assign the fetched value to residence inside the same critical section. */
+    /** Accept the guarded fetch and stamp attribution; the engine persists, then converges it. */
     data object Commit : KeyEffect
+
+    /** Refresh resident metadata inside the same critical section. */
+    data object CommitRevalidation : KeyEffect
 
     /** Null out residence and forget bookkeeping: the server deleted the value. */
     data object CommitDelete : KeyEffect
@@ -59,6 +81,14 @@ internal sealed interface KeyEffect {
     /** The matching active fetch was settled. */
     data object Settled : KeyEffect
 
+    /** The consume-once attribution returned by a consume event, if one was present. */
+    class Consumed(
+        val tag: AttributionTag?,
+    ) : KeyEffect
+
+    /** The consume-once attribution was revoked. */
+    data object AttributionRevoked : KeyEffect
+
     /** The event did not apply to the current state. */
     data object Ignored : KeyEffect
 }
@@ -73,10 +103,10 @@ internal data class KeyTransition(
  * Applies [event] to [state] without performing suspension, I/O, or coroutine work.
  *
  * Ticket comparisons are identity checks so an older fetch can never commit into or settle a
- * newer fetch's slot. A successful commit also settles the slot: with no I/O between the commit
- * decision and residence assignment there is nothing left for the fetch to do, and settling
- * atomically makes the refreshing flag of the post-commit emission deterministic. Epoch fields
- * are monotone and are never reset by any event.
+ * newer fetch's slot. A successful commit settles the slot before its ordered source-of-truth
+ * tail; another demand may reserve the next ticket, while the engine's write lock serializes both
+ * mutations and the settled ticket's disposition preserves exact attribution until its outcome is
+ * published. Epoch fields are monotone and are never reset by any event.
  */
 internal fun transition(
     state: KeyState,
@@ -112,8 +142,42 @@ internal fun transition(
 
                         else ->
                             KeyTransition(
-                                state = state.copy(fetch = FetchSlot.Idle),
+                                state = state.copy(
+                                    fetch = FetchSlot.Idle,
+                                    attribution = AttributionTag(
+                                        value = event.value,
+                                        origin = Origin.FETCHER,
+                                        meta = event.meta,
+                                        staleEpochAtCommit = state.staleEpoch,
+                                        residenceRevisionAtStamp =
+                                            event.residenceRevisionAtStamp,
+                                    ),
+                                ),
                                 effect = KeyEffect.Commit,
+                            )
+                    }
+
+                FetchSlot.Idle ->
+                    KeyTransition(state = state, effect = KeyEffect.Ignored)
+            }
+
+        is KeyEvent.CommitRevalidated ->
+            when (val slot = state.fetch) {
+                is FetchSlot.InFlight ->
+                    when {
+                        slot.ticket !== event.ticket ->
+                            KeyTransition(state = state, effect = KeyEffect.Ignored)
+
+                        slot.clearEpochAtLaunch != state.clearEpoch ->
+                            KeyTransition(state = state, effect = KeyEffect.Superseded)
+
+                        else ->
+                            KeyTransition(
+                                state = state.copy(
+                                    fetch = FetchSlot.Idle,
+                                    attribution = null,
+                                ),
+                                effect = KeyEffect.CommitRevalidation,
                             )
                     }
 
@@ -140,6 +204,8 @@ internal fun transition(
                                 state = state.copy(
                                     fetch = FetchSlot.Idle,
                                     clearEpoch = state.clearEpoch + 1,
+                                    readerGen = state.readerGen + 1,
+                                    attribution = null,
                                 ),
                                 effect = KeyEffect.CommitDelete,
                             )
@@ -181,7 +247,28 @@ internal fun transition(
                 state = state.copy(
                     clearEpoch = state.clearEpoch + 1,
                     staleEpoch = state.staleEpoch + 1,
+                    readerGen = state.readerGen + 1,
+                    attribution = null,
                 ),
                 effect = KeyEffect.ClearResidence,
+            )
+
+        is KeyEvent.ConsumeAttribution -> {
+            val tag = state.attribution.takeIf { it === event.observed }
+            KeyTransition(
+                state = if (tag == null) state else state.copy(attribution = null),
+                effect = KeyEffect.Consumed(tag),
+            )
+        }
+
+        KeyEvent.RevokeAttribution ->
+            KeyTransition(
+                state =
+                    if (state.attribution == null) {
+                        state
+                    } else {
+                        state.copy(attribution = null)
+                    },
+                effect = KeyEffect.AttributionRevoked,
             )
     }
