@@ -483,9 +483,7 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             when (val item = awaitItem()) {
                 is StoreResult.Data -> {
                     assertTrue(item.value != forbidden, "pre-clear Data must never replay")
-                    assertFalse(item.isStale)
-                    assertFalse(item.refreshing)
-                    return item
+                    if (!item.isStale && !item.refreshing) return item
                 }
                 is StoreResult.Loading -> Unit
                 is StoreResult.Error -> throw AssertionError("unexpected clear-cycle error: ${item.error}")

@@ -75,6 +75,15 @@ abstract interface org.mobilenativefoundation.store6.core.seam/FreshnessValidato
     abstract fun plan(org.mobilenativefoundation.store6.core.seam/FreshnessContext): org.mobilenativefoundation.store6.core.seam/FetchPlan // org.mobilenativefoundation.store6.core.seam/FreshnessValidator.plan|plan(org.mobilenativefoundation.store6.core.seam.FreshnessContext){}[0]
 }
 
+abstract interface org.mobilenativefoundation.store6.core.seam/StoreTelemetry { // org.mobilenativefoundation.store6.core.seam/StoreTelemetry|null[0]
+    open fun onCleared(org.mobilenativefoundation.store6.core/StoreKey) // org.mobilenativefoundation.store6.core.seam/StoreTelemetry.onCleared|onCleared(org.mobilenativefoundation.store6.core.StoreKey){}[0]
+    open fun onFetchFailed(org.mobilenativefoundation.store6.core/StoreKey, org.mobilenativefoundation.store6.core/StoreError, kotlin.time/Duration) // org.mobilenativefoundation.store6.core.seam/StoreTelemetry.onFetchFailed|onFetchFailed(org.mobilenativefoundation.store6.core.StoreKey;org.mobilenativefoundation.store6.core.StoreError;kotlin.time.Duration){}[0]
+    open fun onFetchStarted(org.mobilenativefoundation.store6.core/StoreKey) // org.mobilenativefoundation.store6.core.seam/StoreTelemetry.onFetchStarted|onFetchStarted(org.mobilenativefoundation.store6.core.StoreKey){}[0]
+    open fun onFetchSucceeded(org.mobilenativefoundation.store6.core/StoreKey, kotlin.time/Duration) // org.mobilenativefoundation.store6.core.seam/StoreTelemetry.onFetchSucceeded|onFetchSucceeded(org.mobilenativefoundation.store6.core.StoreKey;kotlin.time.Duration){}[0]
+    open fun onInvalidated(org.mobilenativefoundation.store6.core/StoreKey) // org.mobilenativefoundation.store6.core.seam/StoreTelemetry.onInvalidated|onInvalidated(org.mobilenativefoundation.store6.core.StoreKey){}[0]
+    open fun onServe(org.mobilenativefoundation.store6.core/StoreKey, org.mobilenativefoundation.store6.core/Origin) // org.mobilenativefoundation.store6.core.seam/StoreTelemetry.onServe|onServe(org.mobilenativefoundation.store6.core.StoreKey;org.mobilenativefoundation.store6.core.Origin){}[0]
+}
+
 abstract interface org.mobilenativefoundation.store6.core.seam/WallClock { // org.mobilenativefoundation.store6.core.seam/WallClock|null[0]
     abstract fun nowEpochMillis(): kotlin/Long // org.mobilenativefoundation.store6.core.seam/WallClock.nowEpochMillis|nowEpochMillis(){}[0]
 }
@@ -217,6 +226,7 @@ final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any
     final fun fetcherOfResult(kotlin.coroutines/SuspendFunction1<#A, org.mobilenativefoundation.store6.core.seam/FetcherResult<#B>>) // org.mobilenativefoundation.store6.core/StoreBuilder.fetcherOfResult|fetcherOfResult(kotlin.coroutines.SuspendFunction1<1:0,org.mobilenativefoundation.store6.core.seam.FetcherResult<1:1>>){}[0]
     final fun freshnessValidator(org.mobilenativefoundation.store6.core.seam/FreshnessValidator) // org.mobilenativefoundation.store6.core/StoreBuilder.freshnessValidator|freshnessValidator(org.mobilenativefoundation.store6.core.seam.FreshnessValidator){}[0]
     final fun persistence(org.mobilenativefoundation.store6.core.seam/SourceOfTruth<#A, #B>) // org.mobilenativefoundation.store6.core/StoreBuilder.persistence|persistence(org.mobilenativefoundation.store6.core.seam.SourceOfTruth<1:0,1:1>){}[0]
+    final fun telemetry(org.mobilenativefoundation.store6.core.seam/StoreTelemetry) // org.mobilenativefoundation.store6.core/StoreBuilder.telemetry|telemetry(org.mobilenativefoundation.store6.core.seam.StoreTelemetry){}[0]
     final fun wallClock(org.mobilenativefoundation.store6.core.seam/WallClock) // org.mobilenativefoundation.store6.core/StoreBuilder.wallClock|wallClock(org.mobilenativefoundation.store6.core.seam.WallClock){}[0]
 }
 

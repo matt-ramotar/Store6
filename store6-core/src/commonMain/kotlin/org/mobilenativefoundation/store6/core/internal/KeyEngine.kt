@@ -53,7 +53,10 @@ import org.mobilenativefoundation.store6.core.seam.FreshnessContext
 import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
 import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.StoreTelemetry
 import org.mobilenativefoundation.store6.core.seam.WallClock
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 
 /** Emits every stale epoch that advanced beyond the snapshot used to plan a stream startup. */
 internal fun Flow<KeyState>.staleEpochsAfter(planningEpoch: Long): Flow<Long> =
@@ -92,6 +95,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private val beforeReplacementDispositionClassificationTestGate: suspend () -> Unit = {},
     /** Store-local fence shared by RealStore; direct tests receive an isolated coordinator. */
     private val maintenanceCoordinator: MaintenanceCoordinator = MaintenanceCoordinator(),
+    /** Null keeps every telemetry hook and fetch-duration allocation off the unconfigured path. */
+    private val telemetry: StoreTelemetry? = null,
 ) {
     private val stateLock = Mutex()
     private val writeLock = Mutex()
@@ -861,6 +866,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     ) {
         val fetchJob =
             engineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                val mark = if (telemetry == null) null else TimeSource.Monotonic.markNow()
+                telemetry?.onFetchStarted(key)
                 val outcome =
                     try {
                         currentCoroutineContext().ensureActive()
@@ -895,7 +902,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         )
                     }
 
-                finishFetch(ticket, outcome)
+                finishFetch(ticket, outcome, mark)
             }
 
         fetchJob.invokeOnCompletion { failure ->
@@ -1200,7 +1207,14 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         }
 
     /** Applies a server deletion only after its ticket is still proven current. */
-    private suspend fun commitDeleted(ticket: FetchTicket): FetchOutcome =
+    private suspend fun commitDeleted(ticket: FetchTicket): FetchOutcome {
+        val outcome = commitDeletedUnderFence(ticket)
+        if (outcome === FetchOutcome.Deleted) telemetry?.onCleared(key)
+        return outcome
+    }
+
+    /** Runs the destructive server-deletion transaction without invoking extension code. */
+    private suspend fun commitDeletedUnderFence(ticket: FetchTicket): FetchOutcome =
         maintenanceCoordinator.withCommit(keyId.namespace) {
             writeLock.withLock {
                 val superseded =
@@ -1274,46 +1288,72 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private suspend fun finishFetch(
         ticket: FetchTicket,
         outcome: FetchOutcome,
+        mark: TimeMark?,
     ) {
-        when {
-            outcome is FetchOutcome.Failed && outcome.bookkeepingRecorded ->
-                withContext(NonCancellable) {
-                    stateLock.withLock {
-                        completeTicket(ticket, outcome)
+        if (outcome is FetchOutcome.Failed && !outcome.bookkeepingRecorded) {
+            // Failure bookkeeping remains cancellable so engine cancellation releases the ordered
+            // write/fence admission. Only the post-release publication tail is non-cancellable.
+            val classified = finishFailedFetch(ticket, outcome)
+            withContext(NonCancellable) {
+                notifyFetchTerminal(classified, mark)
+                completeTicket(ticket, classified)
+            }
+        } else {
+            withContext(NonCancellable) {
+                val classified =
+                    if (outcome is FetchOutcome.Failed) {
+                        outcome
+                    } else {
+                        stateLock.withLock { classifySettledOutcome(ticket, outcome) }
                     }
-                }
-
-            outcome is FetchOutcome.Failed -> finishFailedFetch(ticket, outcome)
-
-            else ->
-                withContext(NonCancellable) {
-                    stateLock.withLock {
-                        val classified = classifySettledOutcome(ticket, outcome)
-                        completeTicket(ticket, classified)
-                    }
-                }
+                notifyFetchTerminal(classified, mark)
+                completeTicket(ticket, classified)
+            }
         }
     }
 
+    /** Runs the failed-fetch persistence tail and returns only after every engine lock is released. */
     private suspend fun finishFailedFetch(
         ticket: FetchTicket,
         outcome: FetchOutcome.Failed,
-    ) {
+    ): FetchOutcome =
         try {
             maintenanceCoordinator.withCommit(keyId.namespace) {
                 writeLock.withLock {
                     val classified =
-                        stateLock.withLock { classifySettledOutcome(ticket, outcome) }
+                        stateLock.withLock {
+                            classifySettledOutcome(ticket, outcome)
+                        }
                     if (classified is FetchOutcome.Failed) {
                         bookkeeper.recordFailure(key, classified.atEpochMillis)
                     }
-                    completeTicket(ticket, classified)
+                    classified
                 }
             }
         } catch (cancellation: CancellationException) {
             ticket.outcome.cancel(cancellation)
             settleFetch(ticket)
             throw cancellation
+        }
+
+    /** Fires terminal telemetry after settlement and before any waiter observes ticket completion. */
+    private fun notifyFetchTerminal(
+        outcome: FetchOutcome,
+        mark: TimeMark?,
+    ) {
+        val sink = telemetry ?: return
+        when (outcome) {
+            is FetchOutcome.Committed,
+            is FetchOutcome.Revalidated,
+            -> sink.onFetchSucceeded(key, checkNotNull(mark).elapsedNow())
+
+            is FetchOutcome.Failed ->
+                sink.onFetchFailed(key, outcome.exception.error, checkNotNull(mark).elapsedNow())
+
+            FetchOutcome.Deleted,
+            FetchOutcome.ObsoleteRevalidation,
+            FetchOutcome.Superseded,
+            -> Unit
         }
     }
 
@@ -1339,7 +1379,6 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         ticket: FetchTicket,
         outcome: FetchOutcome,
     ) {
-        markDisposition(ticket, outcome)
         if (engineJob.isActive) {
             ticket.outcome.complete(outcome)
         } else {
@@ -1382,6 +1421,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 applyEvent(KeyEvent.Invalidate)
             }
         }
+        telemetry?.onInvalidated(key)
     }
 
     /** Signals resident demand only while the previously advanced watermark still covers it. */
@@ -1393,6 +1433,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 }
             }
         }
+        telemetry?.onInvalidated(key)
     }
 
     /** Deletes persistence first, then performs the irreversible state/bookkeeping tail. */
@@ -1424,6 +1465,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 }
             }
         }
+        telemetry?.onCleared(key)
     }
 
     /** Applies only the resident clear atom; store-scoped maintenance owns the durable fence. */
@@ -1438,6 +1480,11 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 }
             }
         }
+    }
+
+    /** Reports one completed store-scoped clear after its maintenance fence has been released. */
+    internal fun notifyBulkClearCompleted() {
+        telemetry?.onCleared(key)
     }
 
     /** Applies the landed clear transition while [stateLock] is held. */
@@ -2474,6 +2521,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             envelope: ValueEnvelope<V>,
         ) {
             producer.send(StoreResult.Revalidated(outcome.age))
+            telemetry?.onServe(key, envelope.origin)
             lastDataFingerprint = DataFingerprint(envelope)
             publicHasValue = true
             loadingVisible = false
@@ -3329,6 +3377,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 return DataDeliveryDecision.AlreadyVisible
             }
             producer.send(data)
+            telemetry?.onServe(key, data.origin)
             lastDataFingerprint = fingerprint
             publicHasValue = true
             loadingVisible = false
@@ -3404,7 +3453,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             val plan = planFor(freshness, snapshot)
 
             if (plan is FetchPlan.Skip) {
-                return envelope?.value ?: throw localOnlyMissingException()
+                return envelope?.let { serve(it.value, it.origin) }
+                    ?: throw localOnlyMissingException()
             }
 
             if (
@@ -3413,14 +3463,15 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 freshness != Freshness.StaleIfError
             ) {
                 ensureFetch(freshness)
-                return envelope.value
+                return serve(envelope.value, envelope.origin)
             }
 
             val ticket = ensureFetch(freshness) ?: continue
             val outcome = ticket.outcome.await()
             beforeTicketOutcomeDeliveryTestGate()
             when (outcome) {
-                is FetchOutcome.Committed -> return committedValue(outcome)
+                is FetchOutcome.Committed ->
+                    return serve(committedValue(outcome), outcome.attribution.origin)
 
                 is FetchOutcome.Revalidated -> {
                     val snapshot = residenceSnapshot()
@@ -3431,7 +3482,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                 snapshot = snapshot,
                             )
                         if (revalidatedSatisfiesDemand(freshness, snapshot, plan)) {
-                            snapshot.envelope?.let { return it.value }
+                            snapshot.envelope?.let { return serve(it.value, it.origin) }
                         }
                     }
                 }
@@ -3440,7 +3491,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
                 is FetchOutcome.Failed ->
                     if (freshness == Freshness.StaleIfError && envelope != null) {
-                        return envelope.value
+                        return serve(envelope.value, envelope.origin)
                     } else {
                         throw outcome.exception
                     }
@@ -3453,6 +3504,15 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
     @Suppress("UNCHECKED_CAST")
     private fun committedValue(outcome: FetchOutcome.Committed): V = outcome.value as V
+
+    /** Reports one successful caller-context serve without altering the returned value. */
+    private fun serve(
+        value: V,
+        origin: Origin,
+    ): V {
+        telemetry?.onServe(key, origin)
+        return value
+    }
 
     /** Renders nullable metadata conservatively while retaining saturating landed age behavior. */
     private fun toData(

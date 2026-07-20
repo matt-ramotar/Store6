@@ -14,6 +14,7 @@ import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.StoreTelemetry
 import org.mobilenativefoundation.store6.core.seam.WallClock
 
 /**
@@ -50,6 +51,9 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
 
     @OptIn(ExperimentalStoreApi::class)
     private var validator: FreshnessValidator = DefaultFreshnessValidator
+
+    @OptIn(ExperimentalStoreApi::class)
+    private var telemetry: StoreTelemetry? = null
 
     /**
      * Configures the suspending function used to retrieve a value for a key.
@@ -109,6 +113,12 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
         this.sot = sot
     }
 
+    /** Installs a non-blocking lifecycle observer; leaving it unset preserves the null fast path. */
+    @ExperimentalStoreApi
+    public fun telemetry(telemetry: StoreTelemetry) {
+        this.telemetry = telemetry
+    }
+
     /** Installs the durable freshness bookkeeping implementation used by this store. */
     @ExperimentalStoreApi
     public fun bookkeeper(bookkeeper: Bookkeeper) {
@@ -134,6 +144,6 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
                 "fetcher(Fetcher) block."
         }
         val sourceOfTruth = sot ?: InMemorySourceOfTruth()
-        return RealStore(fetch, sourceOfTruth, wallClock, bookkeeper, validator)
+        return RealStore(fetch, sourceOfTruth, wallClock, bookkeeper, validator, telemetry)
     }
 }

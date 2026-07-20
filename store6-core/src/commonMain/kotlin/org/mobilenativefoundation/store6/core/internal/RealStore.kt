@@ -20,6 +20,7 @@ import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.StoreTelemetry
 import org.mobilenativefoundation.store6.core.seam.WallClock
 
 /**
@@ -37,6 +38,7 @@ internal class RealStore<K : StoreKey, V : Any>(
     wallClock: WallClock,
     private val bookkeeper: Bookkeeper,
     validator: FreshnessValidator,
+    private val telemetry: StoreTelemetry?,
 ) : Store<K, V> {
     private val storeJob = SupervisorJob()
     private val storeScope = CoroutineScope(Dispatchers.Default + storeJob)
@@ -52,6 +54,7 @@ internal class RealStore<K : StoreKey, V : Any>(
                 bookkeeper = bookkeeper,
                 validator = validator,
                 wallClock = wallClock,
+                telemetry = telemetry,
                 engineScope = CoroutineScope(storeScope.coroutineContext + engineJob),
                 maintenanceCoordinator = maintenanceCoordinator,
             )
@@ -106,26 +109,60 @@ internal class RealStore<K : StoreKey, V : Any>(
 
     override suspend fun clearNamespace(namespace: StoreNamespace) {
         ensureOpen()
-        maintenanceCoordinator.withNamespaceMaintenance(namespace.value) {
-            registry.forEachResident(namespace.value) { engine -> engine.clearResident() }
-            durably("clearNamespace", "namespace '${namespace.value}'") {
-                sot.deleteNamespace(namespace)
+        if (telemetry == null) {
+            maintenanceCoordinator.withNamespaceMaintenance(namespace.value) {
+                registry.forEachResident(namespace.value) { engine -> engine.clearResident() }
+                durably("clearNamespace", "namespace '${namespace.value}'") {
+                    sot.deleteNamespace(namespace)
+                }
+                durably("clearNamespace", "namespace '${namespace.value}'") {
+                    bookkeeper.forgetNamespace(namespace)
+                }
+                registry.forEachResident(namespace.value) { engine -> engine.clearResident() }
             }
-            durably("clearNamespace", "namespace '${namespace.value}'") {
-                bookkeeper.forgetNamespace(namespace)
-            }
-            registry.forEachResident(namespace.value) { engine -> engine.clearResident() }
+            return
         }
+        val cleared =
+            maintenanceCoordinator.withNamespaceMaintenance(namespace.value) {
+                val firstSweep =
+                    registry.snapshotAndForEachResident(namespace.value) { engine ->
+                        engine.clearResident()
+                    }
+                durably("clearNamespace", "namespace '${namespace.value}'") {
+                    sot.deleteNamespace(namespace)
+                }
+                durably("clearNamespace", "namespace '${namespace.value}'") {
+                    bookkeeper.forgetNamespace(namespace)
+                }
+                registry.forEachResident(namespace.value) { engine -> engine.clearResident() }
+                firstSweep
+            }
+        cleared.forEach { engine -> engine.notifyBulkClearCompleted() }
     }
 
     override suspend fun clearAll() {
         ensureOpen()
-        maintenanceCoordinator.withGlobalMaintenance {
-            registry.forEachResident(namespace = null) { engine -> engine.clearResident() }
-            durably("clearAll", "all namespaces") { sot.deleteAll() }
-            durably("clearAll", "all namespaces") { bookkeeper.forgetAll() }
-            registry.forEachResident(namespace = null) { engine -> engine.clearResident() }
+        if (telemetry == null) {
+            maintenanceCoordinator.withGlobalMaintenance {
+                registry.forEachResident(namespace = null) { engine -> engine.clearResident() }
+                durably("clearAll", "all namespaces") { sot.deleteAll() }
+                durably("clearAll", "all namespaces") { bookkeeper.forgetAll() }
+                registry.forEachResident(namespace = null) { engine -> engine.clearResident() }
+            }
+            return
         }
+        val cleared =
+            maintenanceCoordinator.withGlobalMaintenance {
+                val firstSweep =
+                    registry.snapshotAndForEachResident(namespace = null) { engine ->
+                        engine.clearResident()
+                    }
+                durably("clearAll", "all namespaces") { sot.deleteAll() }
+                durably("clearAll", "all namespaces") { bookkeeper.forgetAll() }
+                registry.forEachResident(namespace = null) { engine -> engine.clearResident() }
+                firstSweep
+            }
+        cleared.forEach { engine -> engine.notifyBulkClearCompleted() }
     }
 
     override fun close() {

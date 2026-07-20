@@ -77,6 +77,7 @@ public final class org/mobilenativefoundation/store6/core/StoreBuilder {
 	public final fun fetcherOfResult (Lkotlin/jvm/functions/Function2;)V
 	public final fun freshnessValidator (Lorg/mobilenativefoundation/store6/core/seam/FreshnessValidator;)V
 	public final fun persistence (Lorg/mobilenativefoundation/store6/core/seam/SourceOfTruth;)V
+	public final fun telemetry (Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;)V
 	public final fun wallClock (Lorg/mobilenativefoundation/store6/core/seam/WallClock;)V
 }
 
@@ -254,6 +255,24 @@ public abstract interface class org/mobilenativefoundation/store6/core/seam/Sour
 	public abstract fun deleteNamespace (Lorg/mobilenativefoundation/store6/core/StoreNamespace;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun reader (Lorg/mobilenativefoundation/store6/core/StoreKey;)Lkotlinx/coroutines/flow/Flow;
 	public abstract fun write (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/seam/StoreTelemetry {
+	public abstract fun onCleared (Lorg/mobilenativefoundation/store6/core/StoreKey;)V
+	public abstract fun onFetchFailed-SxA4cEA (Lorg/mobilenativefoundation/store6/core/StoreKey;Lorg/mobilenativefoundation/store6/core/StoreError;J)V
+	public abstract fun onFetchStarted (Lorg/mobilenativefoundation/store6/core/StoreKey;)V
+	public abstract fun onFetchSucceeded-HG0u8IE (Lorg/mobilenativefoundation/store6/core/StoreKey;J)V
+	public abstract fun onInvalidated (Lorg/mobilenativefoundation/store6/core/StoreKey;)V
+	public abstract fun onServe (Lorg/mobilenativefoundation/store6/core/StoreKey;Lorg/mobilenativefoundation/store6/core/Origin;)V
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/StoreTelemetry$DefaultImpls {
+	public static fun onCleared (Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;Lorg/mobilenativefoundation/store6/core/StoreKey;)V
+	public static fun onFetchFailed-SxA4cEA (Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;Lorg/mobilenativefoundation/store6/core/StoreKey;Lorg/mobilenativefoundation/store6/core/StoreError;J)V
+	public static fun onFetchStarted (Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;Lorg/mobilenativefoundation/store6/core/StoreKey;)V
+	public static fun onFetchSucceeded-HG0u8IE (Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;Lorg/mobilenativefoundation/store6/core/StoreKey;J)V
+	public static fun onInvalidated (Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;Lorg/mobilenativefoundation/store6/core/StoreKey;)V
+	public static fun onServe (Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;Lorg/mobilenativefoundation/store6/core/StoreKey;Lorg/mobilenativefoundation/store6/core/Origin;)V
 }
 
 public abstract interface class org/mobilenativefoundation/store6/core/seam/TransactionalSourceOfTruth : org/mobilenativefoundation/store6/core/seam/SourceOfTruth {
