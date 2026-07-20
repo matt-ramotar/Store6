@@ -234,36 +234,56 @@ class SourceOfTruthConformanceTest {
     @Test
     fun externalSotDelete_activeStreamSeesAbsentTransitionAndStaysLive() = runTest {
         var calls = 0
+        val thirdFetchStarted = CompletableDeferred<Unit>()
+        val thirdFetchGate = CompletableDeferred<Unit>()
         val sot = SharedFlowSourceOfTruth<TestKey, String>()
         val store = store<TestKey, String> {
-            fetcher { "fetched-${++calls}" }
+            fetcher {
+                val call = ++calls
+                if (call == 3) {
+                    thirdFetchStarted.complete(Unit)
+                    thirdFetchGate.await()
+                }
+                "fetched-$call"
+            }
             persistence(sot)
         }
-        store.stream(TestKey("1")).test {
-            assertIs<StoreResult.Loading>(awaitItem())
-            assertEquals("fetched-1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+        try {
+            store.stream(TestKey("1")).test {
+                assertIs<StoreResult.Loading>(awaitItem())
+                assertEquals("fetched-1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
 
-            sot.delete(TestKey("1"))
+                sot.delete(TestKey("1"))
 
-            assertIs<StoreResult.Loading>(awaitItem())
-            while (true) {
-                val item = awaitItem()
-                if (item is StoreResult.Data) {
-                    assertEquals("fetched-2", item.value)
-                    assertEquals(Origin.FETCHER, item.origin)
-                    assertFalse(item.isStale)
-                    break
+                assertIs<StoreResult.Loading>(awaitItem())
+                while (true) {
+                    val item = awaitItem()
+                    if (item is StoreResult.Data) {
+                        assertEquals("fetched-2", item.value)
+                        assertEquals(Origin.FETCHER, item.origin)
+                        assertFalse(item.isStale)
+                        break
+                    }
                 }
+                assertEquals(2, calls)
+                sot.write(TestKey("1"), "rewritten")
+                // Keep the valid null-meta revalidation from overtaking the liveness probe.
+                thirdFetchStarted.await()
+                while (true) {
+                    val item = awaitItem()
+                    if (item is StoreResult.Data && item.value == "rewritten") {
+                        assertEquals(Origin.SOT, item.origin)
+                        assertTrue(item.isStale)
+                        break
+                    }
+                }
+                assertEquals(3, calls)
+                cancelAndIgnoreRemainingEvents()
             }
-            assertEquals(2, calls)
-            sot.write(TestKey("1"), "rewritten")
-            while (true) {
-                val item = awaitItem()
-                if (item is StoreResult.Data && item.value == "rewritten") break
-            }
-            cancelAndIgnoreRemainingEvents()
+        } finally {
+            thirdFetchGate.complete(Unit)
+            store.close()
         }
-        store.close()
     }
 
     // FR-10: a pre-populated SoT serves without a fetch under LocalOnly.
