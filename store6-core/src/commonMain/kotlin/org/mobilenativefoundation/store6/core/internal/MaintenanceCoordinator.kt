@@ -1,11 +1,33 @@
 package org.mobilenativefoundation.store6.core.internal
 
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+
+private const val REENTRY_MESSAGE =
+    "MaintenanceCoordinator callbacks cannot re-enter the same coordinator."
+
+private class MaintenanceCallbackContext(
+    val coordinator: MaintenanceCoordinator,
+    val parent: MaintenanceCallbackContext?,
+) : AbstractCoroutineContextElement(Key) {
+    fun contains(candidate: MaintenanceCoordinator): Boolean {
+        var current: MaintenanceCallbackContext? = this
+        while (current != null) {
+            if (current.coordinator === candidate) return true
+            current = current.parent
+        }
+        return false
+    }
+
+    companion object Key : CoroutineContext.Key<MaintenanceCallbackContext>
+}
 
 internal class MaintenanceCoordinator {
     private val stateMutex = Mutex()
@@ -19,9 +41,10 @@ internal class MaintenanceCoordinator {
         namespace: String,
         block: suspend () -> T,
     ): T {
+        val callbackContext = callbackContextForEntry()
         acquireCommit(namespace)
         try {
-            return block()
+            return withContext(callbackContext) { block() }
         } finally {
             withContext(NonCancellable) {
                 releaseCommit(namespace)
@@ -32,10 +55,25 @@ internal class MaintenanceCoordinator {
     suspend fun <T> withNamespaceMaintenance(
         namespace: String,
         block: suspend () -> T,
-    ): T = withMaintenance(namespace = namespace, block = block)
+    ): T =
+        withMaintenance(
+            namespace = namespace,
+            callbackContext = callbackContextForEntry(),
+            block = block,
+        )
 
     suspend fun <T> withGlobalMaintenance(block: suspend () -> T): T =
-        withMaintenance(namespace = null, block = block)
+        withMaintenance(
+            namespace = null,
+            callbackContext = callbackContextForEntry(),
+            block = block,
+        )
+
+    private suspend fun callbackContextForEntry(): MaintenanceCallbackContext {
+        val parent = currentCoroutineContext()[MaintenanceCallbackContext]
+        check(parent?.contains(this) != true) { REENTRY_MESSAGE }
+        return MaintenanceCallbackContext(coordinator = this, parent = parent)
+    }
 
     private suspend fun acquireCommit(namespace: String) {
         while (true) {
@@ -68,6 +106,7 @@ internal class MaintenanceCoordinator {
 
     private suspend fun <T> withMaintenance(
         namespace: String?,
+        callbackContext: MaintenanceCallbackContext,
         block: suspend () -> T,
     ): T {
         maintenanceMutex.lock()
@@ -76,7 +115,7 @@ internal class MaintenanceCoordinator {
             blockScope(namespace)
             scopeBlocked = true
             awaitDrain(namespace)
-            return block()
+            return withContext(callbackContext) { block() }
         } finally {
             withContext(NonCancellable) {
                 if (scopeBlocked) {

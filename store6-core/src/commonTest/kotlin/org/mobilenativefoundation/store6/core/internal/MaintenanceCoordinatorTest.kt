@@ -6,10 +6,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.fail
 
 class MaintenanceCoordinatorTest {
     @Test
@@ -226,5 +229,93 @@ class MaintenanceCoordinatorTest {
         laterCommit.await()
         releaseActive.complete(Unit)
         active.await()
+    }
+
+    @Test
+    fun commitCallbackCannotEnterSameNamespaceMaintenance() = runTest {
+        val coordinator = MaintenanceCoordinator()
+
+        assertReentryFailsFast {
+            coordinator.withCommit("alpha") {
+                coordinator.withNamespaceMaintenance("alpha") {}
+            }
+        }
+    }
+
+    @Test
+    fun commitCallbackCannotEnterGlobalMaintenance() = runTest {
+        val coordinator = MaintenanceCoordinator()
+
+        assertReentryFailsFast {
+            coordinator.withCommit("alpha") {
+                coordinator.withGlobalMaintenance {}
+            }
+        }
+    }
+
+    @Test
+    fun maintenanceCallbackCannotEnterMaintenance() = runTest {
+        val coordinator = MaintenanceCoordinator()
+
+        assertReentryFailsFast {
+            coordinator.withNamespaceMaintenance("alpha") {
+                coordinator.withGlobalMaintenance {}
+            }
+        }
+    }
+
+    @Test
+    fun maintenanceCallbackCannotEnterSameScopeCommit() = runTest {
+        val coordinator = MaintenanceCoordinator()
+
+        assertReentryFailsFast {
+            coordinator.withNamespaceMaintenance("alpha") {
+                coordinator.withCommit("alpha") {}
+            }
+        }
+    }
+
+    @Test
+    fun nestedCoordinatorChainCannotReenterEarlierCoordinator() = runTest {
+        val first = MaintenanceCoordinator()
+        val second = MaintenanceCoordinator()
+
+        assertReentryFailsFast {
+            first.withCommit("alpha") {
+                second.withCommit("beta") {
+                    first.withCommit("gamma") {}
+                }
+            }
+        }
+    }
+
+    @Test
+    fun callbackMayEnterIndependentCoordinator() = runTest {
+        val first = MaintenanceCoordinator()
+        val second = MaintenanceCoordinator()
+
+        assertEquals(
+            "independent",
+            first.withCommit("alpha") {
+                second.withNamespaceMaintenance("alpha") { "independent" }
+            },
+        )
+    }
+
+    private suspend fun TestScope.assertReentryFailsFast(block: suspend () -> Unit) {
+        val attempt =
+            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                runCatching { block() }
+            }
+        if (!attempt.isCompleted) {
+            attempt.cancelAndJoin()
+            fail("Re-entry suspended instead of failing fast")
+        }
+
+        val failure = assertIs<IllegalStateException>(attempt.await().exceptionOrNull())
+        assertEquals(
+            "MaintenanceCoordinator callbacks cannot re-enter the same coordinator.",
+            failure.message,
+        )
     }
 }
