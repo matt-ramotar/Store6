@@ -1,7 +1,9 @@
 package org.mobilenativefoundation.store6.core.internal
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.collect
@@ -13,6 +15,7 @@ import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 
@@ -124,6 +127,111 @@ class ConflateLatestDataTest {
         collector.cancelAndJoin()
 
         upstreamCancelled.await()
+    }
+
+    @Test
+    fun explicitUpstreamCancellation_drainsQueuedValuesThenPropagatesExactFailure() = runTest {
+        val firstDataSeen = CompletableDeferred<Unit>()
+        val releaseCollector = CompletableDeferred<Unit>()
+        val upstreamFinished = CompletableDeferred<Unit>()
+        val explicitCancellation = CancellationException("explicit upstream cancellation")
+        val received = mutableListOf<StoreResult<Int>>()
+
+        val collector = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+            runCatching {
+                flow<StoreResult<Int>> {
+                    try {
+                        emit(data(1))
+                        firstDataSeen.await()
+                        emit(data(2))
+                        emit(StoreResult.Loading())
+                        throw explicitCancellation
+                    } finally {
+                        upstreamFinished.complete(Unit)
+                    }
+                }.conflateLatestData().collect { result ->
+                    received += result
+                    if (result is StoreResult.Data && result.value == 1) {
+                        firstDataSeen.complete(Unit)
+                        releaseCollector.await()
+                    }
+                }
+            }.exceptionOrNull()
+        }
+
+        firstDataSeen.await()
+        upstreamFinished.await()
+        releaseCollector.complete(Unit)
+
+        assertSame(explicitCancellation, collector.await())
+        assertEquals(listOf("data:1", "data:2", "loading"), received.map(::label))
+    }
+
+    @Test
+    fun upstreamFailure_drainsQueuedValuesThenPropagatesExactFailure() = runTest {
+        val firstDataSeen = CompletableDeferred<Unit>()
+        val releaseCollector = CompletableDeferred<Unit>()
+        val upstreamFinished = CompletableDeferred<Unit>()
+        val upstreamFailure = IllegalStateException("upstream failed")
+        val received = mutableListOf<StoreResult<Int>>()
+
+        val collector = backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+            runCatching {
+                flow<StoreResult<Int>> {
+                    try {
+                        emit(data(1))
+                        firstDataSeen.await()
+                        emit(data(2))
+                        emit(StoreResult.Revalidated(age = Duration.ZERO))
+                        throw upstreamFailure
+                    } finally {
+                        upstreamFinished.complete(Unit)
+                    }
+                }.conflateLatestData().collect { result ->
+                    received += result
+                    if (result is StoreResult.Data && result.value == 1) {
+                        firstDataSeen.complete(Unit)
+                        releaseCollector.await()
+                    }
+                }
+            }.exceptionOrNull()
+        }
+
+        firstDataSeen.await()
+        upstreamFinished.await()
+        releaseCollector.complete(Unit)
+
+        assertSame(upstreamFailure, collector.await())
+        assertEquals(listOf("data:1", "data:2", "revalidated"), received.map(::label))
+    }
+
+    @Test
+    fun downstreamCollectorFailure_cancelsUpstream() = runTest {
+        val upstreamStarted = CompletableDeferred<Unit>()
+        val upstreamCancelled = CompletableDeferred<Unit>()
+        val collectorFailure = IllegalStateException("collector failed")
+        val upstream = flow<StoreResult<Int>> {
+            upstreamStarted.complete(Unit)
+            try {
+                emit(data(1))
+                awaitCancellation()
+            } finally {
+                upstreamCancelled.complete(Unit)
+            }
+        }
+
+        val observedFailure = runCatching {
+            upstream.conflateLatestData().collect {
+                throw collectorFailure
+            }
+        }.exceptionOrNull()
+
+        upstreamStarted.await()
+        upstreamCancelled.await()
+        assertTrue(
+            observedFailure === collectorFailure || observedFailure?.cause === collectorFailure,
+            "collector failure was not propagated",
+        )
     }
 
     private fun data(value: Int): StoreResult.Data<Int> =

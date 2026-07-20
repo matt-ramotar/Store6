@@ -1,7 +1,8 @@
 package org.mobilenativefoundation.store6.core.internal
 
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -17,9 +18,12 @@ import org.mobilenativefoundation.store6.core.StoreResult
  *
  * The pending queue contains at most one Data value per run of consecutive Data values. Lifecycle
  * signals split runs and remain lossless, so queue growth is attributable to those signals rather
- * than to an independently unbounded Data buffer.
+ * than to an independently unbounded Data buffer. Bounding lifecycle-signal growth is deliberately
+ * deferred to issue 007.
  */
 internal fun <V> Flow<StoreResult<V>>.conflateLatestData(): Flow<StoreResult<V>> = flow {
+    var terminalFailure: Throwable? = null
+
     coroutineScope {
         val pending = ArrayDeque<StoreResult<V>>()
         val mutex = Mutex()
@@ -43,7 +47,7 @@ internal fun <V> Flow<StoreResult<V>>.conflateLatestData(): Flow<StoreResult<V>>
                     yield()
                 }
             } catch (failure: Throwable) {
-                if (failure is CancellationException) throw failure
+                currentCoroutineContext().ensureActive()
                 mutex.withLock { upstreamFailure = failure }
             } finally {
                 mutex.withLock {
@@ -74,7 +78,7 @@ internal fun <V> Flow<StoreResult<V>>.conflateLatestData(): Flow<StoreResult<V>>
                 when {
                     next != null -> emit(next!!)
                     complete -> {
-                        failure?.let { throw it }
+                        terminalFailure = failure
                         break
                     }
                     else -> wakeVersion.first { it > observedWakeVersion }
@@ -84,4 +88,6 @@ internal fun <V> Flow<StoreResult<V>>.conflateLatestData(): Flow<StoreResult<V>>
             upstream.cancel()
         }
     }
+
+    terminalFailure?.let { throw it }
 }
