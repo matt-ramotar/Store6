@@ -1,6 +1,8 @@
 package org.mobilenativefoundation.store6.core
 
 import app.cash.turbine.test
+import app.cash.turbine.testIn
+import app.cash.turbine.turbineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
@@ -98,24 +100,33 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
         }
 
         try {
-            assertEquals("v1", store.get(TestKey("1")))
-            clock.now = 600.seconds.inWholeMilliseconds
+            val key = TestKey("1")
+            turbineScope {
+                val initialCollector = store.stream(key).testIn(backgroundScope)
+                assertIs<StoreResult.Loading>(initialCollector.awaitItem())
+                assertEquals(
+                    "v1",
+                    assertIs<StoreResult.Data<String>>(initialCollector.awaitItem()).value,
+                )
+                clock.now = 600.seconds.inWholeMilliseconds
 
-            store.stream(
-                TestKey("1"),
-                Freshness.MaxAge(notOlderThan = 5.minutes),
-            ).test {
-                assertIs<StoreResult.Loading>(awaitItem())
+                val collector =
+                    store.stream(
+                        key,
+                        Freshness.MaxAge(notOlderThan = 5.minutes),
+                    ).testIn(backgroundScope)
+                assertIs<StoreResult.Loading>(collector.awaitItem())
                 secondStarted.await()
                 secondGate.complete(Unit)
 
-                val fresh = assertIs<StoreResult.Data<String>>(awaitItem())
+                val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
                 assertEquals("v2", fresh.value)
                 assertEquals(Duration.ZERO, fresh.age)
                 assertFalse(fresh.isStale)
                 assertFalse(fresh.refreshing)
-                expectNoEvents()
-                cancelAndIgnoreRemainingEvents()
+                collector.expectNoEvents()
+                initialCollector.cancelAndIgnoreRemainingEvents()
+                collector.cancelAndIgnoreRemainingEvents()
             }
             assertEquals(2, calls)
         } finally {
