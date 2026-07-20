@@ -5,11 +5,13 @@ import app.cash.turbine.testIn
 import app.cash.turbine.turbineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -20,7 +22,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-@OptIn(ExperimentalStoreApi::class)
+@OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class SourceOfTruthConformanceTest {
 
     // C-05 shape: values arriving via fetch commit are attributed FETCHER.
@@ -128,47 +130,64 @@ class SourceOfTruthConformanceTest {
     @Test
     fun orphanRegression_invalidateWithActiveCollectors_allObserveRefetchedData() = runTest {
         var calls = 0
-        val store = store<TestKey, String> { fetcher { calls++; "v$calls" } }
-        turbineScope {
-            val a = store.stream(TestKey("1")).testIn(backgroundScope)
-            val b = store.stream(TestKey("1")).testIn(backgroundScope)
-            var aInitial = false
-            while (!aInitial) {
-                val item = a.awaitItem()
-                if (item is StoreResult.Data<String>) {
-                    assertEquals("v1", item.value)
-                    aInitial = true
-                } else {
-                    assertIs<StoreResult.Loading>(item)
+        val firstFetchGate = CompletableDeferred<Unit>()
+        val secondFetchStarted = CompletableDeferred<Unit>()
+        val secondFetchGate = CompletableDeferred<Unit>()
+        val store = store<TestKey, String> {
+            fetcher {
+                val call = ++calls
+                when (call) {
+                    1 -> firstFetchGate.await()
+                    2 -> {
+                        secondFetchStarted.complete(Unit)
+                        secondFetchGate.await()
+                    }
+                    else -> error("unexpected fetch call $call")
                 }
+                "v$call"
             }
-            var bInitial = false
-            while (!bInitial) {
-                val item = b.awaitItem()
-                if (item is StoreResult.Data<String>) {
-                    assertEquals("v1", item.value)
-                    bInitial = true
-                } else {
-                    assertIs<StoreResult.Loading>(item)
-                }
-            }
-
-            store.invalidate(TestKey("1"))
-
-            var aSeen = false
-            while (!aSeen) {
-                val item = a.awaitItem()
-                aSeen = item is StoreResult.Data<String> && item.value == "v2"
-            }
-            var bSeen = false
-            while (!bSeen) {
-                val item = b.awaitItem()
-                bSeen = item is StoreResult.Data<String> && item.value == "v2"
-            }
-            a.cancelAndIgnoreRemainingEvents()
-            b.cancelAndIgnoreRemainingEvents()
         }
-        store.close()
+        try {
+            turbineScope {
+                val key = TestKey("1")
+                val a = store.stream(key).testIn(backgroundScope)
+                val b = store.stream(key).testIn(backgroundScope)
+                assertIs<StoreResult.Loading>(a.awaitItem())
+                assertIs<StoreResult.Loading>(b.awaitItem())
+                // Loading is sent before StreamDelivery.start; drain both collectors while fetch 1
+                // is blocked so their initial-ticket watchers are parked before the first commit.
+                runCurrent()
+                firstFetchGate.complete(Unit)
+                assertEquals("v1", assertIs<StoreResult.Data<String>>(a.awaitItem()).value)
+                assertEquals("v1", assertIs<StoreResult.Data<String>>(b.awaitItem()).value)
+
+                store.invalidate(key)
+                secondFetchStarted.await()
+                // Fetch 2 is blocked, so draining the test scheduler causally enrolls both active
+                // collectors on that ticket before it can settle and a late watcher can launch I3.
+                runCurrent()
+                assertEquals(2, calls)
+                secondFetchGate.complete(Unit)
+
+                var aSeen = false
+                while (!aSeen) {
+                    val item = a.awaitItem()
+                    aSeen = item is StoreResult.Data<String> && item.value == "v2"
+                }
+                var bSeen = false
+                while (!bSeen) {
+                    val item = b.awaitItem()
+                    bSeen = item is StoreResult.Data<String> && item.value == "v2"
+                }
+                assertEquals(2, calls)
+                a.cancelAndIgnoreRemainingEvents()
+                b.cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            firstFetchGate.complete(Unit)
+            secondFetchGate.complete(Unit)
+            store.close()
+        }
     }
 
     // R7: resubscribe after clear may duplicate, never lose; cleared value never replays.
