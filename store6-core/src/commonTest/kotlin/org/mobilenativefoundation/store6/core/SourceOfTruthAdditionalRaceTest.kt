@@ -51,8 +51,6 @@ class SourceOfTruthAdditionalRaceTest {
 
                 sourceOfTruth.gateNextLiveDelivery()
                 sourceOfTruth.write(key, "durable")
-                sourceOfTruth.liveDeliveryBlocked.await()
-
                 val second = store.stream(key, Freshness.CachedOrFetch).testIn(backgroundScope)
                 val durable = assertIs<StoreResult.Data<String>>(second.awaitItem())
                 assertEquals("durable", durable.value)
@@ -61,6 +59,7 @@ class SourceOfTruthAdditionalRaceTest {
                 assertTrue(durable.refreshing)
                 fetchStarted.await()
                 assertEquals(1, fetchCalls)
+                sourceOfTruth.liveDeliveryBlocked.await()
 
                 sourceOfTruth.releaseLiveDelivery.complete(Unit)
                 runCurrent()
@@ -104,13 +103,12 @@ class SourceOfTruthAdditionalRaceTest {
 
                 sourceOfTruth.gateNextLiveDelivery()
                 sourceOfTruth.delete(key)
-                sourceOfTruth.liveDeliveryBlocked.await()
-
                 val second = store.stream(key, Freshness.CachedOrFetch).testIn(backgroundScope)
                 val memory = assertIs<StoreResult.Data<String>>(second.awaitItem())
                 assertEquals("seed", memory.value)
                 assertEquals(Origin.MEMORY, memory.origin)
                 fetchStarted.await()
+                sourceOfTruth.liveDeliveryBlocked.await()
 
                 sourceOfTruth.releaseLiveDelivery.complete(Unit)
                 assertIs<StoreResult.Loading>(second.awaitItem())
