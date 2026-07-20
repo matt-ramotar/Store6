@@ -1,4 +1,8 @@
-package org.mobilenativefoundation.store6.core
+package org.mobilenativefoundation.store6.core.seam
+
+import org.mobilenativefoundation.store6.core.StoreBuilder
+import org.mobilenativefoundation.store6.core.StoreError
+import org.mobilenativefoundation.store6.core.StoreResult
 
 /**
  * The result vocabulary for a fetcher registered with [StoreBuilder.fetcherOfResult].

@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
@@ -19,7 +20,7 @@ import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
  * without notifying collectors of the old slots. This is reserved for later engine recovery tests
  * and must never receive a `SourceOfTruthContractKit` runner.
  */
-@OptIn(ExperimentalStoreApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 internal class RotatingSlotSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<K, V> {
     private class Slot<V : Any>(
         val rows: MutableSharedFlow<V?>,

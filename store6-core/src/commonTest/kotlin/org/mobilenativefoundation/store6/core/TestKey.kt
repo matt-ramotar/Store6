@@ -15,7 +15,7 @@ class TestKey(private val id: String) : StoreKey {
  * isolation. Their namespace/global operations delete that one modeled row through the fixture's
  * existing per-key behavior, preserving any deterministic gate or fault under test.
  */
-@OptIn(ExperimentalStoreApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 internal interface SingleRowTestSourceOfTruth<V : Any> : SourceOfTruth<TestKey, V> {
     override suspend fun deleteNamespace(namespace: StoreNamespace) {
         if (namespace.value == TEST_NAMESPACE) {

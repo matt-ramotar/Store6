@@ -17,6 +17,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
+@OptIn(ExperimentalStoreApi::class)
 open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
     @Test
     fun maxAgeWithinBoundServesResidentWithoutSecondFetch() = runTest {

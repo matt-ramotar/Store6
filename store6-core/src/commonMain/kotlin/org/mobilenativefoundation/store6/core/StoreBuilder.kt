@@ -1,12 +1,13 @@
 package org.mobilenativefoundation.store6.core
 
-import org.mobilenativefoundation.store6.core.internal.Bookkeeper
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.internal.RealStore
 import org.mobilenativefoundation.store6.core.internal.SystemWallClock
-import org.mobilenativefoundation.store6.core.internal.WallClock
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.WallClock
 
 /**
  * Creates a [Store] using the settings supplied by [configure].
@@ -33,7 +34,10 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
     @OptIn(ExperimentalStoreApi::class)
     private var sot: SourceOfTruth<K, V>? = null
 
+    @OptIn(ExperimentalStoreApi::class)
     internal var wallClock: WallClock = SystemWallClock
+
+    @OptIn(ExperimentalStoreApi::class)
     internal var bookkeeper: Bookkeeper = InMemoryBookkeeper()
 
     /**

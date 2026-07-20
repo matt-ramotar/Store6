@@ -1,7 +1,12 @@
+@file:OptIn(org.mobilenativefoundation.store6.core.ExperimentalStoreApi::class)
+
 package org.mobilenativefoundation.store6.core.internal
 
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.StoreMeta
+import org.mobilenativefoundation.store6.core.seam.FetchPlan
+import org.mobilenativefoundation.store6.core.seam.FreshnessContext
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs

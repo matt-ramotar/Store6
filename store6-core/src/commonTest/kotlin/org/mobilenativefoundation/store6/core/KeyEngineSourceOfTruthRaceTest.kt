@@ -18,7 +18,6 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import org.mobilenativefoundation.store6.core.internal.Bookkeeper
 import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
 import org.mobilenativefoundation.store6.core.internal.FetchDisposition
 import org.mobilenativefoundation.store6.core.internal.FetchOutcome
@@ -27,7 +26,9 @@ import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.KeyEngine
 import org.mobilenativefoundation.store6.core.internal.KeyId
-import org.mobilenativefoundation.store6.core.internal.KeyStatus
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -37,7 +38,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-@OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class KeyEngineSourceOfTruthRaceTest {
     @Test
     fun nullMetaHydration_servesLocalOnlyAndStartsOneCachedOrFetchRevalidation() = runTest {
@@ -232,7 +233,7 @@ class KeyEngineSourceOfTruthRaceTest {
             ),
             bookkeeper.events,
         )
-        val status = assertNotNull(bookkeeper.status(KeyId.from(key)))
+        val status = assertNotNull(bookkeeper.status(key))
         assertEquals(125L, status.lastFailureAtEpochMillis)
         assertEquals(1, status.consecutiveFailures)
         assertNull(status.meta)
@@ -304,7 +305,7 @@ class KeyEngineSourceOfTruthRaceTest {
             ),
             bookkeeper.events,
         )
-        assertNull(bookkeeper.status(KeyId.from(key)))
+        assertNull(bookkeeper.status(key))
         assertEquals(1, sourceOfTruth.deleteCalls)
         assertNull(sourceOfTruth.current)
         val state = engine.state.value
@@ -341,7 +342,7 @@ class KeyEngineSourceOfTruthRaceTest {
         assertEquals("seed", engine.get(Freshness.CachedOrFetch))
         engine.invalidate()
         val stateBefore = engine.state.value
-        val statusBefore = assertNotNull(bookkeeper.status(KeyId.from(key)))
+        val statusBefore = assertNotNull(bookkeeper.status(key))
         val eventsBefore = bookkeeper.events.toList()
         assertEquals("seed", sourceOfTruth.current)
         sourceOfTruth.deleteFailure = boom
@@ -357,7 +358,7 @@ class KeyEngineSourceOfTruthRaceTest {
         assertEquals(stateBefore.readerGen, stateAfter.readerGen)
         assertEquals(stateBefore.fetch, stateAfter.fetch)
         assertTrue(stateAfter.attribution === stateBefore.attribution)
-        assertTrue(bookkeeper.status(KeyId.from(key)) === statusBefore)
+        assertTrue(bookkeeper.status(key) === statusBefore)
         assertEquals(eventsBefore, bookkeeper.events)
         assertEquals(1, sourceOfTruth.deleteCalls)
         assertEquals("seed", sourceOfTruth.current)
@@ -439,37 +440,37 @@ class KeyEngineSourceOfTruthRaceTest {
         val events = mutableListOf<BookkeepingEvent>()
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
-            events += BookkeepingEvent.Success(key, meta.writtenAtEpochMillis)
+            events += BookkeepingEvent.Success(KeyId.from(key), meta.writtenAtEpochMillis)
             delegate.recordSuccess(key, meta)
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
-            events += BookkeepingEvent.Failure(key, atEpochMillis)
+            events += BookkeepingEvent.Failure(KeyId.from(key), atEpochMillis)
             delegate.recordFailure(key, atEpochMillis)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
-            events += BookkeepingEvent.Forget(key)
+        override suspend fun forget(key: StoreKey) {
+            events += BookkeepingEvent.Forget(KeyId.from(key))
             delegate.forget(key)
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()

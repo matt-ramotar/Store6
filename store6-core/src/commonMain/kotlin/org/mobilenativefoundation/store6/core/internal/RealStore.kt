@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
-import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Store
 import org.mobilenativefoundation.store6.core.StoreError
@@ -17,7 +16,10 @@ import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.StoreResult
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.WallClock
 
 /**
  * Store implementation backed by one supervised [KeyEngine] per canonical key.
@@ -82,7 +84,7 @@ internal class RealStore<K : StoreKey, V : Any>(
     override suspend fun invalidateNamespace(namespace: StoreNamespace) {
         ensureOpen()
         durably("invalidateNamespace", "namespace '${namespace.value}'") {
-            bookkeeper.advanceStaleWatermark(namespace.value)
+            bookkeeper.advanceStaleWatermark(namespace)
         }
         registry.forEachResident(namespace.value) { engine -> engine.invalidateResident() }
     }
@@ -108,7 +110,7 @@ internal class RealStore<K : StoreKey, V : Any>(
                 sot.deleteNamespace(namespace)
             }
             durably("clearNamespace", "namespace '${namespace.value}'") {
-                bookkeeper.forgetNamespace(namespace.value)
+                bookkeeper.forgetNamespace(namespace)
             }
             registry.forEachResident(namespace.value) { engine -> engine.clearResident() }
         }

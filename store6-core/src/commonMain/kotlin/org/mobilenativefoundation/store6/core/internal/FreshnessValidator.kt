@@ -1,47 +1,15 @@
+@file:OptIn(org.mobilenativefoundation.store6.core.ExperimentalStoreApi::class)
+
 package org.mobilenativefoundation.store6.core.internal
 
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.StoreMeta
+import org.mobilenativefoundation.store6.core.seam.FetchPlan
+import org.mobilenativefoundation.store6.core.seam.FreshnessContext
+import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
-
-/**
- * The value and bookkeeping facts used to plan a read.
- *
- * [status] carries the durable bookkeeping posture captured before the corresponding engine-state
- * snapshot. A resident value with null [meta] is treated as conservatively stale (FS-6).
- */
-internal class FreshnessContext(
-    val hasResidentValue: Boolean,
-    val meta: StoreMeta?,
-    val epochStale: Boolean,
-    val freshness: Freshness,
-    val nowEpochMillis: Long,
-    val status: KeyStatus? = null,
-)
-
-internal fun interface FreshnessValidator {
-    fun plan(context: FreshnessContext): FetchPlan
-}
-
-internal sealed interface FetchPlan {
-    data object Skip : FetchPlan
-
-    class Fetch(
-        val servesResidentWhileFetching: Boolean,
-    ) : FetchPlan
-
-    /**
-     * A conditional fetch plan selected when an unsatisfied resident has a reusable [etag].
-     *
-     * The ETag remains planning metadata in issue 006; transport through the public fetcher seam
-     * arrives with issue 008.
-     */
-    class Conditional(
-        val etag: String,
-        val servesResidentWhileFetching: Boolean,
-    ) : FetchPlan
-}
 
 internal val FetchPlan.servesResident: Boolean
     get() =
@@ -76,6 +44,7 @@ internal fun elapsedAge(
  *
  * Negative wall-clock deltas are clamped to zero before evaluating [Freshness.MaxAge].
  */
+@OptIn(DelicateStoreApi::class)
 internal object DefaultFreshnessValidator : FreshnessValidator {
     override fun plan(context: FreshnessContext): FetchPlan =
         when (val freshness = context.freshness) {

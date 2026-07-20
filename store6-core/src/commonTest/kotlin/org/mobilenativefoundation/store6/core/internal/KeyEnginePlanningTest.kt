@@ -15,15 +15,23 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.FakeWallClock
-import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreError
+import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreMeta
+import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.TestKey
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.FetchPlan
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
+import org.mobilenativefoundation.store6.core.seam.FreshnessContext
+import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import org.mobilenativefoundation.store6.core.SingleRowTestSourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
@@ -37,7 +45,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
-@OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class KeyEnginePlanningTest {
     @Test
     fun hydration_reusesWrittenAtButStripsOldEtagAfterExternalReplacement() = runTest {
@@ -60,10 +68,13 @@ class KeyEnginePlanningTest {
         durableSot.write(key, "external")
 
         var observed: FreshnessContext? = null
-        val capturingValidator = FreshnessValidator { context ->
-            observed = context
-            FetchPlan.Skip
-        }
+        val capturingValidator =
+            object : FreshnessValidator {
+                override fun plan(context: FreshnessContext): FetchPlan {
+                    observed = context
+                    return FetchPlan.Skip
+                }
+            }
         val restarted =
             KeyEngine(
                 key,
@@ -98,7 +109,7 @@ class KeyEnginePlanningTest {
                 backgroundScope,
             )
         assertEquals("v1", first.get(Freshness.MustBeFresh))
-        durableBookkeeper.markStale(KeyId.from(key))
+        durableBookkeeper.markStale(key)
 
         var observed: FreshnessContext? = null
         val restarted =
@@ -108,7 +119,12 @@ class KeyEnginePlanningTest {
                 { error("LocalOnly hydration must not fetch") },
                 durableSot,
                 durableBookkeeper,
-                FreshnessValidator { context -> observed = context; FetchPlan.Skip },
+                object : FreshnessValidator {
+                    override fun plan(context: FreshnessContext): FetchPlan {
+                        observed = context
+                        return FetchPlan.Skip
+                    }
+                },
                 FakeWallClock(now = 20L),
                 backgroundScope,
             )
@@ -169,7 +185,7 @@ class KeyEnginePlanningTest {
                 releaseSecondFetch.complete(Unit)
                 withTimeout(1_000) { durableBookkeeper.successEntered.await() }
                 val early = assertIs<FetchDisposition.Revalidated>(ticket.disposition.value)
-                assertEquals(true, durableBookkeeper.status(keyId)?.durablyStale)
+                assertEquals(true, durableBookkeeper.status(key)?.durablyStale)
                 assertEquals(2, calls, "pre-success stale status must not manufacture a third fetch")
 
                 durableBookkeeper.releaseSuccess.complete(Unit)
@@ -3442,35 +3458,35 @@ class KeyEnginePlanningTest {
         val failureRecorded = CompletableDeferred<Unit>()
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             delegate.recordSuccess(key, meta)
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             delegate.recordFailure(key, atEpochMillis)
             failureRecorded.complete(Unit)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             delegate.forget(key)
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()
@@ -3488,7 +3504,7 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             delegate.recordSuccess(key, meta)
@@ -3500,28 +3516,28 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             delegate.recordFailure(key, atEpochMillis)
             failureRecorded.complete(Unit)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             delegate.forget(key)
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()
@@ -3539,7 +3555,7 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             if (gateNext) {
@@ -3551,23 +3567,23 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) = delegate.recordFailure(key, atEpochMillis)
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) = delegate.forget(key)
+        override suspend fun forget(key: StoreKey) = delegate.forget(key)
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()
@@ -3584,14 +3600,14 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             delegate.recordSuccess(key, meta)
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             delegate.recordFailure(key, atEpochMillis)
@@ -3602,21 +3618,21 @@ class KeyEnginePlanningTest {
             }
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             delegate.forget(key)
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()
@@ -3633,22 +3649,22 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             delegate.recordSuccess(key, meta)
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             delegate.recordFailure(key, atEpochMillis)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             delegate.forget(key)
             if (gateNext) {
                 gateNext = false
@@ -3657,15 +3673,15 @@ class KeyEnginePlanningTest {
             }
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()

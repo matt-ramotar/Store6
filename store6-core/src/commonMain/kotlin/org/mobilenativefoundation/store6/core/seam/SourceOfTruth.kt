@@ -1,6 +1,7 @@
 package org.mobilenativefoundation.store6.core.seam
 
 import kotlinx.coroutines.flow.Flow
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
@@ -40,6 +41,7 @@ import org.mobilenativefoundation.store6.core.StoreNamespace
  * @param V the non-null row type
  */
 @ExperimentalStoreApi
+@SubclassOptInRequired(DelicateStoreApi::class)
 public interface SourceOfTruth<K : StoreKey, V : Any> {
     /** Returns the live row stream for [key] under the contract documented on this interface. */
     public fun reader(key: K): Flow<V?>

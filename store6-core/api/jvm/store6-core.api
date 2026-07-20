@@ -4,35 +4,6 @@ public abstract interface annotation class org/mobilenativefoundation/store6/cor
 public abstract interface annotation class org/mobilenativefoundation/store6/core/ExperimentalStoreApi : java/lang/annotation/Annotation {
 }
 
-public abstract interface class org/mobilenativefoundation/store6/core/FetcherResult {
-}
-
-public final class org/mobilenativefoundation/store6/core/FetcherResult$Deleted : org/mobilenativefoundation/store6/core/FetcherResult {
-	public static final field INSTANCE Lorg/mobilenativefoundation/store6/core/FetcherResult$Deleted;
-	public fun equals (Ljava/lang/Object;)Z
-	public fun hashCode ()I
-	public fun toString ()Ljava/lang/String;
-}
-
-public final class org/mobilenativefoundation/store6/core/FetcherResult$Error : org/mobilenativefoundation/store6/core/FetcherResult {
-	public fun <init> (Ljava/lang/Throwable;)V
-	public final fun getCause ()Ljava/lang/Throwable;
-}
-
-public final class org/mobilenativefoundation/store6/core/FetcherResult$NotModified : org/mobilenativefoundation/store6/core/FetcherResult {
-	public fun <init> ()V
-	public fun <init> (Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getEtag ()Ljava/lang/String;
-}
-
-public final class org/mobilenativefoundation/store6/core/FetcherResult$Success : org/mobilenativefoundation/store6/core/FetcherResult {
-	public fun <init> (Ljava/lang/Object;Ljava/lang/String;)V
-	public synthetic fun <init> (Ljava/lang/Object;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
-	public final fun getEtag ()Ljava/lang/String;
-	public final fun getValue ()Ljava/lang/Object;
-}
-
 public abstract interface class org/mobilenativefoundation/store6/core/Freshness {
 }
 
@@ -183,11 +154,105 @@ public final class org/mobilenativefoundation/store6/core/StoreResult$Revalidate
 	public final fun getAge-UwyO8pc ()J
 }
 
+public abstract interface class org/mobilenativefoundation/store6/core/seam/Bookkeeper {
+	public abstract fun advanceGlobalStaleWatermark (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun advanceStaleWatermark (Lorg/mobilenativefoundation/store6/core/StoreNamespace;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun forget (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun forgetAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun forgetNamespace (Lorg/mobilenativefoundation/store6/core/StoreNamespace;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun markStale (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun recordFailure (Lorg/mobilenativefoundation/store6/core/StoreKey;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun recordSuccess (Lorg/mobilenativefoundation/store6/core/StoreKey;Lorg/mobilenativefoundation/store6/core/StoreMeta;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun status (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/seam/FetchPlan {
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/FetchPlan$Conditional : org/mobilenativefoundation/store6/core/seam/FetchPlan {
+	public fun <init> (Ljava/lang/String;Z)V
+	public final fun getEtag ()Ljava/lang/String;
+	public final fun getServesResidentWhileFetching ()Z
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/FetchPlan$Fetch : org/mobilenativefoundation/store6/core/seam/FetchPlan {
+	public fun <init> (Z)V
+	public final fun getServesResidentWhileFetching ()Z
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/FetchPlan$Skip : org/mobilenativefoundation/store6/core/seam/FetchPlan {
+	public static final field INSTANCE Lorg/mobilenativefoundation/store6/core/seam/FetchPlan$Skip;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/seam/FetcherResult {
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/FetcherResult$Deleted : org/mobilenativefoundation/store6/core/seam/FetcherResult {
+	public static final field INSTANCE Lorg/mobilenativefoundation/store6/core/seam/FetcherResult$Deleted;
+	public fun equals (Ljava/lang/Object;)Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/FetcherResult$Error : org/mobilenativefoundation/store6/core/seam/FetcherResult {
+	public fun <init> (Ljava/lang/Throwable;)V
+	public final fun getCause ()Ljava/lang/Throwable;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/FetcherResult$NotModified : org/mobilenativefoundation/store6/core/seam/FetcherResult {
+	public fun <init> ()V
+	public fun <init> (Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getEtag ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/FetcherResult$Success : org/mobilenativefoundation/store6/core/seam/FetcherResult {
+	public fun <init> (Ljava/lang/Object;Ljava/lang/String;)V
+	public synthetic fun <init> (Ljava/lang/Object;Ljava/lang/String;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getEtag ()Ljava/lang/String;
+	public final fun getValue ()Ljava/lang/Object;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/FreshnessContext {
+	public fun <init> (ZLorg/mobilenativefoundation/store6/core/StoreMeta;ZLorg/mobilenativefoundation/store6/core/Freshness;JLorg/mobilenativefoundation/store6/core/seam/KeyStatus;)V
+	public synthetic fun <init> (ZLorg/mobilenativefoundation/store6/core/StoreMeta;ZLorg/mobilenativefoundation/store6/core/Freshness;JLorg/mobilenativefoundation/store6/core/seam/KeyStatus;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getEpochStale ()Z
+	public final fun getFreshness ()Lorg/mobilenativefoundation/store6/core/Freshness;
+	public final fun getHasResidentValue ()Z
+	public final fun getMeta ()Lorg/mobilenativefoundation/store6/core/StoreMeta;
+	public final fun getNowEpochMillis ()J
+	public final fun getStatus ()Lorg/mobilenativefoundation/store6/core/seam/KeyStatus;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/seam/FreshnessValidator {
+	public abstract fun plan (Lorg/mobilenativefoundation/store6/core/seam/FreshnessContext;)Lorg/mobilenativefoundation/store6/core/seam/FetchPlan;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/KeyStatus {
+	public fun <init> (Lorg/mobilenativefoundation/store6/core/StoreMeta;Ljava/lang/Long;Ljava/lang/Long;IZ)V
+	public final fun getConsecutiveFailures ()I
+	public final fun getDurablyStale ()Z
+	public final fun getLastFailureAtEpochMillis ()Ljava/lang/Long;
+	public final fun getLastSuccessSequence ()Ljava/lang/Long;
+	public final fun getMeta ()Lorg/mobilenativefoundation/store6/core/StoreMeta;
+}
+
 public abstract interface class org/mobilenativefoundation/store6/core/seam/SourceOfTruth {
 	public abstract fun delete (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun deleteAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun deleteNamespace (Lorg/mobilenativefoundation/store6/core/StoreNamespace;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun reader (Lorg/mobilenativefoundation/store6/core/StoreKey;)Lkotlinx/coroutines/flow/Flow;
 	public abstract fun write (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/seam/TransactionalSourceOfTruth : org/mobilenativefoundation/store6/core/seam/SourceOfTruth {
+	public abstract fun withTransaction (Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/seam/WallClock {
+	public abstract fun nowEpochMillis ()J
 }
 

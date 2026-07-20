@@ -4,7 +4,7 @@ import app.cash.turbine.test
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
-import org.mobilenativefoundation.store6.core.internal.KeyId
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -13,6 +13,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+@OptIn(ExperimentalStoreApi::class)
 class FetcherContractTest {
     @Test
     fun fetcherResultError_cancellationIsEquivalentToThrowingCancellation() = runTest {
@@ -211,17 +212,16 @@ class FetcherContractTest {
             }
         }
         val key = TestKey("1")
-        val keyId = KeyId.from(key)
 
         try {
             assertEquals("v1", store.get(key))
-            val seeded = assertNotNull(bookkeeper.status(keyId))
+            val seeded = assertNotNull(bookkeeper.status(key))
             assertEquals("e1", seeded.meta?.etag)
             assertEquals(1L, seeded.lastSuccessSequence)
 
             clock.now = 2_000L
             assertEquals("v1", store.get(key, Freshness.MustBeFresh))
-            val revalidated = assertNotNull(bookkeeper.status(keyId))
+            val revalidated = assertNotNull(bookkeeper.status(key))
             assertEquals("e2", revalidated.meta?.etag)
             assertEquals(2L, revalidated.lastSuccessSequence)
             assertTrue(
@@ -235,7 +235,7 @@ class FetcherContractTest {
                 }
             val missing = assertIs<StoreError.Missing>(deleted.error)
             assertTrue(missing.message.lowercase().contains("deleted"))
-            assertNull(bookkeeper.status(keyId))
+            assertNull(bookkeeper.status(key))
             assertEquals(3, calls)
         } finally {
             store.close()
@@ -260,7 +260,7 @@ class FetcherContractTest {
         try {
             assertEquals("v1", store.get(key))
             assertEquals("v1", store.get(key, Freshness.MustBeFresh))
-            assertEquals("e1", bookkeeper.status(KeyId.from(key))?.meta?.etag)
+            assertEquals("e1", bookkeeper.status(key)?.meta?.etag)
         } finally {
             store.close()
         }

@@ -12,6 +12,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.internal.RotatingSlotSourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs

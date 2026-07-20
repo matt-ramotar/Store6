@@ -12,14 +12,19 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.FakeWallClock
-import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.StoreMeta
+import org.mobilenativefoundation.store6.core.StoreKey
+import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.TestKey
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.SingleRowTestSourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -27,7 +32,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-@OptIn(ExperimentalStoreApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 class BookkeeperOrderingConformanceTest {
     private val key = TestKey("1")
     private val keyId = KeyId.from(key)
@@ -56,7 +61,7 @@ class BookkeeperOrderingConformanceTest {
         read.await()
         clear.await()
 
-        assertNull(bookkeeper.status(keyId))
+        assertNull(bookkeeper.status(key))
     }
 
     @Test
@@ -98,7 +103,7 @@ class BookkeeperOrderingConformanceTest {
         testScheduler.runCurrent()
         deletion.await()
         assertEquals("v2", replacement.await())
-        assertEquals("e2", bookkeeper.status(keyId)?.meta?.etag)
+        assertEquals("e2", bookkeeper.status(key)?.meta?.etag)
     }
 
     @Test
@@ -131,7 +136,7 @@ class BookkeeperOrderingConformanceTest {
         testScheduler.runCurrent()
         read.await()
 
-        assertNull(bookkeeper.status(keyId))
+        assertNull(bookkeeper.status(key))
     }
 
     @Test
@@ -178,7 +183,7 @@ class BookkeeperOrderingConformanceTest {
             markGate.release()
         }
 
-        assertEquals(10L, bookkeeper.status(keyId)?.lastFailureAtEpochMillis)
+        assertEquals(10L, bookkeeper.status(key)?.lastFailureAtEpochMillis)
         assertEquals(1, calls)
     }
 
@@ -353,7 +358,7 @@ class BookkeeperOrderingConformanceTest {
         }
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             successGate?.also { successGate = null }?.pause()
@@ -362,33 +367,33 @@ class BookkeeperOrderingConformanceTest {
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             failureGate?.pause()
             delegate.recordFailure(key, atEpochMillis)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             forgetGate?.pause()
             delegate.forget(key)
         }
 
-        override suspend fun markStale(key: KeyId) {
+        override suspend fun markStale(key: StoreKey) {
             markGate?.pause()
             events?.add("markStale")
             delegate.markStale(key)
         }
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()

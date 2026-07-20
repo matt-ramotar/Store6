@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
@@ -18,7 +19,7 @@ import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
  *
  * Canonical-key cells are intentionally unbounded until issue 007 adds their lifecycle policy.
  */
-@OptIn(ExperimentalStoreApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 internal class InMemorySourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<K, V> {
     private class Cell<V : Any>(
         val row: V?,

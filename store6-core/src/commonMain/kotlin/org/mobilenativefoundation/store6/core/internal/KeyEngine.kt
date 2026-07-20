@@ -38,7 +38,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
-import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreError
@@ -46,7 +45,14 @@ import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.StoreResult
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.FetchPlan
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
+import org.mobilenativefoundation.store6.core.seam.FreshnessContext
+import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.WallClock
 
 /** Emits every stale epoch that advanced beyond the snapshot used to plan a stream startup. */
 internal fun Flow<KeyState>.staleEpochsAfter(planningEpoch: Long): Flow<Long> =
@@ -650,7 +656,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     /** Waits out destructive mutation tails, then resolves a queued record against live state. */
     private suspend fun resolveCurrentRecord(record: ReaderRecord<V>): ReaderResolution<V>? {
         while (true) {
-            val status = bookkeeper.status(keyId)
+            val status = bookkeeper.status(key)
             var barrier: CompletableDeferred<Unit>? = null
             val resolved =
                 stateLock.withLock {
@@ -763,7 +769,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         enforceCollectorEligibility: Boolean = false,
     ): FetchReservation<V>? {
         while (true) {
-            val status = bookkeeper.status(keyId)
+            val status = bookkeeper.status(key)
             var pendingRevalidationOwner: FetchTicket? = null
             val planned =
                 stateLock.withLock {
@@ -964,7 +970,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             )
                         }
                     }
-                    bookkeeper.recordFailure(keyId, atEpochMillis)
+                    bookkeeper.recordFailure(key, atEpochMillis)
                     return@withLock FetchOutcome.Failed(
                         exception = exception,
                         atEpochMillis = atEpochMillis,
@@ -995,7 +1001,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                 )
                             committed.successfulWriteSequence
                         }
-                    bookkeeper.recordSuccess(keyId, meta)
+                    bookkeeper.recordSuccess(key, meta)
                     sequence
                 }
                 val disposition =
@@ -1177,7 +1183,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         classified
                     }
                 refreshedMeta?.let { meta ->
-                    withContext(NonCancellable) { bookkeeper.recordSuccess(keyId, meta) }
+                    withContext(NonCancellable) { bookkeeper.recordSuccess(key, meta) }
                 }
                 outcome
             }
@@ -1225,7 +1231,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             replaceResidenceLocked(null)
                         }
                         try {
-                            bookkeeper.forget(keyId)
+                            bookkeeper.forget(key)
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (failure: Throwable) {
@@ -1289,7 +1295,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     val classified =
                         stateLock.withLock { classifySettledOutcome(ticket, outcome) }
                     if (classified is FetchOutcome.Failed) {
-                        bookkeeper.recordFailure(keyId, classified.atEpochMillis)
+                        bookkeeper.recordFailure(key, classified.atEpochMillis)
                     }
                     completeTicket(ticket, classified)
                 }
@@ -1357,7 +1363,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         maintenanceCoordinator.withCommit(keyId.namespace) {
             writeLock.withLock {
                 try {
-                    bookkeeper.markStale(keyId)
+                    bookkeeper.markStale(key)
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (failure: Throwable) {
@@ -1372,7 +1378,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     internal suspend fun invalidateResident() {
         maintenanceCoordinator.withCommit(keyId.namespace) {
             writeLock.withLock {
-                if (bookkeeper.status(keyId)?.durablyStale == true) {
+                if (bookkeeper.status(key)?.durablyStale == true) {
                     applyEvent(KeyEvent.Invalidate)
                 }
             }
@@ -1396,7 +1402,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
                         stateLock.withLock { applyClearTransitionLocked() }
                         try {
-                            bookkeeper.forget(keyId)
+                            bookkeeper.forget(key)
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (failure: Throwable) {
@@ -1438,7 +1444,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     /** Direct one-shot hydration used by get and memory-miss stream startup. */
     private suspend fun hydrateFromSot(): ResidenceSnapshot<V> =
         writeLock.withLock {
-            val status = bookkeeper.status(keyId)
+            val status = bookkeeper.status(key)
             val capturedRevision = stateLock.withLock { residenceRevision }
             val row =
                 try {
@@ -1488,7 +1494,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
     /** Coherent state/residence snapshot used at public delivery boundaries. */
     private suspend fun residenceSnapshot(): ResidenceSnapshot<V> {
-        val status = bookkeeper.status(keyId)
+        val status = bookkeeper.status(key)
         return stateLock.withLock {
             ResidenceSnapshot(
                 state = mutableState.value,

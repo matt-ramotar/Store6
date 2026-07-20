@@ -19,6 +19,7 @@ import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.KeyEngine
 import org.mobilenativefoundation.store6.core.internal.KeyId
 import org.mobilenativefoundation.store6.core.internal.READER_PIPELINE_GRACE_MILLIS
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals

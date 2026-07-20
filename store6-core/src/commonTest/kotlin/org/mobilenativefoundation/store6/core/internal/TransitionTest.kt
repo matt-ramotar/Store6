@@ -1,6 +1,7 @@
 package org.mobilenativefoundation.store6.core.internal
 
 import kotlinx.coroutines.CompletableDeferred
+import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreMeta
 import kotlin.test.Test
@@ -11,6 +12,7 @@ import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 
+@OptIn(ExperimentalStoreApi::class)
 class TransitionTest {
     private fun ticket(): FetchTicket = FetchTicket(CompletableDeferred())
 
