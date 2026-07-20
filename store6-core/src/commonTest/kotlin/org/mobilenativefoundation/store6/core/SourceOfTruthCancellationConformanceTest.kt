@@ -516,5 +516,18 @@ class SourceOfTruthCancellationConformanceTest {
             delegate.forget(key)
             forgotten.complete(Unit)
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 }

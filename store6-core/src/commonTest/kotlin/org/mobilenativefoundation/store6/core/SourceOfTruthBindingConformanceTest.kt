@@ -1394,6 +1394,19 @@ class SourceOfTruthBindingConformanceTest {
             forgetCalls += 1
             delegate.forget(key)
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 
     private class MutableSourceOfTruth(
@@ -1552,6 +1565,19 @@ class SourceOfTruthBindingConformanceTest {
         override suspend fun forget(key: KeyId) {
             delegate.forget(key)
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 
     private class GraceGateSourceOfTruth : SingleRowTestSourceOfTruth<String> {
@@ -1983,6 +2009,19 @@ class SourceOfTruthBindingConformanceTest {
             delegate.forget(key)
             forgotten.complete(Unit)
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 
     private class FirstWriteWithheldSourceOfTruth : SingleRowTestSourceOfTruth<String> {
