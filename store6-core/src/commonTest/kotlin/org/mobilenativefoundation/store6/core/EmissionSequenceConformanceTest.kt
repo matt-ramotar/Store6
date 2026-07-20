@@ -179,7 +179,7 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
     }
 
     @Test
-    fun ac1d_notModifiedEmitsExactlyOneFreshDataWithoutRevalidated() = runTest {
+    fun ac1d_notModifiedEmitsExactlyOneRevalidatedWithoutFreshData() = runTest {
         var calls = 0
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
@@ -220,10 +220,7 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
                 secondStarted.await()
                 secondGate.complete(Unit)
 
-                val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
-                assertEquals("v1", fresh.value)
-                assertFalse(fresh.isStale)
-                assertFalse(fresh.refreshing)
+                assertIs<StoreResult.Revalidated>(collector.awaitItem())
                 collector.expectNoEvents()
                 assertEquals(2, calls)
                 initialCollector.cancelAndIgnoreRemainingEvents()

@@ -34,7 +34,7 @@ public interface Store<K : StoreKey, out V : Any> {
      *
      * @param key the key to observe
      * @param freshness the freshness policy applied to this observation
-     * @return a flow of loading, data, and error results for the key
+     * @return a flow of loading, data, revalidation, and error results for the key
      * @throws IllegalStateException if the store is closed before this call or before collection
      * begins
      */
@@ -72,10 +72,11 @@ public interface Store<K : StoreKey, out V : Any> {
      * the resident value is kept and served as stale in the meantime. Invalidation is
      * level-triggered monotone state, so a signal issued during any race window is never lost.
      *
-     * Present behavior: the stale mark covers resident state; durable stale marks that survive
-     * process restart land with the invalidation engine.
+     * The stale mark is durable and survives process restart until a later successful fetch or
+     * revalidation clears it.
      *
      * @param key the key to invalidate
+     * @throws StoreException if persisting the stale mark fails; resident state is not signaled
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun invalidate(key: K)
@@ -108,11 +109,13 @@ public interface Store<K : StoreKey, out V : Any> {
      * ([StoreResult.Loading]) and then refetched data, and an in-flight fetch that started
      * before the clear can no longer commit — its waiters observe [StoreError.Missing].
      *
-     * Present behavior: removal includes the configured source-of-truth row for [key].
+     * Removal includes the configured source-of-truth row and its freshness bookkeeping for
+     * [key].
      *
      * @param key the key to clear
-     * @throws StoreException if deleting the configured source-of-truth row fails; engine state
-     * for [key] remains unchanged
+     * @throws StoreException if deleting the configured source-of-truth row fails (engine state
+     * remains unchanged), or if freshness cleanup fails after the row and resident state were
+     * removed
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun clear(key: K)

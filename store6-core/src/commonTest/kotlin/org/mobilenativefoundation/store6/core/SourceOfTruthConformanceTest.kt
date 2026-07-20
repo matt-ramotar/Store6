@@ -396,9 +396,9 @@ class SourceOfTruthConformanceTest {
         store.close()
     }
 
-    // I7: a 304 refreshes metadata and re-emits fresh Data to the revalidating collector.
+    // I7: a 304 refreshes metadata and emits Revalidated to the revalidating collector.
     @Test
-    fun notModified_refreshesMetaAndReEmitsFreshData() = runTest {
+    fun notModified_refreshesMetaAndEmitsRevalidated() = runTest {
         var calls = 0
         val store = store<TestKey, String> {
             fetcherOfResult {
@@ -416,14 +416,12 @@ class SourceOfTruthConformanceTest {
 
             store.invalidate(TestKey("1"))
 
-            var seenFresh = false
-            while (!seenFresh) {
-                val item = awaitItem()
-                if (item is StoreResult.Data<String> && !item.isStale) {
-                    assertEquals("v1", item.value)
-                    seenFresh = true
-                }
+            var item = awaitItem()
+            while (item is StoreResult.Data<String> && item.isStale) {
+                item = awaitItem()
             }
+            assertIs<StoreResult.Revalidated>(item)
+            expectNoEvents()
             cancelAndIgnoreRemainingEvents()
         }
         store.close()

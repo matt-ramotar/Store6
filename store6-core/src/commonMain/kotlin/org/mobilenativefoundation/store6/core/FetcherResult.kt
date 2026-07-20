@@ -5,9 +5,9 @@ package org.mobilenativefoundation.store6.core
  *
  * A plain [StoreBuilder.fetcher] is success-or-throw sugar: a returned value becomes [Success],
  * while a thrown exception follows the store's fetch-failure path. [NotModified] refreshes the
- * resident value's metadata and re-emits fresh [StoreResult.Data]; without a resident value it
- * produces [StoreError.Missing]. Conditional requests and a distinct `Revalidated` emission are
- * deferred.
+ * resident value's metadata and emits [StoreResult.Revalidated]; without a resident value it
+ * produces [StoreError.Missing]. The ETag selected by a conditional plan remains internal
+ * planning metadata until conditional transport lands.
  * [Error] is equivalent to throwing [Error.cause] from the fetcher. [Deleted] destructively clears
  * the resident value and forgets its freshness; streams and waiters receive [StoreError.Missing],
  * and the deletion does not trigger an automatic refetch.

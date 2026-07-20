@@ -40,6 +40,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlin.time.Duration.Companion.minutes
 
 @OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
@@ -270,6 +271,9 @@ class SourceOfTruthBindingConformanceTest {
                                 }
                             }
 
+                            is StoreResult.Revalidated ->
+                                fail("obsolete 304 must not emit Revalidated")
+
                             else -> Unit
                         }
                     }
@@ -285,7 +289,7 @@ class SourceOfTruthBindingConformanceTest {
     }
 
     @Test
-    fun notModifiedDirect_afterMappedSameValueBaseline_emitsFreshDataExactlyOnce() = runTest {
+    fun notModifiedDirect_afterMappedSameValueBaseline_emitsRevalidatedExactlyOnce() = runTest {
         val sourceOfTruth = ReplayableSourceOfTruth()
         var calls = 0
         val store = store<TestKey, String> {
@@ -313,9 +317,8 @@ class SourceOfTruthBindingConformanceTest {
 
                 val collector = store.stream(key).testIn(backgroundScope)
                 assertTrue(assertIs<StoreResult.Data<String>>(collector.awaitItem()).isStale)
-                val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
-                assertEquals("v1", fresh.value)
-                assertFalse(fresh.isStale)
+                assertIs<StoreResult.Revalidated>(collector.awaitItem())
+                collector.expectNoEvents()
 
                 assertEquals(2, calls)
                 observer.cancelAndIgnoreRemainingEvents()
@@ -327,7 +330,7 @@ class SourceOfTruthBindingConformanceTest {
     }
 
     @Test
-    fun sameValueReplayThenNotModifiedDirect_emitsFreshDataExactlyOnce() = runTest {
+    fun sameValueReplayThenNotModifiedDirect_emitsRevalidatedExactlyOnce() = runTest {
         val sourceOfTruth = ReplayableSourceOfTruth()
         val bookkeeper = GateNextSuccessBookkeeper()
         val secondStarted = CompletableDeferred<Unit>()
@@ -370,9 +373,7 @@ class SourceOfTruthBindingConformanceTest {
                 collector.expectNoEvents()
                 bookkeeper.releaseSuccess.complete(Unit)
 
-                val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
-                assertEquals("v1", fresh.value)
-                assertFalse(fresh.isStale)
+                assertIs<StoreResult.Revalidated>(collector.awaitItem())
                 collector.expectNoEvents()
                 assertEquals(2, calls)
                 observer.cancelAndIgnoreRemainingEvents()

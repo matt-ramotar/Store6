@@ -40,8 +40,10 @@ public sealed interface StoreResult<out V> {
      * Confirmation that the current value is still fresh without a new value being produced —
      * the not-modified signal of a conditional fetch.
      *
-     * Present behavior: not yet emitted; a NotModified fetch refreshes metadata and re-emits
-     * [Data] until conditional revalidation lands with the invalidation engine.
+     * Emitted when a conditional fetch returns not-modified: the value is server-confirmed fresh,
+     * metadata is refreshed, and [age] is the elapsed time since the last commit measured at
+     * revalidation. Revalidated is a lifecycle signal: `conflateLatestData` never conflates or
+     * drops it.
      */
     public class Revalidated internal constructor(
         /** Elapsed time since the value was last committed, measured at revalidation. */

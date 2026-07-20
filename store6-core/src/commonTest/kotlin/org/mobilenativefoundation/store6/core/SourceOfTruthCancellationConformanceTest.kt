@@ -192,7 +192,7 @@ class SourceOfTruthCancellationConformanceTest {
             }
 
         assertEquals("seed", engine.get(Freshness.CachedOrFetch))
-        val statusBefore = assertNotNull(bookkeeper.status(keyId))
+        val statusBeforeInvalidation = assertNotNull(bookkeeper.status(keyId))
         val initialData = CompletableDeferred<Unit>()
         val collector =
             backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
@@ -207,6 +207,9 @@ class SourceOfTruthCancellationConformanceTest {
         initialData.await()
 
         engine.invalidate()
+        val statusAfterInvalidation = assertNotNull(bookkeeper.status(keyId))
+        assertTrue(statusAfterInvalidation.durablyStale)
+        assertEquals(statusBeforeInvalidation.meta, statusAfterInvalidation.meta)
         sot.deleteStarted.await()
         val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
         sot.releaseCancellation.complete(Unit)
@@ -219,7 +222,7 @@ class SourceOfTruthCancellationConformanceTest {
         assertEquals("delete cancelled", failure.message)
         assertTrue(ticket.outcome.isCancelled)
         assertEquals("seed", sot.current)
-        assertTrue(bookkeeper.status(keyId) === statusBefore)
+        assertTrue(bookkeeper.status(keyId) === statusAfterInvalidation)
         assertEquals(2, fetchCalls)
 
         engine.stream(Freshness.LocalOnly).test {

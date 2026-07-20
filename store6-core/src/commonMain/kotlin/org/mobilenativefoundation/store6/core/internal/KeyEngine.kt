@@ -47,8 +47,6 @@ import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
-import kotlin.time.Duration
-import kotlin.time.Duration.Companion.milliseconds
 
 /** Emits every stale epoch that advanced beyond the snapshot used to plan a stream startup. */
 internal fun Flow<KeyState>.staleEpochsAfter(planningEpoch: Long): Flow<Long> =
@@ -85,6 +83,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private val beforeTicketOutcomeDeliveryTestGate: suspend () -> Unit = {},
     /** Optional deterministic gate before first classification of a replacement disposition. */
     private val beforeReplacementDispositionClassificationTestGate: suspend () -> Unit = {},
+    /** Store-local fence shared by RealStore; direct tests receive an isolated coordinator. */
+    private val maintenanceCoordinator: MaintenanceCoordinator = MaintenanceCoordinator(),
 ) {
     private val stateLock = Mutex()
     private val writeLock = Mutex()
@@ -650,6 +650,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     /** Waits out destructive mutation tails, then resolves a queued record against live state. */
     private suspend fun resolveCurrentRecord(record: ReaderRecord<V>): ReaderResolution<V>? {
         while (true) {
+            val status = bookkeeper.status(keyId)
             var barrier: CompletableDeferred<Unit>? = null
             val resolved =
                 stateLock.withLock {
@@ -664,6 +665,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             ReaderResolution(
                                 record = current,
                                 state = mutableState.value,
+                                status = status,
+                                nowEpochMillis = wallClock.nowEpochMillis(),
                             )
                         }
                     } else {
@@ -703,6 +706,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         snapshot: KeyState,
         envelope: ValueEnvelope<V>?,
         nowEpochMillis: Long,
+        status: KeyStatus?,
     ): FetchPlan =
         validator.plan(
             FreshnessContext(
@@ -711,15 +715,22 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 epochStale = envelope != null && envelope.staleEpochAtCommit < snapshot.staleEpoch,
                 freshness = freshness,
                 nowEpochMillis = nowEpochMillis,
-                status = null,
+                status = status,
             ),
         )
 
-    private fun currentPlan(
+    private fun planFor(
         freshness: Freshness,
-        envelope: ValueEnvelope<V>?,
+        snapshot: ResidenceSnapshot<V>,
+        envelope: ValueEnvelope<V>? = snapshot.envelope,
     ): FetchPlan =
-        planFor(freshness, state.value, envelope, wallClock.nowEpochMillis())
+        planFor(
+            freshness = freshness,
+            snapshot = snapshot.state,
+            envelope = envelope,
+            nowEpochMillis = snapshot.nowEpochMillis,
+            status = snapshot.status,
+        )
 
     private fun staleServingTolerated(freshness: Freshness): Boolean =
         freshness == Freshness.CachedOrFetch || freshness == Freshness.StaleIfError
@@ -734,7 +745,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 snapshot.envelope?.let { envelope ->
                     envelope.origin == Origin.FETCHER &&
                         envelope.meta != null &&
-                        envelope.staleEpochAtCommit >= snapshot.state.staleEpoch
+                        envelope.staleEpochAtCommit >= snapshot.state.staleEpoch &&
+                        snapshot.status?.durablyStale != true
                 } == true
 
             Freshness.CachedOrFetch,
@@ -750,57 +762,79 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         collectorEligibleResidence: ValueEnvelope<V>? = null,
         enforceCollectorEligibility: Boolean = false,
     ): FetchReservation<V>? {
-        val planned =
-            stateLock.withLock {
-                ensureOpen()
-                val now = wallClock.nowEpochMillis()
-                val snapshot = mutableState.value
-                val currentResidence = residence.value
-                val planningResidence =
+        while (true) {
+            val status = bookkeeper.status(keyId)
+            var pendingRevalidationOwner: FetchTicket? = null
+            val planned =
+                stateLock.withLock {
+                    ensureOpen()
+                    val now = wallClock.nowEpochMillis()
+                    val snapshot = mutableState.value
+                    val currentResidence = residence.value
+                    val directOwner = currentResidence?.directRevalidationOwner
+                    val directDisposition =
+                        directOwner?.disposition?.value as? FetchDisposition.Revalidated
                     if (
-                        enforceCollectorEligibility &&
-                        currentResidence?.directRevalidationOwner != null &&
-                        currentResidence !== collectorEligibleResidence
+                        directOwner != null &&
+                        directDisposition?.envelope === currentResidence &&
+                        !directOwner.outcome.isCompleted
                     ) {
-                        collectorEligibleResidence
-                    } else {
-                        currentResidence
+                        pendingRevalidationOwner = directOwner
+                        return@withLock null
                     }
-                val plan = planFor(freshness, snapshot, planningResidence, now)
-                if (plan is FetchPlan.Skip) {
-                    return@withLock null
-                }
-                val ticket =
-                    FetchTicket(
-                        outcome = CompletableDeferred(engineJob),
-                        requestRevision = residenceRevision,
-                        residenceRevisionAtLaunch =
-                            currentResidence?.let { residenceRevision },
-                        residenceEnvelopeAtLaunch = currentResidence,
-                        staleEpochAtLaunch = snapshot.staleEpoch,
-                        nowEpochMillisAtLaunch = now,
+                    val planningResidence =
+                        if (
+                            enforceCollectorEligibility &&
+                            currentResidence?.directRevalidationOwner != null &&
+                            currentResidence !== collectorEligibleResidence
+                        ) {
+                            collectorEligibleResidence
+                        } else {
+                            currentResidence
+                        }
+                    val plan = planFor(freshness, snapshot, planningResidence, now, status)
+                    if (plan is FetchPlan.Skip) {
+                        return@withLock null
+                    }
+                    val ticket =
+                        FetchTicket(
+                            outcome = CompletableDeferred(engineJob),
+                            requestRevision = residenceRevision,
+                            residenceRevisionAtLaunch =
+                                currentResidence?.let { residenceRevision },
+                            residenceEnvelopeAtLaunch = currentResidence,
+                            staleEpochAtLaunch = snapshot.staleEpoch,
+                            nowEpochMillisAtLaunch = now,
+                            statusAtLaunch = status,
+                        )
+                    val result = transition(snapshot, KeyEvent.EnsureFetch(ticket))
+                    mutableState.value = result.state
+                    PlannedFetchEffect(
+                        effect = result.effect,
+                        collectorEligibleResidence = planningResidence,
+                        plan = plan,
                     )
-                val result = transition(snapshot, KeyEvent.EnsureFetch(ticket))
-                mutableState.value = result.state
-                PlannedFetchEffect(
-                    effect = result.effect,
-                    collectorEligibleResidence = planningResidence,
-                    plan = plan,
-                )
+                }
+
+            val owner = pendingRevalidationOwner
+            if (owner != null) {
+                owner.outcome.await()
+                continue
             }
 
-        val reservation = planned ?: return null
-        val ticket =
-            when (val effect = reservation.effect) {
-                is KeyEffect.Launch -> effect.ticket.also(::launchFetch)
-                is KeyEffect.Join -> effect.ticket
-                else -> error("Ensure-fetch transition produced an invalid effect: $effect")
-            }
-        return FetchReservation(
-            ticket = ticket,
-            collectorEligibleResidence = reservation.collectorEligibleResidence,
-            plan = reservation.plan,
-        )
+            val reservation = planned ?: return null
+            val ticket =
+                when (val effect = reservation.effect) {
+                    is KeyEffect.Launch -> effect.ticket.also(::launchFetch)
+                    is KeyEffect.Join -> effect.ticket
+                    else -> error("Ensure-fetch transition produced an invalid effect: $effect")
+                }
+            return FetchReservation(
+                ticket = ticket,
+                collectorEligibleResidence = reservation.collectorEligibleResidence,
+                plan = reservation.plan,
+            )
+        }
     }
 
     /** Returns only the joined/owned identity for non-collector call sites. */
@@ -859,121 +893,123 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         value: V,
         etag: String?,
     ): FetchOutcome =
-        writeLock.withLock {
-            val meta = EngineStoreMeta(wallClock.nowEpochMillis(), etag)
-            var attribution: AttributionTag? = null
-            val effect =
-                stateLock.withLock {
-                    val result =
-                        transition(
-                            mutableState.value,
-                            KeyEvent.CommitFetch(
-                                ticket = ticket,
-                                value = value,
-                                meta = meta,
-                            ),
-                        )
-                    attribution = result.state.attribution
-                    if (result.effect == KeyEffect.Commit) {
-                        val committedAttribution = checkNotNull(attribution)
-                        mutableState.value = result.state
-                        ticket.disposition.value =
-                            FetchDisposition.Committing(
-                                attribution = committedAttribution,
-                                successfulWriteSequenceAtStart =
-                                    writeObservationBoundary.value.successfulSequence,
+        maintenanceCoordinator.withCommit(keyId.namespace) {
+            writeLock.withLock {
+                val meta = EngineStoreMeta(wallClock.nowEpochMillis(), etag)
+                var attribution: AttributionTag? = null
+                val effect =
+                    stateLock.withLock {
+                        val result =
+                            transition(
+                                mutableState.value,
+                                KeyEvent.CommitFetch(
+                                    ticket = ticket,
+                                    value = value,
+                                    meta = meta,
+                                ),
                             )
-                        updateWriteObservationBoundary { current ->
-                            current.copy(
-                                readerGen = result.state.readerGen,
-                                observedAttribution = committedAttribution,
-                                activeAttribution = committedAttribution,
-                                activeRawPhase = ActiveRawPhase.Unobserved,
+                        attribution = result.state.attribution
+                        if (result.effect == KeyEffect.Commit) {
+                            val committedAttribution = checkNotNull(attribution)
+                            mutableState.value = result.state
+                            ticket.disposition.value =
+                                FetchDisposition.Committing(
+                                    attribution = committedAttribution,
+                                    successfulWriteSequenceAtStart =
+                                        writeObservationBoundary.value.successfulSequence,
+                                )
+                            updateWriteObservationBoundary { current ->
+                                current.copy(
+                                    readerGen = result.state.readerGen,
+                                    observedAttribution = committedAttribution,
+                                    activeAttribution = committedAttribution,
+                                    activeRawPhase = ActiveRawPhase.Unobserved,
+                                )
+                            }
+                        } else {
+                            mutableState.value = result.state
+                        }
+                        result.effect
+                    }
+
+                when (effect) {
+                    KeyEffect.Superseded -> return@withLock FetchOutcome.Superseded
+                    KeyEffect.Commit -> Unit
+                    else -> error("Commit-fetch transition produced an invalid effect: $effect")
+                }
+
+                val stamped = checkNotNull(attribution)
+                try {
+                    sot.write(key, value)
+                } catch (cancellation: CancellationException) {
+                    withContext(NonCancellable) {
+                        stateLock.withLock {
+                            terminalizeFailedWriteLocked(
+                                stamped = stamped,
+                                ticket = ticket,
+                                disposition = FetchDisposition.Cancelled,
                             )
                         }
-                    } else {
-                        mutableState.value = result.state
                     }
-                    result.effect
+                    throw cancellation
+                } catch (failure: Throwable) {
+                    val exception = writeException(failure)
+                    val atEpochMillis = wallClock.nowEpochMillis()
+                    withContext(NonCancellable) {
+                        stateLock.withLock {
+                            terminalizeFailedWriteLocked(
+                                stamped = stamped,
+                                ticket = ticket,
+                                disposition = FetchDisposition.Failed,
+                            )
+                        }
+                    }
+                    bookkeeper.recordFailure(keyId, atEpochMillis)
+                    return@withLock FetchOutcome.Failed(
+                        exception = exception,
+                        atEpochMillis = atEpochMillis,
+                        bookkeepingRecorded = true,
+                    )
                 }
 
-            when (effect) {
-                KeyEffect.Superseded -> return@withLock FetchOutcome.Superseded
-                KeyEffect.Commit -> Unit
-                else -> error("Commit-fetch transition produced an invalid effect: $effect")
-            }
-
-            val stamped = checkNotNull(attribution)
-            try {
-                sot.write(key, value)
-            } catch (cancellation: CancellationException) {
-                withContext(NonCancellable) {
-                    stateLock.withLock {
-                        terminalizeFailedWriteLocked(
-                            stamped = stamped,
-                            ticket = ticket,
-                            disposition = FetchDisposition.Cancelled,
-                        )
-                    }
+                // This CAS is the first instruction after normal write return. It separates every
+                // mutation-era observation from later source authority without waiting for stateLock.
+                val closedWriteBoundary = closeSuccessfulWriteBoundary()
+                val committedWriteSequence = withContext(NonCancellable) {
+                    val sequence =
+                        stateLock.withLock {
+                            val committed =
+                                convergeSuccessfulWriteLocked(
+                                    stamped = stamped,
+                                    value = value,
+                                    closed = closedWriteBoundary,
+                                )
+                            ticket.disposition.value =
+                                FetchDisposition.Committed(
+                                    successfulWriteSequence = committed.successfulWriteSequence,
+                                    attribution = stamped,
+                                    rawReaderGen = committed.readerGen,
+                                    rawCommitCutoff = committed.rawCommitCutoff,
+                                    authoritativeRawSequence =
+                                        committed.authoritativeRawSequence,
+                                )
+                            committed.successfulWriteSequence
+                        }
+                    bookkeeper.recordSuccess(keyId, meta)
+                    sequence
                 }
-                throw cancellation
-            } catch (failure: Throwable) {
-                val exception = writeException(failure)
-                val atEpochMillis = wallClock.nowEpochMillis()
-                withContext(NonCancellable) {
-                    stateLock.withLock {
-                        terminalizeFailedWriteLocked(
-                            stamped = stamped,
-                            ticket = ticket,
-                            disposition = FetchDisposition.Failed,
-                        )
-                    }
-                }
-                bookkeeper.recordFailure(keyId, atEpochMillis)
-                return@withLock FetchOutcome.Failed(
-                    exception = exception,
-                    atEpochMillis = atEpochMillis,
-                    bookkeepingRecorded = true,
+                val disposition =
+                    ticket.disposition.value as? FetchDisposition.Committed
+                        ?: error("A successful write did not publish Committed disposition.")
+                FetchOutcome.Committed(
+                    value = value,
+                    successfulWriteSequence = committedWriteSequence,
+                    attribution = stamped,
+                    rawReaderGen = disposition.rawReaderGen,
+                    rawCommitCutoff = disposition.rawCommitCutoff,
+                    authoritativeRawSequence = disposition.authoritativeRawSequence,
                 )
             }
-
-            // This CAS is the first instruction after normal write return. It separates every
-            // mutation-era observation from later source authority without waiting for stateLock.
-            val closedWriteBoundary = closeSuccessfulWriteBoundary()
-            val committedWriteSequence = withContext(NonCancellable) {
-                val sequence =
-                    stateLock.withLock {
-                        val committed =
-                            convergeSuccessfulWriteLocked(
-                                stamped = stamped,
-                                value = value,
-                                closed = closedWriteBoundary,
-                            )
-                        ticket.disposition.value =
-                            FetchDisposition.Committed(
-                                successfulWriteSequence = committed.successfulWriteSequence,
-                                attribution = stamped,
-                                rawReaderGen = committed.readerGen,
-                                rawCommitCutoff = committed.rawCommitCutoff,
-                                authoritativeRawSequence =
-                                    committed.authoritativeRawSequence,
-                            )
-                        committed.successfulWriteSequence
-                    }
-                bookkeeper.recordSuccess(keyId, meta)
-                sequence
-            }
-            val disposition =
-                ticket.disposition.value as? FetchDisposition.Committed
-                    ?: error("A successful write did not publish Committed disposition.")
-            FetchOutcome.Committed(
-                value = value,
-                successfulWriteSequence = committedWriteSequence,
-                attribution = stamped,
-                rawReaderGen = disposition.rawReaderGen,
-                rawCommitCutoff = disposition.rawCommitCutoff,
-                authoritativeRawSequence = disposition.authoritativeRawSequence,
-            )
         }
 
     /** Closes raw source order and converges its durable winner before bookkeeping. */
@@ -1092,103 +1128,120 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private suspend fun commitNotModified(
         ticket: FetchTicket,
         etag: String?,
-    ): FetchOutcome {
-        val now = wallClock.nowEpochMillis()
-        return writeLock.withLock {
-            val baseline = ticket.residenceRevisionAtLaunch
-            var refreshedMeta: StoreMeta? = null
-            val outcome =
-                stateLock.withLock {
-                    val result =
-                        transition(mutableState.value, KeyEvent.CommitRevalidated(ticket))
-                    val classified =
-                        when (result.effect) {
-                        KeyEffect.CommitRevalidation -> {
-                            val current = residence.value
-                            if (baseline == null) {
-                                FetchOutcome.Failed(
-                                    exception = notModifiedWithoutValueException(),
-                                    atEpochMillis = now,
-                                )
-                            } else if (current == null || residenceRevision != baseline) {
-                                FetchOutcome.ObsoleteRevalidation
-                            } else {
-                                val meta = EngineStoreMeta(now, etag ?: current.meta?.etag)
-                                refreshedMeta = meta
-                                val refreshed =
-                                    current.copy(
-                                        origin = Origin.FETCHER,
-                                        meta = meta,
-                                        staleEpochAtCommit = result.state.staleEpoch,
-                                        directRevalidationOwner = ticket,
-                                    )
-                                val revision = replaceResidenceLocked(refreshed)
-                                FetchOutcome.Revalidated(revision, refreshed)
-                            }
-                        }
+    ): FetchOutcome =
+        maintenanceCoordinator.withCommit(keyId.namespace) {
+            writeLock.withLock {
+                val now = wallClock.nowEpochMillis()
+                val baseline = ticket.residenceRevisionAtLaunch
+                var refreshedMeta: StoreMeta? = null
+                val outcome =
+                    stateLock.withLock {
+                        val result =
+                            transition(mutableState.value, KeyEvent.CommitRevalidated(ticket))
+                        val classified =
+                            when (result.effect) {
+                                KeyEffect.CommitRevalidation -> {
+                                    val current = residence.value
+                                    if (baseline == null) {
+                                        FetchOutcome.Failed(
+                                            exception = notModifiedWithoutValueException(),
+                                            atEpochMillis = now,
+                                        )
+                                    } else if (current == null || residenceRevision != baseline) {
+                                        FetchOutcome.ObsoleteRevalidation
+                                    } else {
+                                        val age = elapsedAge(now, current.meta)
+                                        val meta = EngineStoreMeta(now, etag ?: current.meta?.etag)
+                                        refreshedMeta = meta
+                                        val refreshed =
+                                            current.copy(
+                                                origin = Origin.FETCHER,
+                                                meta = meta,
+                                                staleEpochAtCommit = result.state.staleEpoch,
+                                                directRevalidationOwner = ticket,
+                                            )
+                                        val revision = replaceResidenceLocked(refreshed)
+                                        FetchOutcome.Revalidated(revision, refreshed, age)
+                                    }
+                                }
 
-                        KeyEffect.Superseded -> FetchOutcome.Superseded
-                        else -> error(
-                            "Commit-revalidated transition produced an invalid effect: " +
-                            result.effect,
-                        )
+                                KeyEffect.Superseded -> FetchOutcome.Superseded
+                                else -> error(
+                                    "Commit-revalidated transition produced an invalid effect: " +
+                                        result.effect,
+                                    )
+                            }
+                        markDisposition(ticket, classified)
+                        mutableState.value = result.state
+                        syncObservedAttributionLocked(result.state)
+                        classified
                     }
-                    markDisposition(ticket, classified)
-                    mutableState.value = result.state
-                    syncObservedAttributionLocked(result.state)
-                    classified
+                refreshedMeta?.let { meta ->
+                    withContext(NonCancellable) { bookkeeper.recordSuccess(keyId, meta) }
                 }
-            refreshedMeta?.let { meta ->
-                withContext(NonCancellable) { bookkeeper.recordSuccess(keyId, meta) }
+                outcome
             }
-            outcome
         }
-    }
 
     /** Applies a server deletion only after its ticket is still proven current. */
     private suspend fun commitDeleted(ticket: FetchTicket): FetchOutcome =
-        writeLock.withLock {
-            val superseded =
-                stateLock.withLock {
-                    val slot = mutableState.value.fetch as? FetchSlot.InFlight
-                    slot == null ||
-                        slot.ticket !== ticket ||
-                        slot.clearEpochAtLaunch != mutableState.value.clearEpoch
-                }
-            if (superseded) return@withLock FetchOutcome.Superseded
+        maintenanceCoordinator.withCommit(keyId.namespace) {
+            writeLock.withLock {
+                val superseded =
+                    stateLock.withLock {
+                        val slot = mutableState.value.fetch as? FetchSlot.InFlight
+                        slot == null ||
+                            slot.ticket !== ticket ||
+                            slot.clearEpochAtLaunch != mutableState.value.clearEpoch
+                    }
+                if (superseded) return@withLock FetchOutcome.Superseded
 
-            withContext(NonCancellable) {
-                val barrier = beginDestructiveMutation()
-                try {
-                    val deleteFailure =
+                withContext(NonCancellable) {
+                    val barrier = beginDestructiveMutation()
+                    try {
+                        val deleteFailure =
+                            try {
+                                sot.delete(key)
+                                null
+                            } catch (cancellation: CancellationException) {
+                                throw cancellation
+                            } catch (failure: Throwable) {
+                                FetchOutcome.Failed(
+                                    exception = serverDeletePersistenceException(failure),
+                                    atEpochMillis = wallClock.nowEpochMillis(),
+                                )
+                            }
+                        if (deleteFailure != null) return@withContext deleteFailure
+
+                        stateLock.withLock {
+                            val result =
+                                transition(mutableState.value, KeyEvent.CommitDeleted(ticket))
+                            check(result.effect == KeyEffect.CommitDelete) {
+                                "Commit-deleted transition produced an invalid effect: ${result.effect}"
+                            }
+                            ticket.disposition.value = FetchDisposition.Deleted
+                            mutableState.value = result.state
+                            syncObservedAttributionLocked(result.state)
+                            replaceResidenceLocked(null)
+                        }
                         try {
-                            sot.delete(key)
-                            null
+                            bookkeeper.forget(keyId)
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (failure: Throwable) {
-                            FetchOutcome.Failed(
-                                exception = serverDeletePersistenceException(failure),
+                            return@withContext FetchOutcome.Failed(
+                                exception =
+                                    maintenancePersistenceException(
+                                        operation = "server deletion cleanup",
+                                        failure = failure,
+                                    ),
                                 atEpochMillis = wallClock.nowEpochMillis(),
                             )
                         }
-                    if (deleteFailure != null) return@withContext deleteFailure
-
-                    stateLock.withLock {
-                        val result =
-                            transition(mutableState.value, KeyEvent.CommitDeleted(ticket))
-                        check(result.effect == KeyEffect.CommitDelete) {
-                            "Commit-deleted transition produced an invalid effect: ${result.effect}"
-                        }
-                        ticket.disposition.value = FetchDisposition.Deleted
-                        mutableState.value = result.state
-                        syncObservedAttributionLocked(result.state)
-                        replaceResidenceLocked(null)
+                        FetchOutcome.Deleted
+                    } finally {
+                        finishDestructiveMutation(barrier)
                     }
-                    bookkeeper.forget(keyId)
-                    FetchOutcome.Deleted
-                } finally {
-                    finishDestructiveMutation(barrier)
                 }
             }
         }
@@ -1231,13 +1284,15 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         outcome: FetchOutcome.Failed,
     ) {
         try {
-            writeLock.withLock {
-                val classified =
-                    stateLock.withLock { classifySettledOutcome(ticket, outcome) }
-                if (classified is FetchOutcome.Failed) {
-                    bookkeeper.recordFailure(keyId, classified.atEpochMillis)
+            maintenanceCoordinator.withCommit(keyId.namespace) {
+                writeLock.withLock {
+                    val classified =
+                        stateLock.withLock { classifySettledOutcome(ticket, outcome) }
+                    if (classified is FetchOutcome.Failed) {
+                        bookkeeper.recordFailure(keyId, classified.atEpochMillis)
+                    }
+                    completeTicket(ticket, classified)
                 }
-                completeTicket(ticket, classified)
             }
         } catch (cancellation: CancellationException) {
             ticket.outcome.cancel(cancellation)
@@ -1299,33 +1354,69 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     }
 
     internal suspend fun invalidate() {
-        applyEvent(KeyEvent.Invalidate)
+        maintenanceCoordinator.withCommit(keyId.namespace) {
+            writeLock.withLock {
+                try {
+                    bookkeeper.markStale(keyId)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (failure: Throwable) {
+                    throw maintenancePersistenceException("invalidate", failure)
+                }
+                applyEvent(KeyEvent.Invalidate)
+            }
+        }
+    }
+
+    /** Signals resident demand only while the previously advanced watermark still covers it. */
+    internal suspend fun invalidateResident() {
+        maintenanceCoordinator.withCommit(keyId.namespace) {
+            writeLock.withLock {
+                if (bookkeeper.status(keyId)?.durablyStale == true) {
+                    applyEvent(KeyEvent.Invalidate)
+                }
+            }
+        }
     }
 
     /** Deletes persistence first, then performs the irreversible state/bookkeeping tail. */
     internal suspend fun clear() {
+        maintenanceCoordinator.withCommit(keyId.namespace) {
+            writeLock.withLock {
+                withContext(NonCancellable) {
+                    val barrier = beginDestructiveMutation()
+                    try {
+                        try {
+                            sot.delete(key)
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (failure: Throwable) {
+                            throw clearPersistenceException(failure)
+                        }
+
+                        stateLock.withLock { applyClearTransitionLocked() }
+                        try {
+                            bookkeeper.forget(keyId)
+                        } catch (cancellation: CancellationException) {
+                            throw cancellation
+                        } catch (failure: Throwable) {
+                            throw maintenancePersistenceException("clear", failure)
+                        }
+                    } finally {
+                        finishDestructiveMutation(barrier)
+                    }
+                }
+            }
+        }
+    }
+
+    /** Applies only the resident clear atom; store-scoped maintenance owns the durable fence. */
+    internal suspend fun clearResident() {
         writeLock.withLock {
             withContext(NonCancellable) {
                 val barrier = beginDestructiveMutation()
                 try {
-                    try {
-                        sot.delete(key)
-                    } catch (cancellation: CancellationException) {
-                        throw cancellation
-                    } catch (failure: Throwable) {
-                        throw clearPersistenceException(failure)
-                    }
-
-                    stateLock.withLock {
-                        val result = transition(mutableState.value, KeyEvent.Clear)
-                        mutableState.value = result.state
-                        syncObservedAttributionLocked(result.state)
-                        check(result.effect == KeyEffect.ClearResidence) {
-                            "Clear transition produced an invalid effect: ${result.effect}"
-                        }
-                        replaceResidenceLocked(null)
-                    }
-                    bookkeeper.forget(keyId)
+                    stateLock.withLock { applyClearTransitionLocked() }
                 } finally {
                     finishDestructiveMutation(barrier)
                 }
@@ -1333,9 +1424,21 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         }
     }
 
+    /** Applies the landed clear transition while [stateLock] is held. */
+    private fun applyClearTransitionLocked() {
+        val result = transition(mutableState.value, KeyEvent.Clear)
+        mutableState.value = result.state
+        syncObservedAttributionLocked(result.state)
+        check(result.effect == KeyEffect.ClearResidence) {
+            "Clear transition produced an invalid effect: ${result.effect}"
+        }
+        replaceResidenceLocked(null)
+    }
+
     /** Direct one-shot hydration used by get and memory-miss stream startup. */
-    private suspend fun hydrateFromSot(): ValueEnvelope<V>? =
+    private suspend fun hydrateFromSot(): ResidenceSnapshot<V> =
         writeLock.withLock {
+            val status = bookkeeper.status(keyId)
             val capturedRevision = stateLock.withLock { residenceRevision }
             val row =
                 try {
@@ -1348,27 +1451,54 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
             stateLock.withLock {
                 val current = residence.value
-                when {
-                    current != null -> current
-                    residenceRevision != capturedRevision -> current
-                    row == null -> residence.value
+                val resolved =
+                    when {
+                        current != null -> current
+                        residenceRevision != capturedRevision -> current
+                        row == null -> residence.value
 
-                    else ->
-                        ValueEnvelope(
-                            value = row,
-                            origin = Origin.SOT,
-                            meta = null,
-                            staleEpochAtCommit = mutableState.value.staleEpoch,
-                        ).also(::replaceResidenceLocked)
-                }
+                        else -> {
+                            val currentEpoch = mutableState.value.staleEpoch
+                            val staleEpochAtCommit =
+                                if (status?.durablyStale == true) currentEpoch - 1L else currentEpoch
+                            val hydratedMeta =
+                                status?.meta?.let { meta ->
+                                    EngineStoreMeta(
+                                        writtenAtEpochMillis = meta.writtenAtEpochMillis,
+                                        etag = null,
+                                    )
+                                }
+                            ValueEnvelope(
+                                value = row,
+                                origin = Origin.SOT,
+                                meta = hydratedMeta,
+                                staleEpochAtCommit = staleEpochAtCommit,
+                            ).also(::replaceResidenceLocked)
+                        }
+                    }
+                ResidenceSnapshot(
+                    state = mutableState.value,
+                    envelope = resolved,
+                    revision = residenceRevision,
+                    status = status,
+                    nowEpochMillis = wallClock.nowEpochMillis(),
+                )
             }
         }
 
     /** Coherent state/residence snapshot used at public delivery boundaries. */
-    private suspend fun residenceSnapshot(): ResidenceSnapshot<V> =
-        stateLock.withLock {
-            ResidenceSnapshot(mutableState.value, residence.value, residenceRevision)
+    private suspend fun residenceSnapshot(): ResidenceSnapshot<V> {
+        val status = bookkeeper.status(keyId)
+        return stateLock.withLock {
+            ResidenceSnapshot(
+                state = mutableState.value,
+                envelope = residence.value,
+                revision = residenceRevision,
+                status = status,
+                nowEpochMillis = wallClock.nowEpochMillis(),
+            )
         }
+    }
 
     /** Distinguishes a newer semantic residence from a same-envelope reader replay. */
     @Suppress("UNCHECKED_CAST")
@@ -1395,15 +1525,16 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             try {
                 val memory = residenceSnapshot()
                 var startupReaderFailure: StoreException? = null
+                var hydrated: ResidenceSnapshot<V>? = null
                 if (memory.envelope == null) {
                     try {
-                        hydrateFromSot()
+                        hydrated = hydrateFromSot()
                     } catch (failure: StoreException) {
                         startupReaderFailure = failure
                     }
                 }
 
-                var planning = residenceSnapshot()
+                var planning = hydrated ?: residenceSnapshot()
                 var planningEpoch = planning.state.staleEpoch
                 var planningEligibleEnvelope =
                     if (
@@ -1416,10 +1547,9 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     }
                 var plan =
                     planFor(
-                        freshness,
-                        planning.state,
-                        planningEligibleEnvelope,
-                        wallClock.nowEpochMillis(),
+                        freshness = freshness,
+                        snapshot = planning,
+                        envelope = planningEligibleEnvelope,
                     )
                 val initialReservation =
                     if (plan is FetchPlan.Skip) {
@@ -1449,10 +1579,9 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     }
                 plan =
                     planFor(
-                        freshness,
-                        planning.state,
-                        planningEligibleEnvelope,
-                        wallClock.nowEpochMillis(),
+                        freshness = freshness,
+                        snapshot = planning,
+                        envelope = planningEligibleEnvelope,
                     )
 
                 val delivery =
@@ -1477,6 +1606,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     while (true) {
                         val ticket = initialTicket ?: break
                         val outcome = ticket.outcome.await()
+                        beforeTicketOutcomeDeliveryTestGate()
                         when (outcome) {
                             is FetchOutcome.Committed -> {
                                 delivery.retainCommittedTicket(ticket, outcome)
@@ -1533,10 +1663,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         )
                     plan =
                         planFor(
-                            freshness,
-                            planning.state,
-                            planning.envelope,
-                            wallClock.nowEpochMillis(),
+                            freshness = freshness,
+                            snapshot = planning,
                         )
                     initialTicket = null
                 }
@@ -1550,7 +1678,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             } finally {
                 closeHandle.dispose()
             }
-        }
+        }.conflateLatestData()
     }
 
     /** Collector-local sequencer. Every public send occurs while [mutex] is held. */
@@ -1599,10 +1727,9 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 eligibleEnvelope = eligibleEnvelope,
                 plan =
                     planFor(
-                        freshness,
-                        snapshot.state,
-                        eligibleEnvelope,
-                        wallClock.nowEpochMillis(),
+                        freshness = freshness,
+                        snapshot = snapshot,
+                        envelope = eligibleEnvelope,
                     ),
                 currentIsForeignOwner = currentIsForeignOwner,
             )
@@ -1656,7 +1783,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         /** Reconstructs the policy posture that was eligible when [ticket] reserved demand. */
         private fun launchBaselineFor(
             ticket: FetchTicket,
-            state: KeyState,
+            snapshot: ResidenceSnapshot<V>,
         ): TicketLaunchBaseline<V> {
             val remembered = ticketLaunchBaseline?.takeIf { it.ticket === ticket }?.baseline
             @Suppress("UNCHECKED_CAST")
@@ -1676,17 +1803,16 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                             ticket.staleEpochAtLaunch,
                                     freshness = freshness,
                                     nowEpochMillis = ticket.nowEpochMillisAtLaunch,
-                                    status = null,
+                                    status = ticket.statusAtLaunch,
                                 ),
                             ),
                     )
                 }
             val currentPlan =
                 planFor(
-                    freshness,
-                    state,
-                    launchBaseline.envelope,
-                    wallClock.nowEpochMillis(),
+                    freshness = freshness,
+                    snapshot = snapshot,
+                    envelope = launchBaseline.envelope,
                 )
             return TicketLaunchBaseline(
                 envelope = launchBaseline.envelope,
@@ -1784,10 +1910,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     !revalidatedSatisfiesDemand(
                         snapshot,
                         planFor(
-                            freshness,
-                            snapshot.state,
-                            snapshot.envelope,
-                            wallClock.nowEpochMillis(),
+                            freshness = freshness,
+                            snapshot = snapshot,
                         ),
                     )
                 ) {
@@ -1942,13 +2066,11 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
                         is FetchDisposition.Revalidated -> {
                             if (snapshot.envelope === disposition.envelope) {
-                                val baseline = launchBaselineFor(candidate, snapshot.state)
+                                val baseline = launchBaselineFor(candidate, snapshot)
                                 val currentPlan =
                                     planFor(
-                                        freshness,
-                                        snapshot.state,
-                                        snapshot.envelope,
-                                        wallClock.nowEpochMillis(),
+                                        freshness = freshness,
+                                        snapshot = snapshot,
                                     )
                                 val currentSatisfiesDemand =
                                     revalidatedSatisfiesDemand(snapshot, currentPlan)
@@ -2117,17 +2239,14 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 }
                 val currentResidencePlan =
                     planFor(
-                        freshness,
-                        snapshot.state,
-                        snapshot.envelope,
-                        wallClock.nowEpochMillis(),
+                        freshness = freshness,
+                        snapshot = snapshot,
                     )
                 val reservedBaselineCurrentPlan =
                     planFor(
-                        freshness,
-                        snapshot.state,
-                        reservedCollectorEnvelope,
-                        wallClock.nowEpochMillis(),
+                        freshness = freshness,
+                        snapshot = snapshot,
+                        envelope = reservedCollectorEnvelope,
                     )
                 val memoryOverride =
                     canRestampMemoryOrigin(
@@ -2260,10 +2379,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             if (snapshot.envelope !== outcome.envelope) return RevalidatedDelivery.Obsolete
             var plan =
                 planFor(
-                    freshness,
-                    snapshot.state,
-                    snapshot.envelope,
-                    wallClock.nowEpochMillis(),
+                    freshness = freshness,
+                    snapshot = snapshot,
                 )
             var demandSatisfied = revalidatedSatisfiesDemand(snapshot, plan)
 
@@ -2298,10 +2415,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 }
                 plan =
                     planFor(
-                        freshness,
-                        snapshot.state,
-                        snapshot.envelope,
-                        wallClock.nowEpochMillis(),
+                        freshness = freshness,
+                        snapshot = snapshot,
                     )
                 demandSatisfied = revalidatedSatisfiesDemand(snapshot, plan)
             }
@@ -2319,11 +2434,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             serverDeletionObserved = false
             val envelope = checkNotNull(snapshot.envelope)
             when {
-                demandSatisfied ->
-                    deliverDataLocked(
-                        envelope,
-                        authority = DataDeliveryAuthority.OwnerOutcome,
-                    )
+                demandSatisfied -> emitRevalidatedLocked(outcome, envelope)
 
                 plan.servesResident ->
                     deliverDataLocked(
@@ -2341,16 +2452,36 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 ?: RevalidatedDelivery.Delivered
         }
 
+        /** Publishes the exact owner's 304 as a lifecycle signal and adopts its fresh envelope. */
+        private suspend fun emitRevalidatedLocked(
+            outcome: FetchOutcome.Revalidated,
+            envelope: ValueEnvelope<V>,
+        ) {
+            producer.send(StoreResult.Revalidated(outcome.age))
+            lastDataFingerprint = DataFingerprint(envelope)
+            publicHasValue = true
+            loadingVisible = false
+            localOnlyMissingEmitted = false
+            publicServedStale = false
+            servedStaleForWatchedTicket = false
+            terminalFailedDemand = null
+            lastRevalidationRequestedRevision = outcome.residenceRevision
+        }
+
         private fun revalidatedSatisfiesDemand(
             snapshot: ResidenceSnapshot<V>,
             plan: FetchPlan,
         ): Boolean = this@KeyEngine.revalidatedSatisfiesDemand(freshness, snapshot, plan)
 
-        private fun ReaderRecord.Row<V>.snapshot(state: KeyState): ResidenceSnapshot<V> =
+        private fun ReaderRecord.Row<V>.snapshot(
+            resolution: ReaderResolution<V>,
+        ): ResidenceSnapshot<V> =
             ResidenceSnapshot(
-                state = state,
+                state = resolution.state,
                 envelope = envelope,
                 revision = residenceRevision,
+                status = resolution.status,
+                nowEpochMillis = resolution.nowEpochMillis,
             )
 
         /** Keeps an equal late reader replay inside the demand already settled by a failure. */
@@ -2475,7 +2606,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             }
             var collectorPlan =
                 collectorPlanFor(
-                    snapshot = row.snapshot(resolution.state),
+                    snapshot = row.snapshot(resolution),
                     eligibleBaseline = readerEligibleBaseline(notification, row.envelope),
                 )
             var rowPlan = collectorPlan.plan
@@ -2489,7 +2620,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 terminalFailedDemand = null
                 lastRevalidationRequestedRevision = row.residenceRevision
             } else {
-                failedDemandStillCovers(row.snapshot(resolution.state))
+                failedDemandStillCovers(row.snapshot(resolution))
             }
 
             val settledTicket = observedTicket
@@ -2499,11 +2630,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         if (outcome is FetchOutcome.Failed) {
                             residenceAdvancedFrom(
                                 ticket,
-                                ResidenceSnapshot(
-                                    state = resolution.state,
-                                    envelope = row.envelope,
-                                    revision = row.residenceRevision,
-                                ),
+                                row.snapshot(resolution),
                             )
                         } else {
                             ticket.requestRevision != row.residenceRevision
@@ -2579,12 +2706,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     row = currentRow
                     collectorPlan =
                         collectorPlanFor(
-                            snapshot =
-                                ResidenceSnapshot(
-                                    state = resolution.state,
-                                    envelope = row.envelope,
-                                    revision = row.residenceRevision,
-                                ),
+                            snapshot = row.snapshot(resolution),
                             eligibleBaseline = readerEligibleBaseline(notification, row.envelope),
                         )
                     rowPlan = collectorPlan.plan
@@ -2598,7 +2720,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         terminalFailedDemand = null
                         lastRevalidationRequestedRevision = row.residenceRevision
                     } else {
-                        failedDemandStillCovers(row.snapshot(resolution.state))
+                        failedDemandStillCovers(row.snapshot(resolution))
                     }
                 }
             }
@@ -2620,12 +2742,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 row = currentRow
                 collectorPlan =
                     collectorPlanFor(
-                        snapshot =
-                            ResidenceSnapshot(
-                                state = resolution.state,
-                                envelope = row.envelope,
-                                revision = row.residenceRevision,
-                            ),
+                        snapshot = row.snapshot(resolution),
                         eligibleBaseline = readerEligibleBaseline(notification, row.envelope),
                     )
                 rowPlan = collectorPlan.plan
@@ -2639,7 +2756,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     terminalFailedDemand = null
                     lastRevalidationRequestedRevision = row.residenceRevision
                 } else {
-                    failedDemandStillCovers(row.snapshot(resolution.state))
+                    failedDemandStillCovers(row.snapshot(resolution))
                 }
             }
 
@@ -3265,9 +3382,10 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     internal suspend fun get(freshness: Freshness): V {
         ensureOpen()
         while (true) {
-            var envelope = residence.value
-            if (envelope == null) envelope = hydrateFromSot()
-            val plan = currentPlan(freshness, envelope)
+            var snapshot = residenceSnapshot()
+            if (snapshot.envelope == null) snapshot = hydrateFromSot()
+            val envelope = snapshot.envelope
+            val plan = planFor(freshness, snapshot)
 
             if (plan is FetchPlan.Skip) {
                 return envelope?.value ?: throw localOnlyMissingException()
@@ -3283,7 +3401,9 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             }
 
             val ticket = ensureFetch(freshness) ?: continue
-            when (val outcome = ticket.outcome.await()) {
+            val outcome = ticket.outcome.await()
+            beforeTicketOutcomeDeliveryTestGate()
+            when (outcome) {
                 is FetchOutcome.Committed -> return committedValue(outcome)
 
                 is FetchOutcome.Revalidated -> {
@@ -3291,10 +3411,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     if (snapshot.envelope === outcome.envelope) {
                         val plan =
                             planFor(
-                                freshness,
-                                snapshot.state,
-                                snapshot.envelope,
-                                wallClock.nowEpochMillis(),
+                                freshness = freshness,
+                                snapshot = snapshot,
                             )
                         if (revalidatedSatisfiesDemand(freshness, snapshot, plan)) {
                             snapshot.envelope?.let { return it.value }
@@ -3329,20 +3447,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     ): StoreResult.Data<V> {
         val snapshot = state.value
         val meta = envelope.meta
-        val age =
-            if (meta == null) {
-                Duration.ZERO
-            } else {
-                val now = wallClock.nowEpochMillis()
-                val elapsedMillis =
-                    if (now <= meta.writtenAtEpochMillis) {
-                        0L
-                    } else {
-                        val delta = now - meta.writtenAtEpochMillis
-                        if (delta < 0L) Long.MAX_VALUE else delta
-                    }
-                elapsedMillis.milliseconds
-            }
+        val age = elapsedAge(wallClock.nowEpochMillis(), meta)
         val epochStale = envelope.staleEpochAtCommit < snapshot.staleEpoch
         val ageStale = freshness is Freshness.MaxAge && meta != null && age > freshness.notOlderThan
         return StoreResult.Data(
@@ -3392,6 +3497,21 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 "truth delete threw: ${failure.message}. The row may still exist; inspect the " +
                 "cause and retry clear()."
         return StoreException(StoreError.Persistence(message, failure), failure)
+    }
+
+    /** Wraps a durable per-key maintenance failure with typed persistence context. */
+    private fun maintenancePersistenceException(
+        operation: String,
+        failure: Throwable,
+    ): StoreException {
+        val message =
+            "Durable $operation failed for key '${keyId.namespace}/${keyId.canonicalId}': " +
+                "${failure.message}. The operation did not complete; retry it and inspect the " +
+                "cause for the underlying persistence failure."
+        return StoreException(
+            error = StoreError.Persistence(message = message, cause = failure),
+            cause = failure,
+        )
     }
 
     private fun serverDeletePersistenceException(failure: Throwable): StoreException {
@@ -3445,6 +3565,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         val state: KeyState,
         val envelope: ValueEnvelope<V>?,
         val revision: Long,
+        val status: KeyStatus?,
+        val nowEpochMillis: Long,
     )
 
     private data class PlannedFetchEffect<V : Any>(
@@ -3555,6 +3677,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private data class ReaderResolution<V : Any>(
         val record: ReaderRecord<V>,
         val state: KeyState,
+        val status: KeyStatus?,
+        val nowEpochMillis: Long,
     )
 
     private data class InitialDelivery<V : Any>(

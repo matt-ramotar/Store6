@@ -36,3 +36,10 @@ class FreshnessPolicyConformanceAgainstSharedFlowSotTest : FreshnessPolicyConfor
         builder.persistence(SharedFlowSourceOfTruth())
     }
 }
+
+@OptIn(ExperimentalStoreApi::class)
+class StoreRevalidationConformanceTestAgainstSharedFlowSot : StoreRevalidationConformance() {
+    override fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) {
+        builder.persistence(SharedFlowSourceOfTruth())
+    }
+}
