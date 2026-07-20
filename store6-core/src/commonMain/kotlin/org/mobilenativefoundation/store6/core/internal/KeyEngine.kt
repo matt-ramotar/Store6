@@ -75,6 +75,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private val engineScope: CoroutineScope,
     /** Optional deterministic gate used only by direct engine tests before final initial recapture. */
     private val beforeInitialDeliveryTestGate: suspend () -> Unit = {},
+    /** Optional direct-test gate after the initial planning snapshot, before outcome classification. */
+    private val afterInitialPlanningSnapshotTestGate: suspend () -> Unit = {},
     /** Optional deterministic gate used only by direct engine tests after raw reader observation. */
     private val beforeReaderRecordMappingTestGate: suspend () -> Unit = {},
     /** Optional deterministic gate used only by direct engine tests inside serialized delivery. */
@@ -560,7 +562,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     }
 
     private fun ValueEnvelope<V>.matchesWriterAttribution(
-        value: V,
+        value: Any,
         attribution: AttributionTag,
     ): Boolean =
         this.value == value &&
@@ -1721,6 +1723,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
                     plan = collectorPlan.plan
                 }
+                afterInitialPlanningSnapshotTestGate()
                 val pendingSettledTailAtRecapture =
                     effectiveTicket != null &&
                         !effectiveTicket.outcome.isCompleted &&
@@ -2094,6 +2097,24 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 snapshot = residenceSnapshot()
                 collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
                 plan = collectorPlan.plan
+                // A commit can land after the earlier outcome snapshot. Recognize only this
+                // ticket's exact writer envelope before generic residence delivery so an absent
+                // start keeps its Loading -> causally observed Data contract.
+                val finalCommittedDisposition =
+                    effectiveTicket?.disposition?.value as? FetchDisposition.Committed
+                if (
+                    awaitingCommitted == null &&
+                    finalCommittedDisposition != null &&
+                    snapshot.envelope?.matchesWriterAttribution(
+                        finalCommittedDisposition.attribution.value,
+                        finalCommittedDisposition.attribution,
+                    ) == true
+                ) {
+                    installCommittedWaitLocked(
+                        checkNotNull(effectiveTicket),
+                        finalCommittedDisposition,
+                    )
+                }
                 val currentResidencePlan =
                     planFor(
                         freshness,

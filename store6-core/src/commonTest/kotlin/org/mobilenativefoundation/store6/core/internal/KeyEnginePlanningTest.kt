@@ -140,6 +140,58 @@ class KeyEnginePlanningTest {
     }
 
     @Test
+    fun cachedFastInitialCommit_afterInitialSnapshot_emitsLoadingBeforeData() = runTest {
+        val key = TestKey("fast-after-snapshot")
+        val sourceOfTruth = WriteStartedSourceOfTruth()
+        val snapshotGate = InitialDeliveryGate().also { it.arm() }
+        val readerDeliveryGate = InitialDeliveryGate().also { it.arm() }
+        val fetchStarted = CompletableDeferred<Unit>()
+        val releaseFetch = CompletableDeferred<Unit>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = {
+                    calls += 1
+                    fetchStarted.complete(Unit)
+                    releaseFetch.await()
+                    FetcherResult.Success("v1")
+                },
+                sot = sourceOfTruth,
+                bookkeeper = InMemoryBookkeeper(),
+                validator = DefaultFreshnessValidator,
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+                afterInitialPlanningSnapshotTestGate = snapshotGate::awaitIfArmed,
+                beforeReaderDeliveryTestGate = readerDeliveryGate::awaitIfArmed,
+            )
+
+        app.cash.turbine.turbineScope {
+            val collector = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
+            snapshotGate.entered.await()
+            fetchStarted.await()
+            val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+            releaseFetch.complete(Unit)
+            assertIs<FetchOutcome.Committed>(ticket.outcome.await())
+            snapshotGate.release()
+
+            assertIs<StoreResult.Loading>(collector.awaitItem())
+            readerDeliveryGate.entered.await()
+            collector.expectNoEvents()
+            readerDeliveryGate.release()
+            val data = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+            assertEquals("v1", data.value)
+            assertEquals(Origin.FETCHER, data.origin)
+            assertFalse(data.refreshing)
+            testScheduler.runCurrent()
+            assertEquals(1, calls)
+            collector.expectNoEvents()
+            collector.cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun cachedFastInitialCommit_waitsForWriterCurrentRow() = runTest {
         val key = TestKey("cached-fast")
         val sourceOfTruth = WriteStartedSourceOfTruth()
