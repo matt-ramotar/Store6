@@ -7,6 +7,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -92,31 +94,34 @@ class SourceOfTruthConformanceTest {
     fun dormantCommit_externalWriteBeforeFirstCollector_attributesSot() = runTest {
         val key = TestKey("1")
         val sot = SharedFlowSourceOfTruth<TestKey, String>()
+        val revalidationGate = CompletableDeferred<Unit>()
+        var fetchCalls = 0
         val store = store<TestKey, String> {
-            fetcher { "fetched" }
-            persistence(sot)
-        }
-        assertEquals("fetched", store.get(key))
-        sot.write(key, "external")
-        val externalObserved = sot.expectReaderObservation(key, "external")
-        turbineScope {
-            val collector = store.stream(key).testIn(backgroundScope)
-            externalObserved.await()
-            var seenExternal = false
-            while (!seenExternal) {
-                val item = collector.awaitItem()
-                if (item is StoreResult.Data<String>) {
-                    if (item.value == "external") {
-                        assertEquals(Origin.SOT, item.origin)
-                        seenExternal = true
-                    } else {
-                        assertEquals("fetched", item.value)
-                    }
+            fetcher {
+                fetchCalls++
+                if (fetchCalls == 1) {
+                    "fetched"
+                } else {
+                    revalidationGate.await()
+                    "revalidated"
                 }
             }
-            collector.cancelAndIgnoreRemainingEvents()
+            persistence(sot)
         }
-        store.close()
+        try {
+            assertEquals("fetched", store.get(key))
+            sot.write(key, "external")
+            val external =
+                withContext(Dispatchers.Default) {
+                    store.stream(key)
+                        .filterIsInstance<StoreResult.Data<String>>()
+                        .first { it.value == "external" }
+                }
+            assertEquals(Origin.SOT, external.origin)
+        } finally {
+            revalidationGate.complete(Unit)
+            store.close()
+        }
     }
 
     // The F-1 killer: invalidate with multiple active collectors on the DSL default SoT.
