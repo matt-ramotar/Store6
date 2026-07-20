@@ -321,7 +321,7 @@ class BookkeeperOrderingConformanceTest {
         KeyEngine(
             key = key,
             keyId = keyId,
-            fetcher = fetcher,
+            fetcher = ResultFetcher(fetcher),
             sot = sot,
             bookkeeper = bookkeeper,
             validator = DefaultFreshnessValidator,

@@ -15,7 +15,7 @@ internal fun <K : StoreKey, V : Any> storeWith(
     configure: StoreBuilder<K, V>.() -> Unit,
 ): Store<K, V> =
     StoreBuilder<K, V>().apply {
-        clock?.let { wallClock = it }
-        bookkeeper?.let { this.bookkeeper = it }
+        clock?.let { this.wallClock(it) }
+        bookkeeper?.let { this.bookkeeper(it) }
         configure()
     }.build()

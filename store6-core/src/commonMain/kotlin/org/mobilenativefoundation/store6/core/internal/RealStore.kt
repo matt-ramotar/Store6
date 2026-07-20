@@ -17,7 +17,8 @@ import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
-import org.mobilenativefoundation.store6.core.seam.FetcherResult
+import org.mobilenativefoundation.store6.core.seam.Fetcher
+import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.WallClock
 
@@ -31,10 +32,11 @@ import org.mobilenativefoundation.store6.core.seam.WallClock
  */
 @OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 internal class RealStore<K : StoreKey, V : Any>(
-    fetcher: suspend (K) -> FetcherResult<V>,
+    fetcher: Fetcher<K, V>,
     private val sot: SourceOfTruth<K, V>,
     wallClock: WallClock,
     private val bookkeeper: Bookkeeper,
+    validator: FreshnessValidator,
 ) : Store<K, V> {
     private val storeJob = SupervisorJob()
     private val storeScope = CoroutineScope(Dispatchers.Default + storeJob)
@@ -48,7 +50,7 @@ internal class RealStore<K : StoreKey, V : Any>(
                 fetcher = fetcher,
                 sot = sot,
                 bookkeeper = bookkeeper,
-                validator = DefaultFreshnessValidator,
+                validator = validator,
                 wallClock = wallClock,
                 engineScope = CoroutineScope(storeScope.coroutineContext + engineJob),
                 maintenanceCoordinator = maintenanceCoordinator,

@@ -24,6 +24,7 @@ import org.mobilenativefoundation.store6.core.internal.FetchSlot
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.KeyEngine
 import org.mobilenativefoundation.store6.core.internal.KeyId
+import org.mobilenativefoundation.store6.core.internal.ResultFetcher
 import org.mobilenativefoundation.store6.core.internal.KeyState
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
@@ -348,7 +349,7 @@ class SourceOfTruthCancellationConformanceTest {
         KeyEngine(
             key = key,
             keyId = KeyId.from(key),
-            fetcher = fetcher,
+            fetcher = ResultFetcher(fetcher),
             sot = sot,
             bookkeeper = bookkeeper,
             validator = DefaultFreshnessValidator,

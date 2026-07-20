@@ -5,13 +5,14 @@ import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreResult
 
 /**
- * The result vocabulary for a fetcher registered with [StoreBuilder.fetcherOfResult].
+ * The result vocabulary for a fetcher registered with [StoreBuilder.fetcherOfResult] or the seam
+ * [Fetcher] overload.
  *
  * A plain [StoreBuilder.fetcher] is success-or-throw sugar: a returned value becomes [Success],
  * while a thrown exception follows the store's fetch-failure path. [NotModified] refreshes the
  * resident value's metadata and emits [StoreResult.Revalidated]; without a resident value it
- * produces [StoreError.Missing]. The ETag selected by a conditional plan remains internal
- * planning metadata until conditional transport lands.
+ * produces [StoreError.Missing]. A seam [Fetcher] receives the ETag selected by a conditional
+ * plan; the lambda sugar ignores conditional ETags because its signatures do not accept them.
  * [Error] is equivalent to throwing [Error.cause] from the fetcher. [Deleted] destructively clears
  * the resident value and forgets its freshness; streams and waiters receive [StoreError.Missing],
  * and the deletion does not trigger an automatic refetch.

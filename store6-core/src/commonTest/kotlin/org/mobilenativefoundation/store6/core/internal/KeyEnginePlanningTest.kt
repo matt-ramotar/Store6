@@ -57,7 +57,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                { FetcherResult.Success("engine", etag = "old-etag") },
+                ResultFetcher { FetcherResult.Success("engine", etag = "old-etag") },
                 durableSot,
                 durableBookkeeper,
                 DefaultFreshnessValidator,
@@ -79,7 +79,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                { error("LocalOnly hydration must not fetch") },
+                ResultFetcher { error("LocalOnly hydration must not fetch") },
                 durableSot,
                 durableBookkeeper,
                 capturingValidator,
@@ -101,7 +101,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                { FetcherResult.Success("v1", etag = "e1") },
+                ResultFetcher { FetcherResult.Success("v1", etag = "e1") },
                 durableSot,
                 durableBookkeeper,
                 DefaultFreshnessValidator,
@@ -116,7 +116,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                { error("LocalOnly hydration must not fetch") },
+                ResultFetcher { error("LocalOnly hydration must not fetch") },
                 durableSot,
                 durableBookkeeper,
                 object : FreshnessValidator {
@@ -151,7 +151,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 keyId,
-                {
+                ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> {
@@ -223,7 +223,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                {
+                ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         else -> FetcherResult.NotModified("e1")
@@ -254,7 +254,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                { FetcherResult.NotModified("e1") },
+                ResultFetcher { FetcherResult.NotModified("e1") },
                 sourceOfTruth,
                 InMemoryBookkeeper(),
                 DefaultFreshnessValidator,
@@ -279,7 +279,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                {
+                ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         else -> FetcherResult.NotModified("e1")
@@ -325,7 +325,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> {
                             firstStarted.complete(Unit)
@@ -375,7 +375,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -422,7 +422,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -474,7 +474,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -526,7 +526,7 @@ class KeyEnginePlanningTest {
                 KeyEngine(
                     key = key,
                     keyId = KeyId.from(key),
-                    fetcher = {
+                    fetcher = ResultFetcher {
                         when (++calls) {
                             1 -> FetcherResult.Success("v1")
                             2 -> FetcherResult.Success("v2")
@@ -588,7 +588,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -634,7 +634,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> {
@@ -720,7 +720,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -766,7 +766,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -817,7 +817,7 @@ class KeyEnginePlanningTest {
                 KeyEngine(
                     key = key,
                     keyId = KeyId.from(key),
-                    fetcher = {
+                    fetcher = ResultFetcher {
                         when (++calls) {
                             1 -> {
                                 fetchStarted.complete(Unit)
@@ -880,7 +880,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -925,7 +925,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.Error(IllegalStateException("offline"))
@@ -975,7 +975,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -1019,7 +1019,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -1085,7 +1085,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -1134,7 +1134,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     FetcherResult.NotModified(etag = "e$calls")
                 },
@@ -1179,7 +1179,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> FetcherResult.Error(IllegalStateException("offline"))
@@ -1243,7 +1243,7 @@ class KeyEnginePlanningTest {
                         KeyEngine(
                             key = key,
                             keyId = KeyId.from(key),
-                            fetcher = {
+                            fetcher = ResultFetcher {
                                 when (++calls) {
                                     1 -> FetcherResult.Success("v1")
                                     2 -> {
@@ -1312,7 +1312,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> {
                             firstStarted.complete(Unit)
@@ -1366,7 +1366,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
                     FetcherResult.Success("fresh")
@@ -1405,7 +1405,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
                     FetcherResult.Success("fresh")
@@ -1456,7 +1456,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
                     FetcherResult.Success("fresh")
@@ -1504,7 +1504,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
                     FetcherResult.NotModified(etag = "e1")
@@ -1550,7 +1550,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -1604,7 +1604,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> {
                             revalidationStarted.complete(Unit)
@@ -1664,7 +1664,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -1731,7 +1731,7 @@ class KeyEnginePlanningTest {
                 KeyEngine(
                     key = key,
                     keyId = KeyId.from(key),
-                    fetcher = {
+                    fetcher = ResultFetcher {
                         when (++calls) {
                             1 -> FetcherResult.Success("v1", etag = "e1")
                             2 -> FetcherResult.NotModified(etag = "e2")
@@ -1783,7 +1783,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { error("fetch must not run") },
+                fetcher = ResultFetcher { error("fetch must not run") },
                 sot = sourceOfTruth,
                 bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,
@@ -1829,7 +1829,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Error(IllegalStateException("offline"))
                         2 -> {
@@ -1889,7 +1889,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Error(IllegalStateException("old failure"))
                         2 -> FetcherResult.Success("replacement")
@@ -1970,7 +1970,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Error(IllegalStateException("old failure"))
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -2040,7 +2040,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("candidate")
                         2 -> {
@@ -2108,7 +2108,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> {
@@ -2188,7 +2188,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> {
@@ -2253,7 +2253,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> {
@@ -2324,7 +2324,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> {
@@ -2401,7 +2401,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> FetcherResult.Error(IllegalStateException("offline"))
@@ -2465,7 +2465,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -2524,7 +2524,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("fresh")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -2575,7 +2575,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     releaseFetch.await()
                     FetcherResult.Success("fresh")
                 },
@@ -2634,7 +2634,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     FetcherResult.Success("fresh")
                 },
@@ -2691,7 +2691,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { FetcherResult.Success("fresh") },
+                fetcher = ResultFetcher { FetcherResult.Success("fresh") },
                 sot = sourceOfTruth,
                 bookkeeper = bookkeeper,
                 validator = DefaultFreshnessValidator,
@@ -2736,7 +2736,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { FetcherResult.Success("unused") },
+                fetcher = ResultFetcher { FetcherResult.Success("unused") },
                 sot = sourceOfTruth,
                 bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,
@@ -2782,7 +2782,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { FetcherResult.Success("fresh") },
+                fetcher = ResultFetcher { FetcherResult.Success("fresh") },
                 sot = sourceOfTruth,
                 bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,
@@ -2827,7 +2827,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { FetcherResult.Success("fresh") },
+                fetcher = ResultFetcher { FetcherResult.Success("fresh") },
                 sot = sourceOfTruth,
                 bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,
@@ -2883,7 +2883,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> {
                             fetchStarted.complete(Unit)
@@ -2969,7 +2969,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
                     FetcherResult.Success("fresh")
@@ -3030,7 +3030,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { FetcherResult.Success("fresh") },
+                fetcher = ResultFetcher { FetcherResult.Success("fresh") },
                 sot = sourceOfTruth,
                 bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,

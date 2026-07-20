@@ -26,7 +26,7 @@ class StoreScopedMaintenanceRaceTest {
         var calls = 0
         val store = store<NamespacedTestKey, String> {
             fetcherOfResult { FetcherResult.Success("v${++calls}", etag = "e$calls") }
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
         val key = NamespacedTestKey("a", "1")
         assertEquals("v1", store.get(key))
@@ -71,7 +71,7 @@ class StoreScopedMaintenanceRaceTest {
         var calls = 0
         val store = store<TestKey, String> {
             fetcherOfResult { FetcherResult.Success("v${++calls}", etag = "e$calls") }
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
         val key = TestKey("1")
         assertEquals("v1", store.get(key))

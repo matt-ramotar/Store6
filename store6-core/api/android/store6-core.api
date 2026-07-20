@@ -71,9 +71,13 @@ public final class org/mobilenativefoundation/store6/core/Store$DefaultImpls {
 }
 
 public final class org/mobilenativefoundation/store6/core/StoreBuilder {
+	public final fun bookkeeper (Lorg/mobilenativefoundation/store6/core/seam/Bookkeeper;)V
 	public final fun fetcher (Lkotlin/jvm/functions/Function2;)V
+	public final fun fetcher (Lorg/mobilenativefoundation/store6/core/seam/Fetcher;)V
 	public final fun fetcherOfResult (Lkotlin/jvm/functions/Function2;)V
+	public final fun freshnessValidator (Lorg/mobilenativefoundation/store6/core/seam/FreshnessValidator;)V
 	public final fun persistence (Lorg/mobilenativefoundation/store6/core/seam/SourceOfTruth;)V
+	public final fun wallClock (Lorg/mobilenativefoundation/store6/core/seam/WallClock;)V
 }
 
 public final class org/mobilenativefoundation/store6/core/StoreBuilderKt {
@@ -185,6 +189,10 @@ public final class org/mobilenativefoundation/store6/core/seam/FetchPlan$Skip : 
 	public fun equals (Ljava/lang/Object;)Z
 	public fun hashCode ()I
 	public fun toString ()Ljava/lang/String;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/seam/Fetcher {
+	public abstract fun fetch (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public abstract interface class org/mobilenativefoundation/store6/core/seam/FetcherResult {

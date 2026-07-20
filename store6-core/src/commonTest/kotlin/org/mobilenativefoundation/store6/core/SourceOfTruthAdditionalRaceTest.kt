@@ -18,6 +18,7 @@ import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.KeyEngine
 import org.mobilenativefoundation.store6.core.internal.KeyId
+import org.mobilenativefoundation.store6.core.internal.LambdaFetcher
 import org.mobilenativefoundation.store6.core.internal.READER_PIPELINE_GRACE_MILLIS
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
@@ -428,7 +429,7 @@ class SourceOfTruthAdditionalRaceTest {
         KeyEngine(
             key = key,
             keyId = KeyId.from(key),
-            fetcher = { FetcherResult.Success(fetcher()) },
+            fetcher = LambdaFetcher { fetcher() },
             sot = sourceOfTruth,
             bookkeeper = InMemoryBookkeeper(),
             validator = DefaultFreshnessValidator,

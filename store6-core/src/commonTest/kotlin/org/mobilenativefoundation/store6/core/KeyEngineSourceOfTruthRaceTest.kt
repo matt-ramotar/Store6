@@ -26,6 +26,7 @@ import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.KeyEngine
 import org.mobilenativefoundation.store6.core.internal.KeyId
+import org.mobilenativefoundation.store6.core.internal.ResultFetcher
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.seam.KeyStatus
@@ -411,7 +412,7 @@ class KeyEngineSourceOfTruthRaceTest {
         KeyEngine(
             key = key,
             keyId = KeyId.from(key),
-            fetcher = fetcher,
+            fetcher = ResultFetcher(fetcher),
             sot = sourceOfTruth,
             bookkeeper = bookkeeper,
             validator = DefaultFreshnessValidator,

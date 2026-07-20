@@ -1,11 +1,18 @@
+@file:OptIn(org.mobilenativefoundation.store6.core.ExperimentalStoreApi::class)
+
 package org.mobilenativefoundation.store6.core
 
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
+import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
+import org.mobilenativefoundation.store6.core.internal.LambdaFetcher
 import org.mobilenativefoundation.store6.core.internal.RealStore
+import org.mobilenativefoundation.store6.core.internal.ResultFetcher
 import org.mobilenativefoundation.store6.core.internal.SystemWallClock
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
+import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.WallClock
 
@@ -29,43 +36,61 @@ public fun <K : StoreKey, V : Any> store(
  * @param V the non-null value type produced by the store
  */
 public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
-    private var fetcher: (suspend (K) -> FetcherResult<V>)? = null
+    @OptIn(ExperimentalStoreApi::class)
+    private var fetcher: Fetcher<K, V>? = null
 
     @OptIn(ExperimentalStoreApi::class)
     private var sot: SourceOfTruth<K, V>? = null
 
     @OptIn(ExperimentalStoreApi::class)
-    internal var wallClock: WallClock = SystemWallClock
+    private var wallClock: WallClock = SystemWallClock
 
     @OptIn(ExperimentalStoreApi::class)
-    internal var bookkeeper: Bookkeeper = InMemoryBookkeeper()
+    private var bookkeeper: Bookkeeper = InMemoryBookkeeper()
+
+    @OptIn(ExperimentalStoreApi::class)
+    private var validator: FreshnessValidator = DefaultFreshnessValidator
 
     /**
      * Configures the suspending function used to retrieve a value for a key.
      *
      * This is success-or-throw sugar for [fetcherOfResult]: a returned value becomes
      * [FetcherResult.Success], while a thrown exception propagates through the store's fetch-failure
-     * path. The last registration wins across calls to either function.
+     * path. The last registration wins across this function, [fetcherOfResult], and the regular-
+     * interface [fetcher] overload.
      *
      * @param fetch the function that retrieves and returns a value for the supplied key
      */
     public fun fetcher(fetch: suspend (K) -> V) {
-        this.fetcher = { key -> FetcherResult.Success(fetch(key)) }
+        this.fetcher = LambdaFetcher(fetch)
     }
 
     /**
      * Configures a fetcher that returns the full [FetcherResult] vocabulary.
      *
      * The name follows v5's `Fetcher.ofResult`. A second named function preserves the builder
-     * strategy, adds no overload to an existing signature (avoiding a Swift overload explosion),
-     * and leaves the quickstart unchanged. An overload of [fetcher] is intentionally rejected
-     * because lambda-return-type inference would make calls ambiguous. The last registration wins
-     * across calls to either [fetcher] or [fetcherOfResult].
+     * strategy and leaves the quickstart unchanged. The regular-interface [fetcher] overload
+     * cannot accept a lambda, so lambda-return-type inference remains unambiguous. The last
+     * registration wins across all three fetcher install points.
      *
      * @param fetch the function that returns a rich result for the supplied key
      */
     public fun fetcherOfResult(fetch: suspend (K) -> FetcherResult<V>) {
-        this.fetcher = fetch
+        this.fetcher = ResultFetcher(fetch)
+    }
+
+    /**
+     * Installs a regular-interface [Fetcher] that can receive conditional-request ETags.
+     *
+     * This overload is regular-interface-only: [Fetcher] is deliberately not a fun interface, so
+     * lambda calls continue to resolve to the success-or-throw [fetcher] function. The last
+     * registration wins across all three fetcher install points.
+     *
+     * @param fetcher the fetch source installed for this store
+     */
+    @ExperimentalStoreApi
+    public fun fetcher(fetcher: Fetcher<K, V>) {
+        this.fetcher = fetcher
     }
 
     /**
@@ -84,12 +109,31 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
         this.sot = sot
     }
 
+    /** Installs the durable freshness bookkeeping implementation used by this store. */
+    @ExperimentalStoreApi
+    public fun bookkeeper(bookkeeper: Bookkeeper) {
+        this.bookkeeper = bookkeeper
+    }
+
+    /** Installs the wall clock used for age and freshness-bound calculations. */
+    @ExperimentalStoreApi
+    public fun wallClock(wallClock: WallClock) {
+        this.wallClock = wallClock
+    }
+
+    /** Installs the policy planner used to select a fetch plan for each coherent read snapshot. */
+    @ExperimentalStoreApi
+    public fun freshnessValidator(validator: FreshnessValidator) {
+        this.validator = validator
+    }
+
     @OptIn(ExperimentalStoreApi::class)
     internal fun build(): Store<K, V> {
         val fetch = requireNotNull(fetcher) {
-            "store<K, V> { } requires a fetcher { } or fetcherOfResult { } block."
+            "store<K, V> { } requires a fetcher { }, fetcherOfResult { }, or " +
+                "fetcher(Fetcher) block."
         }
         val sourceOfTruth = sot ?: InMemorySourceOfTruth()
-        return RealStore(fetch, sourceOfTruth, wallClock, bookkeeper)
+        return RealStore(fetch, sourceOfTruth, wallClock, bookkeeper, validator)
     }
 }

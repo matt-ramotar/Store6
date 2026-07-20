@@ -28,7 +28,7 @@ class StoreDurableMaintenanceFailureTest {
         var calls = 0
         val store = store<TestKey, String> {
             fetcher { "v${++calls}" }
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
 
         store.stream(TestKey("1")).test {
@@ -59,7 +59,7 @@ class StoreDurableMaintenanceFailureTest {
         var calls = 0
         val store = store<TestKey, String> {
             fetcher { "v${++calls}" }
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
 
         store.stream(TestKey("1")).test {
@@ -82,7 +82,7 @@ class StoreDurableMaintenanceFailureTest {
             var calls = 0
             val store = store<TestKey, String> {
                 fetcher { "v${++calls}" }
-                bookkeeper = durableBookkeeper
+                bookkeeper(durableBookkeeper)
             }
 
             store.stream(TestKey("1")).test {
@@ -110,7 +110,7 @@ class StoreDurableMaintenanceFailureTest {
         val store = store<TestKey, String> {
             fetcher { "v1" }
             persistence(durableSot)
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
         assertEquals("v1", store.get(key))
         durableSot.deleteFailure = expectedCause
@@ -132,7 +132,7 @@ class StoreDurableMaintenanceFailureTest {
         val store = store<TestKey, String> {
             fetcher { "v1" }
             persistence(durableSot)
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
         val key = TestKey("1")
         assertEquals("v1", store.get(key))
@@ -156,7 +156,7 @@ class StoreDurableMaintenanceFailureTest {
         val store = store<NamespacedTestKey, String> {
             fetcher { if (it.namespace.value == "a") "va" else "vb" }
             persistence(durableSot)
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
         store.get(a)
         store.get(b)
@@ -185,7 +185,7 @@ class StoreDurableMaintenanceFailureTest {
         val store = store<NamespacedTestKey, String> {
             fetcher { "v" }
             persistence(durableSot)
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
         store.get(a)
         store.get(b)
@@ -210,7 +210,7 @@ class StoreDurableMaintenanceFailureTest {
         val store = store<NamespacedTestKey, String> {
             fetcher { if (it.namespace.value == "a") "va" else "vb" }
             persistence(durableSot)
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
         store.get(a)
         store.get(b)
@@ -238,7 +238,7 @@ class StoreDurableMaintenanceFailureTest {
         val store = store<NamespacedTestKey, String> {
             fetcher { "v-${it.namespace.value}" }
             persistence(durableSot)
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
         store.get(a)
         store.get(b)

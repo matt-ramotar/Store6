@@ -29,6 +29,7 @@ import org.mobilenativefoundation.store6.core.internal.FetchSlot
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.KeyEngine
 import org.mobilenativefoundation.store6.core.internal.KeyId
+import org.mobilenativefoundation.store6.core.internal.ResultFetcher
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.seam.KeyStatus
@@ -574,7 +575,7 @@ class SourceOfTruthBindingConformanceTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.Deleted

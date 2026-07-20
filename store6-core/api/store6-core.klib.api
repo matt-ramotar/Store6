@@ -31,6 +31,10 @@ final enum class org.mobilenativefoundation.store6.core/Origin : kotlin/Enum<org
     final fun values(): kotlin/Array<org.mobilenativefoundation.store6.core/Origin> // org.mobilenativefoundation.store6.core/Origin.values|values#static(){}[0]
 }
 
+abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core.seam/Fetcher { // org.mobilenativefoundation.store6.core.seam/Fetcher|null[0]
+    abstract suspend fun fetch(#A, kotlin/String?): org.mobilenativefoundation.store6.core.seam/FetcherResult<#B> // org.mobilenativefoundation.store6.core.seam/Fetcher.fetch|fetch(1:0;kotlin.String?){}[0]
+}
+
 abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core.seam/SourceOfTruth { // org.mobilenativefoundation.store6.core.seam/SourceOfTruth|null[0]
     abstract fun reader(#A): kotlinx.coroutines.flow/Flow<#B?> // org.mobilenativefoundation.store6.core.seam/SourceOfTruth.reader|reader(1:0){}[0]
     abstract suspend fun delete(#A) // org.mobilenativefoundation.store6.core.seam/SourceOfTruth.delete|delete(1:0){}[0]
@@ -207,9 +211,13 @@ sealed interface org.mobilenativefoundation.store6.core/Freshness { // org.mobil
 }
 
 final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core/StoreBuilder { // org.mobilenativefoundation.store6.core/StoreBuilder|null[0]
+    final fun bookkeeper(org.mobilenativefoundation.store6.core.seam/Bookkeeper) // org.mobilenativefoundation.store6.core/StoreBuilder.bookkeeper|bookkeeper(org.mobilenativefoundation.store6.core.seam.Bookkeeper){}[0]
     final fun fetcher(kotlin.coroutines/SuspendFunction1<#A, #B>) // org.mobilenativefoundation.store6.core/StoreBuilder.fetcher|fetcher(kotlin.coroutines.SuspendFunction1<1:0,1:1>){}[0]
+    final fun fetcher(org.mobilenativefoundation.store6.core.seam/Fetcher<#A, #B>) // org.mobilenativefoundation.store6.core/StoreBuilder.fetcher|fetcher(org.mobilenativefoundation.store6.core.seam.Fetcher<1:0,1:1>){}[0]
     final fun fetcherOfResult(kotlin.coroutines/SuspendFunction1<#A, org.mobilenativefoundation.store6.core.seam/FetcherResult<#B>>) // org.mobilenativefoundation.store6.core/StoreBuilder.fetcherOfResult|fetcherOfResult(kotlin.coroutines.SuspendFunction1<1:0,org.mobilenativefoundation.store6.core.seam.FetcherResult<1:1>>){}[0]
+    final fun freshnessValidator(org.mobilenativefoundation.store6.core.seam/FreshnessValidator) // org.mobilenativefoundation.store6.core/StoreBuilder.freshnessValidator|freshnessValidator(org.mobilenativefoundation.store6.core.seam.FreshnessValidator){}[0]
     final fun persistence(org.mobilenativefoundation.store6.core.seam/SourceOfTruth<#A, #B>) // org.mobilenativefoundation.store6.core/StoreBuilder.persistence|persistence(org.mobilenativefoundation.store6.core.seam.SourceOfTruth<1:0,1:1>){}[0]
+    final fun wallClock(org.mobilenativefoundation.store6.core.seam/WallClock) // org.mobilenativefoundation.store6.core/StoreBuilder.wallClock|wallClock(org.mobilenativefoundation.store6.core.seam.WallClock){}[0]
 }
 
 final class org.mobilenativefoundation.store6.core.seam/FreshnessContext { // org.mobilenativefoundation.store6.core.seam/FreshnessContext|null[0]

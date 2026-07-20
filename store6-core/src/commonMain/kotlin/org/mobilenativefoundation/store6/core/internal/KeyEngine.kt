@@ -47,6 +47,7 @@ import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.FetchPlan
+import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.seam.FreshnessContext
 import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
@@ -71,7 +72,7 @@ internal fun Flow<KeyState>.staleEpochsAfter(planningEpoch: Long): Flow<Long> =
 internal class KeyEngine<K : StoreKey, V : Any>(
     private val key: K,
     private val keyId: KeyId,
-    private val fetcher: suspend (K) -> FetcherResult<V>,
+    private val fetcher: Fetcher<K, V>,
     private val sot: SourceOfTruth<K, V>,
     private val bookkeeper: Bookkeeper,
     private val validator: FreshnessValidator,
@@ -831,7 +832,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             val reservation = planned ?: return null
             val ticket =
                 when (val effect = reservation.effect) {
-                    is KeyEffect.Launch -> effect.ticket.also(::launchFetch)
+                    is KeyEffect.Launch ->
+                        effect.ticket.also { ticket ->
+                            launchFetch(
+                                ticket,
+                                (reservation.plan as? FetchPlan.Conditional)?.etag,
+                            )
+                        }
                     is KeyEffect.Join -> effect.ticket
                     else -> error("Ensure-fetch transition produced an invalid effect: $effect")
                 }
@@ -848,14 +855,17 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         reserveFetch(freshness)?.ticket
 
     /** Runs the owned fetch independently of any individual waiter. */
-    private fun launchFetch(ticket: FetchTicket) {
+    private fun launchFetch(
+        ticket: FetchTicket,
+        etag: String?,
+    ) {
         val fetchJob =
             engineScope.launch(start = CoroutineStart.UNDISPATCHED) {
                 val outcome =
                     try {
                         currentCoroutineContext().ensureActive()
                         yield()
-                        val result = fetcher(key)
+                        val result = fetcher.fetch(key, etag)
                         currentCoroutineContext().ensureActive()
                         when (result) {
                             is FetcherResult.Success ->
