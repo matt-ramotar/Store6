@@ -4,6 +4,8 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -179,5 +181,219 @@ class InMemoryBookkeeperTest {
         val restored = requireNotNull(bookkeeper.status(keyOtherNamespace))
         assertEquals(5L, restored.lastSuccessSequence)
         assertFalse(restored.durablyStale)
+    }
+
+    @Test
+    fun markStale_gateFailurePublishesNeitherRecordNorSequence() = runTest {
+        var gateFailure: Throwable? = null
+        val bookkeeper =
+            InMemoryBookkeeper(
+                beforeMaintenancePublishTestGate = { gateFailure?.let { throw it } },
+            )
+        val meta = EngineStoreMeta(writtenAtEpochMillis = 1L, etag = "a")
+        bookkeeper.recordSuccess(keyA, meta)
+        val before = requireNotNull(bookkeeper.status(keyA))
+        gateFailure = IllegalStateException("mark publish failed")
+
+        val failure = assertFailsWith<IllegalStateException> { bookkeeper.markStale(keyA) }
+
+        assertEquals("mark publish failed", failure.message)
+        assertSame(before, bookkeeper.status(keyA))
+        assertFalse(before.durablyStale)
+
+        gateFailure = null
+        bookkeeper.markStale(keyA)
+        bookkeeper.recordSuccess(
+            keyB,
+            EngineStoreMeta(writtenAtEpochMillis = 2L, etag = "b"),
+        )
+        assertEquals(3L, requireNotNull(bookkeeper.status(keyB)).lastSuccessSequence)
+    }
+
+    @Test
+    fun namespaceWatermark_gateFailurePublishesNeitherWatermarkNorSequence() = runTest {
+        var gateFailure: Throwable? = null
+        val bookkeeper =
+            InMemoryBookkeeper(
+                beforeMaintenancePublishTestGate = { gateFailure?.let { throw it } },
+            )
+        bookkeeper.recordSuccess(
+            keyA,
+            EngineStoreMeta(writtenAtEpochMillis = 1L, etag = "a"),
+        )
+        val before = requireNotNull(bookkeeper.status(keyA))
+        gateFailure = IllegalStateException("namespace watermark publish failed")
+
+        val failure =
+            assertFailsWith<IllegalStateException> {
+                bookkeeper.advanceStaleWatermark(keyA.namespace)
+            }
+
+        assertEquals("namespace watermark publish failed", failure.message)
+        assertSame(before, bookkeeper.status(keyA))
+        assertFalse(before.durablyStale)
+
+        gateFailure = null
+        bookkeeper.recordSuccess(
+            keyB,
+            EngineStoreMeta(writtenAtEpochMillis = 2L, etag = "b"),
+        )
+        assertEquals(2L, requireNotNull(bookkeeper.status(keyB)).lastSuccessSequence)
+    }
+
+    @Test
+    fun globalWatermark_gateFailurePublishesNeitherWatermarkNorSequence() = runTest {
+        var gateFailure: Throwable? = null
+        val bookkeeper =
+            InMemoryBookkeeper(
+                beforeMaintenancePublishTestGate = { gateFailure?.let { throw it } },
+            )
+        bookkeeper.recordSuccess(
+            keyA,
+            EngineStoreMeta(writtenAtEpochMillis = 1L, etag = "a"),
+        )
+        val before = requireNotNull(bookkeeper.status(keyA))
+        gateFailure = IllegalStateException("global watermark publish failed")
+
+        val failure =
+            assertFailsWith<IllegalStateException> {
+                bookkeeper.advanceGlobalStaleWatermark()
+            }
+
+        assertEquals("global watermark publish failed", failure.message)
+        assertSame(before, bookkeeper.status(keyA))
+        assertNull(bookkeeper.status(keyOtherNamespace))
+
+        gateFailure = null
+        bookkeeper.recordSuccess(
+            keyB,
+            EngineStoreMeta(writtenAtEpochMillis = 2L, etag = "b"),
+        )
+        assertEquals(2L, requireNotNull(bookkeeper.status(keyB)).lastSuccessSequence)
+    }
+
+    @Test
+    fun forgetNamespace_gateFailureLeavesEveryRecordPublished() = runTest {
+        var gateFailure: Throwable? = null
+        val bookkeeper =
+            InMemoryBookkeeper(
+                beforeMaintenancePublishTestGate = { gateFailure?.let { throw it } },
+            )
+        bookkeeper.recordSuccess(
+            keyA,
+            EngineStoreMeta(writtenAtEpochMillis = 1L, etag = "a"),
+        )
+        bookkeeper.recordSuccess(
+            keyOtherNamespace,
+            EngineStoreMeta(writtenAtEpochMillis = 2L, etag = "other"),
+        )
+        val matchingBefore = requireNotNull(bookkeeper.status(keyA))
+        val otherBefore = requireNotNull(bookkeeper.status(keyOtherNamespace))
+        gateFailure = IllegalStateException("forget publish failed")
+
+        val failure =
+            assertFailsWith<IllegalStateException> {
+                bookkeeper.forgetNamespace(keyA.namespace)
+            }
+
+        assertEquals("forget publish failed", failure.message)
+        assertSame(matchingBefore, bookkeeper.status(keyA))
+        assertSame(otherBefore, bookkeeper.status(keyOtherNamespace))
+
+        gateFailure = null
+        bookkeeper.recordSuccess(
+            keyB,
+            EngineStoreMeta(writtenAtEpochMillis = 3L, etag = "b"),
+        )
+        assertEquals(3L, requireNotNull(bookkeeper.status(keyB)).lastSuccessSequence)
+    }
+
+    @Test
+    fun successThenKeyMark_isDurablyStale() = runTest {
+        val bookkeeper = InMemoryBookkeeper()
+        bookkeeper.recordSuccess(
+            keyA,
+            EngineStoreMeta(writtenAtEpochMillis = 1L, etag = null),
+        )
+
+        bookkeeper.markStale(keyA)
+
+        assertTrue(requireNotNull(bookkeeper.status(keyA)).durablyStale)
+    }
+
+    @Test
+    fun successThenNamespaceWatermark_isDurablyStaleAndChangesIdentityOnce() = runTest {
+        val bookkeeper = InMemoryBookkeeper()
+        bookkeeper.recordSuccess(
+            keyA,
+            EngineStoreMeta(writtenAtEpochMillis = 1L, etag = null),
+        )
+        val fresh = requireNotNull(bookkeeper.status(keyA))
+
+        bookkeeper.advanceStaleWatermark(keyOtherNamespace.namespace)
+        assertSame(fresh, bookkeeper.status(keyA))
+
+        bookkeeper.advanceStaleWatermark(keyA.namespace)
+        val stale = requireNotNull(bookkeeper.status(keyA))
+        assertNotSame(fresh, stale)
+        assertTrue(stale.durablyStale)
+
+        bookkeeper.advanceStaleWatermark(keyA.namespace)
+        assertSame(stale, bookkeeper.status(keyA))
+    }
+
+    @Test
+    fun successThenGlobalWatermark_isDurablyStale() = runTest {
+        val bookkeeper = InMemoryBookkeeper()
+        bookkeeper.recordSuccess(
+            keyA,
+            EngineStoreMeta(writtenAtEpochMillis = 1L, etag = null),
+        )
+
+        bookkeeper.advanceGlobalStaleWatermark()
+
+        assertTrue(requireNotNull(bookkeeper.status(keyA)).durablyStale)
+    }
+
+    @Test
+    fun watermarkOnlyStatus_isReusedForNeverSeenAndForgottenKeys() = runTest {
+        val bookkeeper = InMemoryBookkeeper()
+        bookkeeper.advanceGlobalStaleWatermark()
+        val neverSeen = requireNotNull(bookkeeper.status(keyA))
+
+        assertSame(neverSeen, bookkeeper.status(keyOtherNamespace))
+
+        bookkeeper.recordSuccess(
+            keyA,
+            EngineStoreMeta(writtenAtEpochMillis = 1L, etag = null),
+        )
+        bookkeeper.forgetAll()
+
+        assertSame(neverSeen, bookkeeper.status(keyA))
+    }
+
+    @Test
+    fun sequenceExhaustion_failsBeforeAnyMutation() = runTest {
+        val bookkeeper = InMemoryBookkeeper(initialSequence = Long.MAX_VALUE - 1L)
+        bookkeeper.recordSuccess(
+            keyA,
+            EngineStoreMeta(writtenAtEpochMillis = 1L, etag = null),
+        )
+        val before = requireNotNull(bookkeeper.status(keyA))
+        assertEquals(Long.MAX_VALUE, before.lastSuccessSequence)
+
+        val markFailure = assertFailsWith<IllegalStateException> { bookkeeper.markStale(keyA) }
+        assertEquals("Bookkeeper sequence exhausted", markFailure.message)
+        assertSame(before, bookkeeper.status(keyA))
+
+        val successFailure =
+            assertFailsWith<IllegalStateException> {
+                bookkeeper.recordSuccess(
+                    keyB,
+                    EngineStoreMeta(writtenAtEpochMillis = 2L, etag = null),
+                )
+            }
+        assertEquals("Bookkeeper sequence exhausted", successFailure.message)
+        assertNull(bookkeeper.status(keyB))
     }
 }
