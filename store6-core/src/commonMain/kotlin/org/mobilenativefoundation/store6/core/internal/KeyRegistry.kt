@@ -36,9 +36,11 @@ internal class KeyRegistry<K : StoreKey, V : Any>(
     /**
      * Applies [action] to every resident engine, filtered to [namespace] when one is given.
      *
-     * The engine list is snapshotted under the lock and acted on outside it. At this stage
-     * residence is the only state a store has, so sweeping resident engines is complete
-     * coverage for namespace and all-key maintenance operations.
+     * The engine list is snapshotted under the lock and acted on outside it. Durable invalidation
+     * watermarks cover engines missed by a snapshot. Bulk clear deliberately sweeps twice under a
+     * scoped commit fence: an engine inserted between snapshots is included by purge, while one
+     * inserted after purge cannot have observed a pre-delete row and its later commit remains
+     * fenced until maintenance releases.
      */
     internal suspend fun forEachResident(
         namespace: String?,

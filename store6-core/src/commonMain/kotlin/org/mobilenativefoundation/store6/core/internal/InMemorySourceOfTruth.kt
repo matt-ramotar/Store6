@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
+import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 
 /**
@@ -43,6 +44,22 @@ internal class InMemorySourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<K, V
         update(key, null)
     }
 
+    override suspend fun deleteNamespace(namespace: StoreNamespace) {
+        lock.withLock {
+            cells.forEach { (keyId, cell) ->
+                if (keyId.namespace == namespace.value) {
+                    cell.emitNull()
+                }
+            }
+        }
+    }
+
+    override suspend fun deleteAll() {
+        lock.withLock {
+            cells.values.forEach { cell -> cell.emitNull() }
+        }
+    }
+
     private suspend fun cellFor(key: K): MutableStateFlow<Cell<V>> {
         val keyId = KeyId.from(key)
         return lock.withLock { cellFor(keyId) }
@@ -64,4 +81,9 @@ internal class InMemorySourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<K, V
         cells.getOrPut(keyId) {
             MutableStateFlow(Cell(row = null, version = 0L))
         }
+
+    private fun MutableStateFlow<Cell<V>>.emitNull() {
+        val current = value
+        value = Cell(row = null, version = current.version + 1L)
+    }
 }

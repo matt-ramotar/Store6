@@ -362,7 +362,7 @@ class SourceOfTruthFailureConformanceTest {
     private class EpisodeSourceOfTruth(
         initial: String?,
         private val failure: Throwable,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private var row: String? = initial
         private var retryFailuresRemaining = 0
         private val activeFailures = Channel<Throwable>(Channel.UNLIMITED)
@@ -411,7 +411,7 @@ class SourceOfTruthFailureConformanceTest {
 
     private class InitialFailureThenRecoverySourceOfTruth(
         private val failure: Throwable,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private var readerCalls = 0
         private var recoveredRow: String? = null
         private val releaseRecovery = CompletableDeferred<Unit>()
@@ -450,7 +450,7 @@ class SourceOfTruthFailureConformanceTest {
 
     private class CompletingSourceOfTruth(
         initial: String?,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private var row: String? = initial
         private var completionConsumed = false
         private val releaseCompletion = CompletableDeferred<Unit>()
@@ -496,7 +496,7 @@ class SourceOfTruthFailureConformanceTest {
 
     private class CancellingSourceOfTruth(
         initial: String?,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private var row: String? = initial
         private val releaseCancellation = CompletableDeferred<Unit>()
         private val liveReaderStarts = Channel<Unit>(Channel.UNLIMITED)
@@ -536,7 +536,7 @@ class SourceOfTruthFailureConformanceTest {
         }
     }
 
-    private class MutableSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class MutableSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows =
             MutableSharedFlow<String?>(
                 replay = 1,

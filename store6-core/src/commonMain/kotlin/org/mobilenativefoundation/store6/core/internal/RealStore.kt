@@ -12,6 +12,8 @@ import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Store
+import org.mobilenativefoundation.store6.core.StoreError
+import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.StoreResult
@@ -28,12 +30,13 @@ import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 @OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 internal class RealStore<K : StoreKey, V : Any>(
     fetcher: suspend (K) -> FetcherResult<V>,
-    sot: SourceOfTruth<K, V>,
+    private val sot: SourceOfTruth<K, V>,
     wallClock: WallClock,
-    bookkeeper: Bookkeeper,
+    private val bookkeeper: Bookkeeper,
 ) : Store<K, V> {
     private val storeJob = SupervisorJob()
     private val storeScope = CoroutineScope(Dispatchers.Default + storeJob)
+    private val maintenanceCoordinator = MaintenanceCoordinator()
     private val registry =
         KeyRegistry<K, V> { key, id ->
             val engineJob = SupervisorJob(storeJob)
@@ -46,6 +49,7 @@ internal class RealStore<K : StoreKey, V : Any>(
                 validator = DefaultFreshnessValidator,
                 wallClock = wallClock,
                 engineScope = CoroutineScope(storeScope.coroutineContext + engineJob),
+                maintenanceCoordinator = maintenanceCoordinator,
             )
         }
 
@@ -77,12 +81,18 @@ internal class RealStore<K : StoreKey, V : Any>(
 
     override suspend fun invalidateNamespace(namespace: StoreNamespace) {
         ensureOpen()
-        registry.forEachResident(namespace.value) { engine -> engine.invalidate() }
+        durably("invalidateNamespace", "namespace '${namespace.value}'") {
+            bookkeeper.advanceStaleWatermark(namespace.value)
+        }
+        registry.forEachResident(namespace.value) { engine -> engine.invalidateResident() }
     }
 
     override suspend fun invalidateAll() {
         ensureOpen()
-        registry.forEachResident(namespace = null) { engine -> engine.invalidate() }
+        durably("invalidateAll", "all namespaces") {
+            bookkeeper.advanceGlobalStaleWatermark()
+        }
+        registry.forEachResident(namespace = null) { engine -> engine.invalidateResident() }
     }
 
     override suspend fun clear(key: K) {
@@ -92,12 +102,26 @@ internal class RealStore<K : StoreKey, V : Any>(
 
     override suspend fun clearNamespace(namespace: StoreNamespace) {
         ensureOpen()
-        registry.forEachResident(namespace.value) { engine -> engine.clear() }
+        maintenanceCoordinator.withNamespaceMaintenance(namespace.value) {
+            registry.forEachResident(namespace.value) { engine -> engine.clearResident() }
+            durably("clearNamespace", "namespace '${namespace.value}'") {
+                sot.deleteNamespace(namespace)
+            }
+            durably("clearNamespace", "namespace '${namespace.value}'") {
+                bookkeeper.forgetNamespace(namespace.value)
+            }
+            registry.forEachResident(namespace.value) { engine -> engine.clearResident() }
+        }
     }
 
     override suspend fun clearAll() {
         ensureOpen()
-        registry.forEachResident(namespace = null) { engine -> engine.clear() }
+        maintenanceCoordinator.withGlobalMaintenance {
+            registry.forEachResident(namespace = null) { engine -> engine.clearResident() }
+            durably("clearAll", "all namespaces") { sot.deleteAll() }
+            durably("clearAll", "all namespaces") { bookkeeper.forgetAll() }
+            registry.forEachResident(namespace = null) { engine -> engine.clearResident() }
+        }
     }
 
     override fun close() {
@@ -108,6 +132,29 @@ internal class RealStore<K : StoreKey, V : Any>(
     private fun ensureOpen() {
         if (!storeJob.isActive) {
             throw storeClosedException()
+        }
+    }
+
+    /** Runs one durable maintenance step, preserving cancellation and typing other failures. */
+    private suspend fun durably(
+        operation: String,
+        scope: String,
+        step: suspend () -> Unit,
+    ) {
+        try {
+            step()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (failure: Throwable) {
+            val message =
+                "$operation failed for $scope: ${failure.message}. Durable maintenance runs in " +
+                    "a fixed order (stale mark before signal, delete before forget); completed " +
+                    "steps remain applied and are conservative. Retry the operation and inspect " +
+                    "the cause for the underlying persistence failure."
+            throw StoreException(
+                error = StoreError.Persistence(message = message, cause = failure),
+                cause = failure,
+            )
         }
     }
 }

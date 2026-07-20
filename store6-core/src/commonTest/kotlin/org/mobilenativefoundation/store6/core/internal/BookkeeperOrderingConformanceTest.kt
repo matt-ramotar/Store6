@@ -1,5 +1,6 @@
 package org.mobilenativefoundation.store6.core.internal
 
+import app.cash.turbine.test
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -7,17 +8,22 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.FakeWallClock
 import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.StoreMeta
+import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.TestKey
+import org.mobilenativefoundation.store6.core.SingleRowTestSourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -130,52 +136,50 @@ class BookkeeperOrderingConformanceTest {
 
     @Test
     fun failureTimestampIsCapturedBeforeOrderedBookkeepingWait() = runTest {
-        val successGate = MutationGate()
+        val markGate = MutationGate()
         val failureFetched = CompletableDeferred<Unit>()
-        val bookkeeper = GateableBookkeeper()
+        val bookkeeper = GateableBookkeeper(markGate = markGate)
         val clock = FakeWallClock(now = 0L)
         val sot = InMemorySourceOfTruth<TestKey, String>()
         sot.write(key, "v1")
         var calls = 0
         val engine =
             engine(bookkeeper, clock, sot = sot) {
-                when (++calls) {
-                    1 -> FetcherResult.NotModified(etag = "e2")
-                    2 -> {
-                        failureFetched.complete(Unit)
-                        FetcherResult.Error(IllegalStateException("boom"))
-                    }
-
-                    else -> error("unexpected fetch call $calls")
-                }
+                calls += 1
+                failureFetched.complete(Unit)
+                FetcherResult.Error(IllegalStateException("boom"))
             }
 
         assertEquals("v1", engine.get(Freshness.LocalOnly))
         assertEquals(0, calls, "LocalOnly hydration must not fetch")
 
-        bookkeeper.gateNextSuccess(successGate)
-        val orderedRevalidation =
+        val orderedInvalidation =
             backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
-                engine.get(Freshness.MustBeFresh)
+                engine.invalidate()
             }
         testScheduler.runCurrent()
-        successGate.entered.await()
+        markGate.entered.await()
 
-        clock.now = 10L
-        val failedRefresh =
-            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
-                runCatching { engine.get(Freshness.MustBeFresh) }
-            }
-        testScheduler.runCurrent()
-        failureFetched.await()
+        try {
+            clock.now = 10L
+            val failedRefresh =
+                backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                    runCatching { engine.get(Freshness.MustBeFresh) }
+                }
+            testScheduler.runCurrent()
+            failureFetched.await()
 
-        clock.now = 99L
-        successGate.release()
-        testScheduler.runCurrent()
-        assertEquals("v1", orderedRevalidation.await())
-        failedRefresh.await()
+            clock.now = 99L
+            markGate.release()
+            testScheduler.runCurrent()
+            orderedInvalidation.await()
+            failedRefresh.await()
+        } finally {
+            markGate.release()
+        }
 
         assertEquals(10L, bookkeeper.status(keyId)?.lastFailureAtEpochMillis)
+        assertEquals(1, calls)
     }
 
     @Test
@@ -248,6 +252,60 @@ class BookkeeperOrderingConformanceTest {
         read.await()
     }
 
+    @Test
+    fun invalidate_marksBeforeEpochSignal_andBlocksSameKeyCommit() = runTest {
+        val events = mutableListOf<String>()
+        val markGate = MutationGate()
+        val durableBookkeeper = GateableBookkeeper(markGate = markGate, events = events)
+        val durableSot = InMemorySourceOfTruth<TestKey, String>()
+        val secondFetchEntered = CompletableDeferred<Unit>()
+        var calls = 0
+        val engine =
+            engine(durableBookkeeper, sot = durableSot) {
+                val call = ++calls
+                if (call == 2) secondFetchEntered.complete(Unit)
+                FetcherResult.Success("v$call", etag = "e$call")
+            }
+        assertEquals("v1", engine.get(Freshness.MustBeFresh))
+        val initialEpoch = engine.state.value.staleEpoch
+
+        engine.stream(Freshness.CachedOrFetch).test {
+            assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+            val invalidation =
+                backgroundScope.async(start = CoroutineStart.UNDISPATCHED) { engine.invalidate() }
+            testScheduler.runCurrent()
+            try {
+                assertTrue(markGate.entered.isCompleted, "durable mark must begin before epoch signal")
+                assertEquals(initialEpoch, engine.state.value.staleEpoch)
+                expectNoEvents()
+
+                val competingCommit =
+                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                        engine.get(Freshness.MustBeFresh)
+                    }
+                withTimeout(1_000) { secondFetchEntered.await() }
+                assertEquals(2, calls, "network may finish while its durable commit is fenced")
+                assertEquals(listOf("success"), events, "second durable commit must still be blocked")
+                assertEquals("v1", durableSot.reader(key).first())
+                expectNoEvents()
+
+                markGate.release()
+                withTimeout(1_000) { invalidation.await() }
+                assertEquals(initialEpoch + 1L, engine.state.value.staleEpoch)
+                assertEquals("v2", withTimeout(1_000) { competingCommit.await() })
+                while (true) {
+                    val item = awaitItem()
+                    if (item is StoreResult.Data && item.value == "v2") break
+                }
+                assertEquals(listOf("success", "markStale", "success"), events)
+                assertEquals(2, calls, "the ordered mark/epoch/success cycle must single-flight")
+                cancelAndIgnoreRemainingEvents()
+            } finally {
+                markGate.release()
+            }
+        }
+    }
+
     private fun TestScope.engine(
         bookkeeper: Bookkeeper,
         clock: FakeWallClock = FakeWallClock(now = 0L),
@@ -284,6 +342,8 @@ class BookkeeperOrderingConformanceTest {
         successGate: MutationGate? = null,
         private val failureGate: MutationGate? = null,
         private val forgetGate: MutationGate? = null,
+        private val markGate: MutationGate? = null,
+        private val events: MutableList<String>? = null,
     ) : Bookkeeper {
         private val delegate = InMemoryBookkeeper()
         private var successGate = successGate
@@ -297,6 +357,7 @@ class BookkeeperOrderingConformanceTest {
             meta: StoreMeta,
         ) {
             successGate?.also { successGate = null }?.pause()
+            events?.add("success")
             delegate.recordSuccess(key, meta)
         }
 
@@ -314,9 +375,26 @@ class BookkeeperOrderingConformanceTest {
             forgetGate?.pause()
             delegate.forget(key)
         }
+
+        override suspend fun markStale(key: KeyId) {
+            markGate?.pause()
+            events?.add("markStale")
+            delegate.markStale(key)
+        }
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 
-    private class ThrowingWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class ThrowingWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val value = MutableStateFlow<String?>(null)
         val writeAttempted = CompletableDeferred<Unit>()
 

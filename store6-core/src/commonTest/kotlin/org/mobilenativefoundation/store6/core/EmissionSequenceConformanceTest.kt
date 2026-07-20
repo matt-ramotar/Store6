@@ -60,7 +60,17 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
 
                 secondGate.complete(Unit)
 
-                val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                var fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                var queuedStaleReplays = 0
+                while (fresh.value == "v1") {
+                    // At-least-latest Data permits a queued stale replay to reach a fast
+                    // collector; it may not replace or follow the one clean terminal value.
+                    queuedStaleReplays += 1
+                    assertEquals(1, queuedStaleReplays, "more than one queued stale replay")
+                    assertTrue(fresh.isStale)
+                    assertTrue(fresh.refreshing)
+                    fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                }
                 assertEquals("v2", fresh.value)
                 assertFalse(fresh.isStale)
                 assertFalse(fresh.refreshing)
@@ -179,7 +189,7 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
     }
 
     @Test
-    fun ac1d_notModifiedEmitsExactlyOneFreshDataWithoutRevalidated() = runTest {
+    fun ac1d_notModifiedEmitsExactlyOneRevalidatedWithoutFreshData() = runTest {
         var calls = 0
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
@@ -220,10 +230,19 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
                 secondStarted.await()
                 secondGate.complete(Unit)
 
-                val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
-                assertEquals("v1", fresh.value)
-                assertFalse(fresh.isStale)
-                assertFalse(fresh.refreshing)
+                var terminal = collector.awaitItem()
+                var queuedStaleReplays = 0
+                while (terminal is StoreResult.Data<*>) {
+                    // A queued pre-304 replay may survive as Data, but it must remain the stale
+                    // baseline; the owner-visible fresh terminal is exclusively Revalidated.
+                    queuedStaleReplays += 1
+                    assertEquals(1, queuedStaleReplays, "more than one queued stale replay")
+                    assertEquals("v1", terminal.value)
+                    assertTrue(terminal.isStale)
+                    assertTrue(terminal.refreshing)
+                    terminal = collector.awaitItem()
+                }
+                assertIs<StoreResult.Revalidated>(terminal)
                 collector.expectNoEvents()
                 assertEquals(2, calls)
                 initialCollector.cancelAndIgnoreRemainingEvents()

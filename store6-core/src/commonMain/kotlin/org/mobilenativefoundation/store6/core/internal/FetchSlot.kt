@@ -3,6 +3,7 @@ package org.mobilenativefoundation.store6.core.internal
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.mobilenativefoundation.store6.core.StoreException
+import kotlin.time.Duration
 
 /** Describes whether a key currently owns a fetch operation. */
 internal sealed interface FetchSlot {
@@ -41,6 +42,9 @@ internal class FetchTicket(
 
     /** Wall-clock instant used to plan this ticket's pre-fetch baseline. */
     val nowEpochMillisAtLaunch: Long = 0L,
+
+    /** Durable bookkeeping posture used to plan this ticket's pre-fetch baseline. */
+    val statusAtLaunch: KeyStatus? = null,
 ) {
     /**
      * KMP-safe early classification published with slot settlement, before ordered outcome tails.
@@ -118,6 +122,8 @@ internal sealed interface FetchOutcome {
         val residenceRevision: Long,
         /** Exact refreshed envelope; same-value reader replays preserve this identity. */
         val envelope: Any,
+        /** Elapsed time since the value's previous commit, measured at revalidation. */
+        val age: Duration,
     ) : FetchOutcome
 
     /** A NotModified baseline changed before commit and must be planned again. */

@@ -192,7 +192,7 @@ class SourceOfTruthCancellationConformanceTest {
             }
 
         assertEquals("seed", engine.get(Freshness.CachedOrFetch))
-        val statusBefore = assertNotNull(bookkeeper.status(keyId))
+        val statusBeforeInvalidation = assertNotNull(bookkeeper.status(keyId))
         val initialData = CompletableDeferred<Unit>()
         val collector =
             backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
@@ -207,6 +207,9 @@ class SourceOfTruthCancellationConformanceTest {
         initialData.await()
 
         engine.invalidate()
+        val statusAfterInvalidation = assertNotNull(bookkeeper.status(keyId))
+        assertTrue(statusAfterInvalidation.durablyStale)
+        assertEquals(statusBeforeInvalidation.meta, statusAfterInvalidation.meta)
         sot.deleteStarted.await()
         val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
         sot.releaseCancellation.complete(Unit)
@@ -219,7 +222,7 @@ class SourceOfTruthCancellationConformanceTest {
         assertEquals("delete cancelled", failure.message)
         assertTrue(ticket.outcome.isCancelled)
         assertEquals("seed", sot.current)
-        assertTrue(bookkeeper.status(keyId) === statusBefore)
+        assertTrue(bookkeeper.status(keyId) === statusAfterInvalidation)
         assertEquals(2, fetchCalls)
 
         engine.stream(Freshness.LocalOnly).test {
@@ -359,7 +362,7 @@ class SourceOfTruthCancellationConformanceTest {
             engineScope = scope,
         )
 
-    private class ThrowingWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class ThrowingWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val row = MutableStateFlow<String?>(null)
         val writeStarted = CompletableDeferred<Unit>()
         val releaseCancellation = CompletableDeferred<Unit>()
@@ -388,7 +391,7 @@ class SourceOfTruthCancellationConformanceTest {
 
     private class ThrowingDeleteSourceOfTruth(
         initial: String?,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private val row = MutableStateFlow(initial)
         val deleteStarted = CompletableDeferred<Unit>()
         val releaseCancellation = CompletableDeferred<Unit>()
@@ -414,7 +417,7 @@ class SourceOfTruthCancellationConformanceTest {
         }
     }
 
-    private class PostWriteReturnSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class PostWriteReturnSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val row = MutableStateFlow<String?>(null)
         val writeApplied = CompletableDeferred<Unit>()
         val releaseReturn = CompletableDeferred<Unit>()
@@ -439,7 +442,7 @@ class SourceOfTruthCancellationConformanceTest {
 
     private class GatedSuccessfulDeleteSourceOfTruth(
         initial: String?,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private val row = MutableStateFlow(initial)
         val deleteStarted = CompletableDeferred<Unit>()
         val releaseDelete = CompletableDeferred<Unit>()
@@ -467,7 +470,7 @@ class SourceOfTruthCancellationConformanceTest {
 
     private class PostDeleteReturnSourceOfTruth(
         initial: String?,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private val row = MutableStateFlow(initial)
         val deleteApplied = CompletableDeferred<Unit>()
         val releaseReturn = CompletableDeferred<Unit>()
@@ -516,5 +519,18 @@ class SourceOfTruthCancellationConformanceTest {
             delegate.forget(key)
             forgotten.complete(Unit)
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 }

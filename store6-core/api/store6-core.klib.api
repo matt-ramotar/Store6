@@ -34,6 +34,8 @@ final enum class org.mobilenativefoundation.store6.core/Origin : kotlin/Enum<org
 abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core.seam/SourceOfTruth { // org.mobilenativefoundation.store6.core.seam/SourceOfTruth|null[0]
     abstract fun reader(#A): kotlinx.coroutines.flow/Flow<#B?> // org.mobilenativefoundation.store6.core.seam/SourceOfTruth.reader|reader(1:0){}[0]
     abstract suspend fun delete(#A) // org.mobilenativefoundation.store6.core.seam/SourceOfTruth.delete|delete(1:0){}[0]
+    abstract suspend fun deleteAll() // org.mobilenativefoundation.store6.core.seam/SourceOfTruth.deleteAll|deleteAll(){}[0]
+    abstract suspend fun deleteNamespace(org.mobilenativefoundation.store6.core/StoreNamespace) // org.mobilenativefoundation.store6.core.seam/SourceOfTruth.deleteNamespace|deleteNamespace(org.mobilenativefoundation.store6.core.StoreNamespace){}[0]
     abstract suspend fun write(#A, #B) // org.mobilenativefoundation.store6.core.seam/SourceOfTruth.write|write(1:0;1:1){}[0]
 }
 

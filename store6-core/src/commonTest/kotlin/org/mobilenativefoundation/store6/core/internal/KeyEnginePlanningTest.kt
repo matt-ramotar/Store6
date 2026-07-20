@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.FakeWallClock
 import org.mobilenativefoundation.store6.core.FetcherResult
@@ -22,16 +24,268 @@ import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.TestKey
+import org.mobilenativefoundation.store6.core.SingleRowTestSourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
 @OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class KeyEnginePlanningTest {
+    @Test
+    fun hydration_reusesWrittenAtButStripsOldEtagAfterExternalReplacement() = runTest {
+        val key = TestKey("external-replacement-meta")
+        val durableSot = InMemorySourceOfTruth<TestKey, String>()
+        val durableBookkeeper = InMemoryBookkeeper()
+        val clock = FakeWallClock(now = 123L)
+        val first =
+            KeyEngine(
+                key,
+                KeyId.from(key),
+                { FetcherResult.Success("engine", etag = "old-etag") },
+                durableSot,
+                durableBookkeeper,
+                DefaultFreshnessValidator,
+                clock,
+                backgroundScope,
+            )
+        assertEquals("engine", first.get(Freshness.MustBeFresh))
+        durableSot.write(key, "external")
+
+        var observed: FreshnessContext? = null
+        val capturingValidator = FreshnessValidator { context ->
+            observed = context
+            FetchPlan.Skip
+        }
+        val restarted =
+            KeyEngine(
+                key,
+                KeyId.from(key),
+                { error("LocalOnly hydration must not fetch") },
+                durableSot,
+                durableBookkeeper,
+                capturingValidator,
+                clock,
+                backgroundScope,
+            )
+
+        assertEquals("external", restarted.get(Freshness.LocalOnly))
+        assertEquals(123L, observed?.meta?.writtenAtEpochMillis)
+        assertNull(observed?.meta?.etag, "external rows must never inherit the old engine ETag")
+    }
+
+    @Test
+    fun hydration_durablyStaleRowIsEpochStaleAndStatusVisibleToPlanning() = runTest {
+        val key = TestKey("durably-stale-hydration")
+        val durableSot = InMemorySourceOfTruth<TestKey, String>()
+        val durableBookkeeper = InMemoryBookkeeper()
+        val first =
+            KeyEngine(
+                key,
+                KeyId.from(key),
+                { FetcherResult.Success("v1", etag = "e1") },
+                durableSot,
+                durableBookkeeper,
+                DefaultFreshnessValidator,
+                FakeWallClock(now = 10L),
+                backgroundScope,
+            )
+        assertEquals("v1", first.get(Freshness.MustBeFresh))
+        durableBookkeeper.markStale(KeyId.from(key))
+
+        var observed: FreshnessContext? = null
+        val restarted =
+            KeyEngine(
+                key,
+                KeyId.from(key),
+                { error("LocalOnly hydration must not fetch") },
+                durableSot,
+                durableBookkeeper,
+                FreshnessValidator { context -> observed = context; FetchPlan.Skip },
+                FakeWallClock(now = 20L),
+                backgroundScope,
+            )
+
+        restarted.stream(Freshness.LocalOnly).test {
+            val data = assertIs<StoreResult.Data<String>>(awaitItem())
+            assertEquals("v1", data.value)
+            assertTrue(data.isStale, "durably stale hydration must be epoch-stale")
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertEquals(true, observed?.status?.durablyStale)
+    }
+
+    @Test
+    fun exactOwnerNotModified_emitsRevalidatedAgeAndNoThirdFetchWhileSuccessIsGated() = runTest {
+        val key = TestKey("owner-revalidated")
+        val keyId = KeyId.from(key)
+        val durableBookkeeper = PreDelegateSuccessGateBookkeeper()
+        val clock = FakeWallClock(now = 100L)
+        val secondFetchEntered = CompletableDeferred<Unit>()
+        val releaseSecondFetch = CompletableDeferred<Unit>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key,
+                keyId,
+                {
+                    when (++calls) {
+                        1 -> FetcherResult.Success("v1", etag = "e1")
+                        2 -> {
+                            secondFetchEntered.complete(Unit)
+                            releaseSecondFetch.await()
+                            FetcherResult.NotModified("e1")
+                        }
+                        else -> error("unexpected fetch call $calls")
+                    }
+                },
+                InMemorySourceOfTruth(),
+                durableBookkeeper,
+                DefaultFreshnessValidator,
+                clock,
+                backgroundScope,
+            )
+        assertEquals("v1", engine.get(Freshness.MustBeFresh))
+        engine.invalidate()
+        clock.now = 150L
+        durableBookkeeper.gateNextSuccess()
+
+        engine.stream(Freshness.CachedOrFetch).test {
+            try {
+                val stale = assertIs<StoreResult.Data<String>>(awaitItem())
+                assertTrue(stale.isStale)
+                assertTrue(stale.refreshing)
+                withTimeout(1_000) { secondFetchEntered.await() }
+                val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+                val baselineRevision = assertNotNull(ticket.residenceRevisionAtLaunch)
+
+                releaseSecondFetch.complete(Unit)
+                withTimeout(1_000) { durableBookkeeper.successEntered.await() }
+                val early = assertIs<FetchDisposition.Revalidated>(ticket.disposition.value)
+                assertEquals(true, durableBookkeeper.status(keyId)?.durablyStale)
+                assertEquals(2, calls, "pre-success stale status must not manufacture a third fetch")
+
+                durableBookkeeper.releaseSuccess.complete(Unit)
+                val outcome =
+                    assertIs<FetchOutcome.Revalidated>(withTimeout(1_000) { ticket.outcome.await() })
+                assertEquals(baselineRevision + 1L, outcome.residenceRevision)
+                assertSame(early.envelope, outcome.envelope)
+                assertSame(
+                    outcome.envelope,
+                    assertIs<FetchDisposition.Revalidated>(ticket.disposition.value).envelope,
+                )
+
+                var publicResult = awaitItem()
+                while (publicResult is StoreResult.Data && publicResult.isStale) {
+                    publicResult = awaitItem()
+                }
+                val revalidated = assertIs<StoreResult.Revalidated>(publicResult)
+                assertEquals(50L, revalidated.age.inWholeMilliseconds)
+                cancelAndIgnoreRemainingEvents()
+            } finally {
+                releaseSecondFetch.complete(Unit)
+                durableBookkeeper.releaseSuccess.complete(Unit)
+            }
+        }
+        assertEquals("v1", engine.get(Freshness.CachedOrFetch))
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun exactOwnerNotModified_backwardClockEmitsZeroAge() = runTest {
+        val key = TestKey("owner-revalidated-backward-clock")
+        val clock = FakeWallClock(now = 100L)
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key,
+                KeyId.from(key),
+                {
+                    when (++calls) {
+                        1 -> FetcherResult.Success("v1", etag = "e1")
+                        else -> FetcherResult.NotModified("e1")
+                    }
+                },
+                InMemorySourceOfTruth(),
+                InMemoryBookkeeper(),
+                DefaultFreshnessValidator,
+                clock,
+                backgroundScope,
+            )
+        assertEquals("v1", engine.get(Freshness.MustBeFresh))
+        clock.now = 50L
+
+        engine.stream(Freshness.MustBeFresh).test {
+            assertIs<StoreResult.Loading>(awaitItem())
+            assertEquals(Duration.ZERO, assertIs<StoreResult.Revalidated>(awaitItem()).age)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun exactOwnerNotModified_nullPreRefreshMetadataEmitsZeroAge() = runTest {
+        val key = TestKey("owner-revalidated-null-meta")
+        val sourceOfTruth = InMemorySourceOfTruth<TestKey, String>()
+        sourceOfTruth.write(key, "seed")
+        val engine =
+            KeyEngine(
+                key,
+                KeyId.from(key),
+                { FetcherResult.NotModified("e1") },
+                sourceOfTruth,
+                InMemoryBookkeeper(),
+                DefaultFreshnessValidator,
+                FakeWallClock(now = 50L),
+                backgroundScope,
+            )
+        assertEquals("seed", engine.get(Freshness.LocalOnly))
+
+        engine.stream(Freshness.MustBeFresh).test {
+            assertIs<StoreResult.Loading>(awaitItem())
+            assertEquals(Duration.ZERO, assertIs<StoreResult.Revalidated>(awaitItem()).age)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun exactOwnerNotModified_overflowAgeSaturatesToLongMaxMillis() = runTest {
+        val key = TestKey("owner-revalidated-overflow-age")
+        val clock = FakeWallClock(now = Long.MIN_VALUE)
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key,
+                KeyId.from(key),
+                {
+                    when (++calls) {
+                        1 -> FetcherResult.Success("v1", etag = "e1")
+                        else -> FetcherResult.NotModified("e1")
+                    }
+                },
+                InMemorySourceOfTruth(),
+                InMemoryBookkeeper(),
+                DefaultFreshnessValidator,
+                clock,
+                backgroundScope,
+            )
+        assertEquals("v1", engine.get(Freshness.MustBeFresh))
+        clock.now = Long.MAX_VALUE
+
+        engine.stream(Freshness.MustBeFresh).test {
+            assertIs<StoreResult.Loading>(awaitItem())
+            val age = assertIs<StoreResult.Revalidated>(awaitItem()).age
+            assertEquals(Long.MAX_VALUE, age.inWholeMilliseconds)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     @Test
     fun staleEpochAdvancedBeforeSubscription_isReplayedAfterPlanningEpoch() = runTest {
         val states = MutableStateFlow(KeyState.Initial)
@@ -468,10 +722,7 @@ class KeyEnginePlanningTest {
         assertEquals("v1", engine.get(Freshness.MustBeFresh))
         engine.stream(Freshness.MustBeFresh).test {
             assertIs<StoreResult.Loading>(awaitItem())
-            val fresh = assertIs<StoreResult.Data<String>>(awaitItem())
-            assertEquals("v1", fresh.value)
-            assertFalse(fresh.isStale)
-            assertFalse(fresh.refreshing)
+            assertEquals(Duration.ZERO, assertIs<StoreResult.Revalidated>(awaitItem()).age)
             sourceOfTruth.liveReaderStarted.await()
             testScheduler.runCurrent()
 
@@ -528,10 +779,10 @@ class KeyEnginePlanningTest {
             collector.expectNoEvents()
 
             bookkeeper.releaseSuccess.complete(Unit)
-            val refreshed = assertIs<StoreResult.Data<String>>(collector.awaitItem())
-            assertEquals("v1", refreshed.value)
-            assertEquals(Origin.FETCHER, refreshed.origin)
-            assertFalse(refreshed.isStale)
+            assertEquals(
+                Duration.ZERO,
+                assertIs<StoreResult.Revalidated>(collector.awaitItem()).age,
+            )
             assertEquals(2, calls)
             collector.cancelAndIgnoreRemainingEvents()
         }
@@ -594,10 +845,10 @@ class KeyEnginePlanningTest {
                 collector.expectNoEvents()
                 readerDeliveryGate.release()
 
-                val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
-                assertEquals("seed", fresh.value)
-                assertEquals(Origin.FETCHER, fresh.origin)
-                assertFalse(fresh.isStale)
+                assertEquals(
+                    Duration.ZERO,
+                    assertIs<StoreResult.Revalidated>(collector.awaitItem()).age,
+                )
                 assertEquals(1, calls)
                 observer.cancelAndIgnoreRemainingEvents()
                 collector.cancelAndIgnoreRemainingEvents()
@@ -607,7 +858,7 @@ class KeyEnginePlanningTest {
     @Test
     fun getNotModifiedInvalidatedDuringOutcomeTail_retriesBeforeReturning() = runTest {
         val key = TestKey("get-304-invalidated-tail")
-        val bookkeeper = GateSuccessBookkeeper()
+        val outcomeDeliveryGate = InitialDeliveryGate()
         var calls = 0
         val engine =
             KeyEngine(
@@ -622,24 +873,29 @@ class KeyEnginePlanningTest {
                     }
                 },
                 sot = InMemorySourceOfTruth(),
-                bookkeeper = bookkeeper,
+                bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,
                 wallClock = FakeWallClock(now = 0L),
                 engineScope = backgroundScope,
+                beforeTicketOutcomeDeliveryTestGate = outcomeDeliveryGate::awaitIfArmed,
             )
 
         assertEquals("v1", engine.get(Freshness.MustBeFresh))
-        bookkeeper.gateNextSuccess()
+        outcomeDeliveryGate.arm()
         val result =
             backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
                 engine.get(Freshness.MustBeFresh)
             }
-        bookkeeper.successEntered.await()
-        engine.invalidate()
-        bookkeeper.releaseSuccess.complete(Unit)
+        try {
+            withTimeout(1_000) { outcomeDeliveryGate.entered.await() }
+            withTimeout(1_000) { engine.invalidate() }
+            outcomeDeliveryGate.release()
 
-        assertEquals("v3", result.await())
-        assertEquals(3, calls)
+            assertEquals("v3", withTimeout(1_000) { result.await() })
+            assertEquals(3, calls)
+        } finally {
+            outcomeDeliveryGate.release()
+        }
     }
 
     @Test
@@ -790,11 +1046,10 @@ class KeyEnginePlanningTest {
             bookkeeper.successEntered.await()
             passive.expectNoEvents()
             bookkeeper.releaseSuccess.complete(Unit)
-            val owned = assertIs<StoreResult.Data<String>>(passive.awaitItem())
-            assertEquals("v1", owned.value)
-            assertEquals(Origin.FETCHER, owned.origin)
-            assertEquals(kotlin.time.Duration.ZERO, owned.age)
-            assertFalse(owned.isStale)
+            assertEquals(
+                2.minutes,
+                assertIs<StoreResult.Revalidated>(passive.awaitItem()).age,
+            )
             testScheduler.runCurrent()
             passive.expectNoEvents()
             assertEquals(3, calls)
@@ -844,10 +1099,10 @@ class KeyEnginePlanningTest {
             collector.expectNoEvents()
             bookkeeper.releaseSuccess.complete(Unit)
 
-            val owned = assertIs<StoreResult.Data<String>>(collector.awaitItem())
-            assertEquals("v1", owned.value)
-            assertEquals(Origin.FETCHER, owned.origin)
-            assertEquals(kotlin.time.Duration.ZERO, owned.age)
+            assertEquals(
+                10.minutes,
+                assertIs<StoreResult.Revalidated>(collector.awaitItem()).age,
+            )
             assertEquals(2, calls)
             collector.cancelAndIgnoreRemainingEvents()
         }
@@ -1261,11 +1516,7 @@ class KeyEnginePlanningTest {
             assertTrue(baseline.isStale)
             assertFalse(baseline.refreshing)
 
-            val fresh = assertIs<StoreResult.Data<String>>(awaitItem())
-            assertEquals("seed", fresh.value)
-            assertEquals(Origin.FETCHER, fresh.origin)
-            assertFalse(fresh.isStale)
-            assertFalse(fresh.refreshing)
+            assertEquals(Duration.ZERO, assertIs<StoreResult.Revalidated>(awaitItem()).age)
             expectNoEvents()
             cancelAndIgnoreRemainingEvents()
         }
@@ -1312,11 +1563,10 @@ class KeyEnginePlanningTest {
             assertTrue(baseline.isStale)
             assertFalse(baseline.refreshing)
 
-            val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
-            assertEquals("seed", fresh.value)
-            assertEquals(Origin.FETCHER, fresh.origin)
-            assertFalse(fresh.isStale)
-            assertFalse(fresh.refreshing)
+            assertEquals(
+                Duration.ZERO,
+                assertIs<StoreResult.Revalidated>(collector.awaitItem()).age,
+            )
             testScheduler.runCurrent()
             assertEquals(1, calls)
             collector.expectNoEvents()
@@ -1390,7 +1640,7 @@ class KeyEnginePlanningTest {
     fun mustNotModifiedInvalidatedBeforeDirectDelivery_launchesReplacement() = runTest {
         val key = TestKey("must-304-invalidated")
         val sourceOfTruth = StartupRaceSourceOfTruth()
-        val bookkeeper = GateSuccessBookkeeper()
+        val outcomeDeliveryGate = InitialDeliveryGate()
         val replacementStarted = CompletableDeferred<Unit>()
         val releaseReplacement = CompletableDeferred<Unit>()
         var calls = 0
@@ -1412,27 +1662,45 @@ class KeyEnginePlanningTest {
                     }
                 },
                 sot = sourceOfTruth,
-                bookkeeper = bookkeeper,
+                bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,
                 wallClock = FakeWallClock(now = 0L),
                 engineScope = backgroundScope,
+                beforeTicketOutcomeDeliveryTestGate = outcomeDeliveryGate::awaitIfArmed,
             )
 
         assertEquals("v1", engine.get(Freshness.MustBeFresh))
-        bookkeeper.gateNextSuccess()
+        outcomeDeliveryGate.arm()
         app.cash.turbine.turbineScope {
             val collector = engine.stream(Freshness.MustBeFresh).testIn(backgroundScope)
-            assertIs<StoreResult.Loading>(collector.awaitItem())
-            bookkeeper.successEntered.await()
-            engine.invalidate()
-            bookkeeper.releaseSuccess.complete(Unit)
+            try {
+                val loading = withTimeoutOrNull(1_000) { collector.awaitItem() }
+                assertIs<StoreResult.Loading>(loading, "initial Loading was not delivered")
+                assertTrue(
+                    withTimeoutOrNull(1_000) {
+                        outcomeDeliveryGate.entered.await()
+                        true
+                    } == true,
+                    "ticket outcome delivery gate was not reached",
+                )
+                withTimeout(1_000) { engine.invalidate() }
+                outcomeDeliveryGate.release()
 
-            replacementStarted.await()
-            collector.expectNoEvents()
-            releaseReplacement.complete(Unit)
-            assertEquals("v3", assertIs<StoreResult.Data<String>>(collector.awaitItem()).value)
-            assertEquals(3, calls)
-            collector.cancelAndIgnoreRemainingEvents()
+                withTimeout(1_000) { replacementStarted.await() }
+                collector.expectNoEvents()
+                releaseReplacement.complete(Unit)
+                assertEquals(
+                    "v3",
+                    assertIs<StoreResult.Data<String>>(
+                        withTimeout(1_000) { collector.awaitItem() },
+                    ).value,
+                )
+                assertEquals(3, calls)
+                collector.cancelAndIgnoreRemainingEvents()
+            } finally {
+                outcomeDeliveryGate.release()
+                releaseReplacement.complete(Unit)
+            }
         }
     }
 
@@ -1441,7 +1709,7 @@ class KeyEnginePlanningTest {
         runTest {
             val key = TestKey("must-304-invalidated-failure")
             val sourceOfTruth = StartupRaceSourceOfTruth()
-            val bookkeeper = GateSuccessBookkeeper()
+            val outcomeDeliveryGate = InitialDeliveryGate()
             var calls = 0
             val engine =
                 KeyEngine(
@@ -1456,23 +1724,37 @@ class KeyEnginePlanningTest {
                         }
                     },
                     sot = sourceOfTruth,
-                    bookkeeper = bookkeeper,
+                    bookkeeper = InMemoryBookkeeper(),
                     validator = DefaultFreshnessValidator,
                     wallClock = FakeWallClock(now = 0L),
                     engineScope = backgroundScope,
+                    beforeTicketOutcomeDeliveryTestGate = outcomeDeliveryGate::awaitIfArmed,
                 )
 
             assertEquals("v1", engine.get(Freshness.MustBeFresh))
-            bookkeeper.gateNextSuccess()
+            outcomeDeliveryGate.arm()
             engine.stream(Freshness.MustBeFresh).test {
-                assertIs<StoreResult.Loading>(awaitItem())
-                bookkeeper.successEntered.await()
-                engine.invalidate()
-                bookkeeper.releaseSuccess.complete(Unit)
+                try {
+                    val loading = withTimeoutOrNull(1_000) { awaitItem() }
+                    assertIs<StoreResult.Loading>(loading, "initial Loading was not delivered")
+                    assertTrue(
+                        withTimeoutOrNull(1_000) {
+                            outcomeDeliveryGate.entered.await()
+                            true
+                        } == true,
+                        "ticket outcome delivery gate was not reached",
+                    )
+                    withTimeout(1_000) { engine.invalidate() }
+                    outcomeDeliveryGate.release()
 
-                assertIs<StoreError.Fetch>(assertIs<StoreResult.Error>(awaitItem()).error)
-                awaitComplete()
-                assertEquals(3, calls)
+                    assertIs<StoreError.Fetch>(
+                        assertIs<StoreResult.Error>(withTimeout(1_000) { awaitItem() }).error,
+                    )
+                    awaitComplete()
+                    assertEquals(3, calls)
+                } finally {
+                    outcomeDeliveryGate.release()
+                }
             }
         }
 
@@ -1718,10 +2000,10 @@ class KeyEnginePlanningTest {
             collector.expectNoEvents()
 
             bookkeeper.releaseSuccess.complete(Unit)
-            val owned = assertIs<StoreResult.Data<String>>(collector.awaitItem())
-            assertEquals("external", owned.value)
-            assertEquals(Origin.FETCHER, owned.origin)
-            assertFalse(owned.isStale)
+            assertEquals(
+                Duration.ZERO,
+                assertIs<StoreResult.Revalidated>(collector.awaitItem()).age,
+            )
             assertIs<StoreError.Fetch>(assertIs<StoreResult.Error>(collector.awaitItem()).error)
             assertEquals(2, calls)
             observer.cancelAndIgnoreRemainingEvents()
@@ -2812,7 +3094,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class ReplayEveryRowSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class ReplayEveryRowSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableSharedFlow<String?>(replay = 1)
         private var readerCalls = 0
         val liveReaderStarted = CompletableDeferred<Unit>()
@@ -2843,7 +3125,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class InterleavedWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class InterleavedWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -2881,7 +3163,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class SingleWriterCurrentSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class SingleWriterCurrentSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -2920,7 +3202,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class CancellingWriterSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class CancellingWriterSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -2963,7 +3245,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class MatchingOtherMatchingSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class MatchingOtherMatchingSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -3001,7 +3283,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class FailingWriterSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class FailingWriterSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -3042,7 +3324,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class FailingAfterPostMatchExternalSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class FailingAfterPostMatchExternalSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -3081,7 +3363,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class StartupRaceSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class StartupRaceSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("seed")
         private var readerCalls = 0
         val liveReaderStarted = CompletableDeferred<Unit>()
@@ -3115,7 +3397,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class WriteStartedSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class WriteStartedSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(null)
         val writeStarted = CompletableDeferred<Unit>()
 
@@ -3134,7 +3416,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class GatedWriterReturnSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GatedWriterReturnSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("seed")
         val writeStarted = CompletableDeferred<Unit>()
         val releaseWrite = CompletableDeferred<Unit>()
@@ -3179,6 +3461,19 @@ class KeyEnginePlanningTest {
         override suspend fun forget(key: KeyId) {
             delegate.forget(key)
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 
     private class GateSuccessBookkeeper : Bookkeeper {
@@ -3217,6 +3512,65 @@ class KeyEnginePlanningTest {
         override suspend fun forget(key: KeyId) {
             delegate.forget(key)
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
+    }
+
+    /** Pauses the selected success before it can clear durable staleness in the delegate. */
+    private class PreDelegateSuccessGateBookkeeper : Bookkeeper {
+        private val delegate = InMemoryBookkeeper()
+        private var gateNext = false
+        val successEntered = CompletableDeferred<Unit>()
+        val releaseSuccess = CompletableDeferred<Unit>()
+
+        fun gateNextSuccess() {
+            gateNext = true
+        }
+
+        override suspend fun recordSuccess(
+            key: KeyId,
+            meta: StoreMeta,
+        ) {
+            if (gateNext) {
+                gateNext = false
+                successEntered.complete(Unit)
+                releaseSuccess.await()
+            }
+            delegate.recordSuccess(key, meta)
+        }
+
+        override suspend fun recordFailure(
+            key: KeyId,
+            atEpochMillis: Long,
+        ) = delegate.recordFailure(key, atEpochMillis)
+
+        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+
+        override suspend fun forget(key: KeyId) = delegate.forget(key)
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 
     private class GateFailureBookkeeper : Bookkeeper {
@@ -3253,6 +3607,19 @@ class KeyEnginePlanningTest {
         override suspend fun forget(key: KeyId) {
             delegate.forget(key)
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 
     private class GateForgetBookkeeper : Bookkeeper {
@@ -3289,5 +3656,18 @@ class KeyEnginePlanningTest {
                 releaseForget.await()
             }
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 }

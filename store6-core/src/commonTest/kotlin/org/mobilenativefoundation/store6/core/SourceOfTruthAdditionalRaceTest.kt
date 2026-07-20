@@ -364,7 +364,7 @@ class SourceOfTruthAdditionalRaceTest {
     /** Keeps the shared reader alive through grace while allowing direct one-shot RYW probes. */
     private class GraceReplaySourceOfTruth(
         initial: String?,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>(extraBufferCapacity = 8)
         private var current: String? = initial
         private var gateNextLive = false
@@ -441,7 +441,7 @@ class SourceOfTruthAdditionalRaceTest {
         advanceTimeBy(READER_PIPELINE_GRACE_MILLIS - 1L)
     }
 
-    private class QueuedAbsentThenWriterSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class QueuedAbsentThenWriterSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableSharedFlow<String?>(replay = 1)
         private var readerCalls = 0
         val liveReaderStarted = CompletableDeferred<Unit>()
@@ -479,7 +479,7 @@ class SourceOfTruthAdditionalRaceTest {
 
     private class ReactiveSourceOfTruth(
         initial: String?,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(initial)
         private var readerCalls = 0
         val liveReaderStarted = CompletableDeferred<Unit>()

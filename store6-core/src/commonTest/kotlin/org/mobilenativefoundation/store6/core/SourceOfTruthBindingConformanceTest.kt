@@ -40,6 +40,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlin.time.Duration.Companion.minutes
 
 @OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
@@ -270,6 +271,9 @@ class SourceOfTruthBindingConformanceTest {
                                 }
                             }
 
+                            is StoreResult.Revalidated ->
+                                fail("obsolete 304 must not emit Revalidated")
+
                             else -> Unit
                         }
                     }
@@ -285,7 +289,7 @@ class SourceOfTruthBindingConformanceTest {
     }
 
     @Test
-    fun notModifiedDirect_afterMappedSameValueBaseline_emitsFreshDataExactlyOnce() = runTest {
+    fun notModifiedDirect_afterMappedSameValueBaseline_emitsRevalidatedExactlyOnce() = runTest {
         val sourceOfTruth = ReplayableSourceOfTruth()
         var calls = 0
         val store = store<TestKey, String> {
@@ -313,9 +317,8 @@ class SourceOfTruthBindingConformanceTest {
 
                 val collector = store.stream(key).testIn(backgroundScope)
                 assertTrue(assertIs<StoreResult.Data<String>>(collector.awaitItem()).isStale)
-                val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
-                assertEquals("v1", fresh.value)
-                assertFalse(fresh.isStale)
+                assertIs<StoreResult.Revalidated>(collector.awaitItem())
+                collector.expectNoEvents()
 
                 assertEquals(2, calls)
                 observer.cancelAndIgnoreRemainingEvents()
@@ -327,7 +330,7 @@ class SourceOfTruthBindingConformanceTest {
     }
 
     @Test
-    fun sameValueReplayThenNotModifiedDirect_emitsFreshDataExactlyOnce() = runTest {
+    fun sameValueReplayThenNotModifiedDirect_emitsRevalidatedExactlyOnce() = runTest {
         val sourceOfTruth = ReplayableSourceOfTruth()
         val bookkeeper = GateNextSuccessBookkeeper()
         val secondStarted = CompletableDeferred<Unit>()
@@ -370,9 +373,7 @@ class SourceOfTruthBindingConformanceTest {
                 collector.expectNoEvents()
                 bookkeeper.releaseSuccess.complete(Unit)
 
-                val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
-                assertEquals("v1", fresh.value)
-                assertFalse(fresh.isStale)
+                assertIs<StoreResult.Revalidated>(collector.awaitItem())
                 collector.expectNoEvents()
                 assertEquals(2, calls)
                 observer.cancelAndIgnoreRemainingEvents()
@@ -1341,7 +1342,7 @@ class SourceOfTruthBindingConformanceTest {
 
     private class GatedFailingServerDeleteSourceOfTruth(
         private val failure: Throwable,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(null)
         val deleteStarted = CompletableDeferred<Unit>()
         val releaseDelete = CompletableDeferred<Unit>()
@@ -1394,11 +1395,24 @@ class SourceOfTruthBindingConformanceTest {
             forgetCalls += 1
             delegate.forget(key)
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 
     private class MutableSourceOfTruth(
         initial: String? = null,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private data class VersionedRow(
             val value: String?,
             val version: Long,
@@ -1442,7 +1456,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class ReplayableSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class ReplayableSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = kotlinx.coroutines.flow.MutableSharedFlow<String?>(replay = 1)
         private var readerCalls = 0
         private var pendingReplayObservation: CompletableDeferred<Unit>? = null
@@ -1488,7 +1502,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class GatedHydrationSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GatedHydrationSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("stale")
         private var gateFirstReader = true
         val readerStarted = CompletableDeferred<Unit>()
@@ -1552,9 +1566,22 @@ class SourceOfTruthBindingConformanceTest {
         override suspend fun forget(key: KeyId) {
             delegate.forget(key)
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 
-    private class GraceGateSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GraceGateSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("seed")
         private var readerCalls = 0
         private var gateExternal = false
@@ -1593,7 +1620,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class GatedDeleteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GatedDeleteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("seed")
         val deleteStarted = CompletableDeferred<Unit>()
         val releaseDelete = CompletableDeferred<Unit>()
@@ -1616,7 +1643,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class BackpressureSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class BackpressureSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("seed")
         private var readerCalls = 0
         val deleteStarted = CompletableDeferred<Unit>()
@@ -1651,7 +1678,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class WithheldReaderEchoSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class WithheldReaderEchoSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(null)
         val liveReaderStarted = CompletableDeferred<Unit>()
         val writeReturned = CompletableDeferred<Unit>()
@@ -1696,7 +1723,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class GatedDeleteEchoSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GatedDeleteEchoSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(null)
         private var readerCalls = 0
         private val deleteInitiated = CompletableDeferred<Unit>()
@@ -1731,7 +1758,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class GatedWriteTailSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GatedWriteTailSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("seed")
         val writeStarted = CompletableDeferred<Unit>()
         val releaseWrite = CompletableDeferred<Unit>()
@@ -1752,7 +1779,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class QueuedAbsentWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class QueuedAbsentWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = kotlinx.coroutines.flow.MutableSharedFlow<String?>()
         private var readerCalls = 0
         val liveReaderStarted = CompletableDeferred<Unit>()
@@ -1785,7 +1812,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class GatedAppliedWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GatedAppliedWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = kotlinx.coroutines.flow.MutableSharedFlow<String?>(replay = 1)
         private val pendingDeleteObservation = MutableStateFlow<CompletableDeferred<Unit>?>(null)
         private var readerCalls = 0
@@ -1839,7 +1866,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class GatedSecondWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GatedSecondWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("seed")
         private var readerCalls = 0
         private var writes = 0
@@ -1874,7 +1901,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class QueuedAbsentAfterSeedSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class QueuedAbsentAfterSeedSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = kotlinx.coroutines.flow.MutableSharedFlow<String?>(replay = 1)
         private var readerCalls = 0
         val liveReaderStarted = CompletableDeferred<Unit>()
@@ -1910,7 +1937,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class CancellationWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class CancellationWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(null)
         val writeStarted = CompletableDeferred<Unit>()
         val writeCancelled = CompletableDeferred<Unit>()
@@ -1936,7 +1963,7 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 
-    private class GatedServerDeleteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GatedServerDeleteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(null)
         val deleteStarted = CompletableDeferred<Unit>()
         val releaseDelete = CompletableDeferred<Unit>()
@@ -1983,9 +2010,22 @@ class SourceOfTruthBindingConformanceTest {
             delegate.forget(key)
             forgotten.complete(Unit)
         }
+
+        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: String) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: String) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
     }
 
-    private class FirstWriteWithheldSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class FirstWriteWithheldSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("seed")
         private var writes = 0
         val firstWriteReturned = CompletableDeferred<Unit>()

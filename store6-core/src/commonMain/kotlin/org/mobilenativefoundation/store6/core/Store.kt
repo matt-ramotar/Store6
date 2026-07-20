@@ -34,7 +34,7 @@ public interface Store<K : StoreKey, out V : Any> {
      *
      * @param key the key to observe
      * @param freshness the freshness policy applied to this observation
-     * @return a flow of loading, data, and error results for the key
+     * @return a flow of loading, data, revalidation, and error results for the key
      * @throws IllegalStateException if the store is closed before this call or before collection
      * begins
      */
@@ -72,10 +72,11 @@ public interface Store<K : StoreKey, out V : Any> {
      * the resident value is kept and served as stale in the meantime. Invalidation is
      * level-triggered monotone state, so a signal issued during any race window is never lost.
      *
-     * Present behavior: the stale mark covers resident state; durable stale marks that survive
-     * process restart land with the invalidation engine.
+     * The stale mark is durable and survives process restart until a later successful fetch or
+     * revalidation clears it.
      *
      * @param key the key to invalidate
+     * @throws StoreException if persisting the stale mark fails; resident state is not signaled
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun invalidate(key: K)
@@ -83,11 +84,13 @@ public interface Store<K : StoreKey, out V : Any> {
     /**
      * Marks every key in [namespace] stale without removing values.
      *
-     * Present behavior: covers every key this store instance has seen. Durable namespace
-     * watermarks that also cover never-seen and later-evicted keys land with the invalidation
-     * engine.
+     * The durable namespace watermark covers keys whether or not they are currently resident.
+     * Resident streams are signaled on return unless a later successful fetch already superseded
+     * the watermark.
      *
      * @param namespace the namespace to invalidate
+     * @throws StoreException if persisting the namespace watermark fails; resident state is not
+     * signaled
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun invalidateNamespace(namespace: StoreNamespace)
@@ -95,8 +98,12 @@ public interface Store<K : StoreKey, out V : Any> {
     /**
      * Marks every key in this store stale without removing values.
      *
-     * Present behavior: see [invalidateNamespace] for the coverage statement.
+     * The durable global watermark covers every namespace, including keys that are not currently
+     * resident. Resident streams are signaled on return unless a later successful fetch already
+     * superseded the watermark.
      *
+     * @throws StoreException if persisting the global watermark fails; resident state is not
+     * signaled
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun invalidateAll()
@@ -108,11 +115,13 @@ public interface Store<K : StoreKey, out V : Any> {
      * ([StoreResult.Loading]) and then refetched data, and an in-flight fetch that started
      * before the clear can no longer commit — its waiters observe [StoreError.Missing].
      *
-     * Present behavior: removal includes the configured source-of-truth row for [key].
+     * Removal includes the configured source-of-truth row and its freshness bookkeeping for
+     * [key].
      *
      * @param key the key to clear
-     * @throws StoreException if deleting the configured source-of-truth row fails; engine state
-     * for [key] remains unchanged
+     * @throws StoreException if deleting the configured source-of-truth row fails (engine state
+     * remains unchanged), or if freshness cleanup fails after the row and resident state were
+     * removed
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun clear(key: K)
@@ -120,12 +129,17 @@ public interface Store<K : StoreKey, out V : Any> {
     /**
      * Destructively removes every value in [namespace].
      *
-     * Present behavior: deletes configured source-of-truth rows only for keys this store instance
-     * has seen in [namespace]. Rows for never-seen keys in a custom source of truth remain until
-     * namespace-wide deletion lands with the invalidation engine.
+     * A scoped fence drains affected commit atoms before a resident supersede sweep, blocks new
+     * affected commits through the source-of-truth delete and bookkeeping cleanup, then performs
+     * a purge sweep. A fetcher call may finish while fenced, but its commit waits; tickets present
+     * before purge are superseded. While the call is in flight, an already-running read may briefly
+     * observe the old row and an active collector may receive one queued duplicate old [StoreResult.Data].
+     * The purge closes the registry-snapshot and rehydration window before normal return. Later
+     * demand and writes made outside this Store remain later authority.
      *
      * @param namespace the namespace to clear
-     * @throws StoreException if a row deletion fails; earlier keys may already have been cleared
+     * @throws StoreException if durable deletion or bookkeeping cleanup fails; completed earlier
+     * steps remain applied and conservative
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun clearNamespace(namespace: StoreNamespace)
@@ -133,11 +147,16 @@ public interface Store<K : StoreKey, out V : Any> {
     /**
      * Destructively removes every value in this store.
      *
-     * Present behavior: deletes configured source-of-truth rows only for keys this store instance
-     * has seen, across all namespaces. Rows for never-seen keys in a custom source of truth remain
-     * until source-of-truth-wide deletion lands with the invalidation engine.
+     * A global fence drains every commit atom before a resident supersede sweep, blocks new commits
+     * through the source-of-truth delete and bookkeeping cleanup, then performs a purge sweep. A
+     * fetcher call may finish while fenced, but its commit waits; tickets present before purge are
+     * superseded. While the call is in flight, an already-running read may briefly observe the old
+     * row and an active collector may receive one queued duplicate old [StoreResult.Data]. The purge
+     * closes the registry-snapshot and rehydration window before normal return. Later demand and
+     * writes made outside this Store remain later authority.
      *
-     * @throws StoreException if a row deletion fails; earlier keys may already have been cleared
+     * @throws StoreException if durable deletion or bookkeeping cleanup fails; completed earlier
+     * steps remain applied and conservative
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun clearAll()

@@ -1,6 +1,8 @@
 package org.mobilenativefoundation.store6.core
 
 import app.cash.turbine.test
+import app.cash.turbine.testIn
+import app.cash.turbine.turbineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -17,7 +19,7 @@ import kotlin.time.Duration
 
 open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
 
-    // AC-3 seed: an active stream signaled by invalidate observes refetched data.
+    // AC-3 (TEST-1): an active stream signaled by invalidate observes refetched data.
     @Test
     fun invalidate_activeStream_observesRefetchedData() = runTest {
         var calls = 0
@@ -241,6 +243,194 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
     }
 
     @Test
+    fun invalidateNamespace_wakesOnlyMatchingResidentCollector() = runTest {
+        var aCalls = 0
+        var bCalls = 0
+        val aRefreshStarted = CompletableDeferred<Unit>()
+        val releaseARefresh = CompletableDeferred<Unit>()
+        val keyA = NamespacedTestKey("a", "1")
+        val keyB = NamespacedTestKey("b", "1")
+        val store = testStore<NamespacedTestKey, String> {
+            fetcher { key ->
+                if (key.namespace.value == "a") {
+                    val call = ++aCalls
+                    if (call == 2) {
+                        aRefreshStarted.complete(Unit)
+                        releaseARefresh.await()
+                    }
+                    "a$call"
+                } else {
+                    "b${++bCalls}"
+                }
+            }
+        }
+
+        try {
+            turbineScope {
+                val aCollector = store.stream(keyA).testIn(backgroundScope)
+                val bCollector = store.stream(keyB).testIn(backgroundScope)
+                assertIs<StoreResult.Loading>(aCollector.awaitItem())
+                assertEquals("a1", assertIs<StoreResult.Data<String>>(aCollector.awaitItem()).value)
+                assertIs<StoreResult.Loading>(bCollector.awaitItem())
+                assertEquals("b1", assertIs<StoreResult.Data<String>>(bCollector.awaitItem()).value)
+
+                store.invalidateNamespace(StoreNamespace("a"))
+                aRefreshStarted.awaitFromDefault()
+                bCollector.expectNoEvents()
+                assertEquals(1, bCalls)
+
+                releaseARefresh.complete(Unit)
+                while (true) {
+                    val item = aCollector.awaitItem()
+                    if (item is StoreResult.Data<String> && item.value == "a2") break
+                }
+                bCollector.expectNoEvents()
+                assertEquals(2, aCalls)
+                assertEquals(1, bCalls)
+                aCollector.cancelAndIgnoreRemainingEvents()
+                bCollector.cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            releaseARefresh.complete(Unit)
+            store.close()
+        }
+    }
+
+    @Test
+    fun invalidateAll_wakesResidentCollector() = runTest {
+        var calls = 0
+        val refreshStarted = CompletableDeferred<Unit>()
+        val releaseRefresh = CompletableDeferred<Unit>()
+        val store = testStore<TestKey, String> {
+            fetcher {
+                val call = ++calls
+                if (call == 2) {
+                    refreshStarted.complete(Unit)
+                    releaseRefresh.await()
+                }
+                "v$call"
+            }
+        }
+
+        try {
+            store.stream(TestKey("1")).test {
+                assertIs<StoreResult.Loading>(awaitItem())
+                assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+
+                store.invalidateAll()
+                refreshStarted.awaitFromDefault()
+                releaseRefresh.complete(Unit)
+                while (true) {
+                    val item = awaitItem()
+                    if (item is StoreResult.Data<String> && item.value == "v2") break
+                }
+                assertEquals(2, calls)
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            releaseRefresh.complete(Unit)
+            store.close()
+        }
+    }
+
+    @Test
+    fun clearNamespace_deletesAffectedRowsAndKeepsOtherNamespace() = runTest {
+        var calls = 0
+        val keyA = NamespacedTestKey("a", "1")
+        val keyB = NamespacedTestKey("b", "1")
+        val store = testStore<NamespacedTestKey, String> { fetcher { "v${++calls}" } }
+
+        try {
+            assertEquals("v1", store.get(keyA))
+            assertEquals("v2", store.get(keyB))
+            store.clearNamespace(StoreNamespace("a"))
+
+            assertEquals("v2", store.get(keyB, Freshness.LocalOnly))
+            val missing = assertFailsWith<StoreException> {
+                store.get(keyA, Freshness.LocalOnly)
+            }
+            assertIs<StoreError.Missing>(missing.error)
+            assertEquals("v3", store.get(keyA))
+            assertEquals(3, calls)
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test
+    fun clear_thenNewStreamEmitsLoadingNeverStaleReplay() = runTest {
+        var calls = 0
+        val refetchStarted = CompletableDeferred<Unit>()
+        val releaseRefetch = CompletableDeferred<Unit>()
+        val store = testStore<TestKey, String> {
+            fetcher {
+                val call = ++calls
+                if (call == 2) {
+                    refetchStarted.complete(Unit)
+                    releaseRefetch.await()
+                }
+                "v$call"
+            }
+        }
+
+        try {
+            assertEquals("v1", store.get(TestKey("1")))
+            store.clear(TestKey("1"))
+            store.stream(TestKey("1")).test {
+                assertIs<StoreResult.Loading>(awaitItem())
+                refetchStarted.awaitFromDefault()
+                releaseRefetch.complete(Unit)
+                awaitDataValue(expected = "v2")
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertEquals(2, calls)
+        } finally {
+            releaseRefetch.complete(Unit)
+            store.close()
+        }
+    }
+
+    @Test
+    fun clearNamespace_thenNewStreamEmitsLoadingNeverPreClearData() = runTest {
+        var calls = 0
+        val refetchStarted = CompletableDeferred<Unit>()
+        val releaseRefetch = CompletableDeferred<Unit>()
+        val key = NamespacedTestKey("a", "1")
+        val store = testStore<NamespacedTestKey, String> {
+            fetcher {
+                val call = ++calls
+                if (call == 2) {
+                    refetchStarted.complete(Unit)
+                    releaseRefetch.await()
+                }
+                "v$call"
+            }
+        }
+
+        try {
+            store.stream(key).test {
+                assertIs<StoreResult.Loading>(awaitItem())
+                assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+                store.clearNamespace(StoreNamespace("a"))
+
+                store.stream(key).test {
+                    assertIs<StoreResult.Loading>(awaitItem())
+                    refetchStarted.awaitFromDefault()
+                    releaseRefetch.complete(Unit)
+                    val fresh = awaitFreshDataAfterClear(forbidden = "v1")
+                    assertEquals("v$calls", fresh.value)
+                    cancelAndIgnoreRemainingEvents()
+                }
+                cancelAndIgnoreRemainingEvents()
+            }
+            assertTrue(calls >= 2)
+        } finally {
+            releaseRefetch.complete(Unit)
+            store.close()
+        }
+    }
+
+    @Test
     fun clearAll_dropsResidenceForEveryKey() = runTest {
         var calls = 0
         val store = testStore<NamespacedTestKey, String> { fetcher { "v${++calls}" } }
@@ -269,4 +459,43 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             assertFailsWith<IllegalStateException> { store.clearAll() }.message,
         )
     }
+
+    private suspend fun app.cash.turbine.ReceiveTurbine<StoreResult<String>>.awaitDataValue(
+        expected: String,
+    ) {
+        while (true) {
+            when (val item = awaitItem()) {
+                is StoreResult.Data -> {
+                    assertEquals(expected, item.value, "pre-clear Data must never replay")
+                    return
+                }
+                is StoreResult.Loading -> Unit
+                is StoreResult.Error -> throw AssertionError("unexpected clear-cycle error: ${item.error}")
+                is StoreResult.Revalidated -> throw AssertionError("clear must not revalidate")
+            }
+        }
+    }
+
+    private suspend fun app.cash.turbine.ReceiveTurbine<StoreResult<String>>.awaitFreshDataAfterClear(
+        forbidden: String,
+    ): StoreResult.Data<String> {
+        while (true) {
+            when (val item = awaitItem()) {
+                is StoreResult.Data -> {
+                    assertTrue(item.value != forbidden, "pre-clear Data must never replay")
+                    assertFalse(item.isStale)
+                    assertFalse(item.refreshing)
+                    return item
+                }
+                is StoreResult.Loading -> Unit
+                is StoreResult.Error -> throw AssertionError("unexpected clear-cycle error: ${item.error}")
+                is StoreResult.Revalidated -> throw AssertionError("clear must not revalidate")
+            }
+        }
+    }
 }
+
+private suspend fun <T> CompletableDeferred<T>.awaitFromDefault(): T =
+    withContext(Dispatchers.Default) {
+        withTimeout(5_000) { await() }
+    }

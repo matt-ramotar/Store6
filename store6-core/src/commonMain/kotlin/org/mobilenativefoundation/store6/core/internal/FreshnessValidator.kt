@@ -2,14 +2,14 @@ package org.mobilenativefoundation.store6.core.internal
 
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.StoreMeta
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * The value and bookkeeping facts used to plan a read.
  *
- * [status] is presently always null. Issue 006 feeds durable [KeyStatus] and watermarks into this
- * context; issue 008 freezes the post-006 shape. A resident value with null [meta] is treated as
- * conservatively stale (FS-6).
+ * [status] carries the durable bookkeeping posture captured before the corresponding engine-state
+ * snapshot. A resident value with null [meta] is treated as conservatively stale (FS-6).
  */
 internal class FreshnessContext(
     val hasResidentValue: Boolean,
@@ -32,10 +32,10 @@ internal sealed interface FetchPlan {
     ) : FetchPlan
 
     /**
-     * A conditional fetch plan introduced with the planning model.
+     * A conditional fetch plan selected when an unsatisfied resident has a reusable [etag].
      *
-     * The default validator never returns this plan, and the engine does not issue conditional
-     * requests until issue 006.
+     * The ETag remains planning metadata in issue 006; transport through the public fetcher seam
+     * arrives with issue 008.
      */
     class Conditional(
         val etag: String,
@@ -52,6 +52,26 @@ internal val FetchPlan.servesResident: Boolean
         }
 
 /**
+ * Returns elapsed age with the ratified wall-clock posture: missing metadata and backward clocks
+ * are zero, while positive subtraction overflow saturates to [Long.MAX_VALUE] milliseconds.
+ */
+internal fun elapsedAge(
+    nowEpochMillis: Long,
+    meta: StoreMeta?,
+): Duration {
+    if (meta == null) return Duration.ZERO
+    val writtenAtEpochMillis = meta.writtenAtEpochMillis
+    val elapsedMillis =
+        if (nowEpochMillis <= writtenAtEpochMillis) {
+            0L
+        } else {
+            val delta = nowEpochMillis - writtenAtEpochMillis
+            if (delta < 0L) Long.MAX_VALUE else delta
+        }
+    return elapsedMillis.milliseconds
+}
+
+/**
  * The zero-configuration AC-6 seed policy table.
  *
  * Negative wall-clock deltas are clamped to zero before evaluating [Freshness.MaxAge].
@@ -60,7 +80,8 @@ internal object DefaultFreshnessValidator : FreshnessValidator {
     override fun plan(context: FreshnessContext): FetchPlan =
         when (val freshness = context.freshness) {
             Freshness.LocalOnly -> FetchPlan.Skip
-            Freshness.MustBeFresh -> FetchPlan.Fetch(servesResidentWhileFetching = false)
+            Freshness.MustBeFresh ->
+                context.fetchPlan(servesResidentWhileFetching = false)
             Freshness.CachedOrFetch,
             Freshness.StaleIfError,
             -> context.cachedOrFetchPlan()
@@ -69,36 +90,37 @@ internal object DefaultFreshnessValidator : FreshnessValidator {
         }
 
     private fun FreshnessContext.cachedOrFetchPlan(): FetchPlan =
-        if (!hasResidentValue || meta == null || epochStale) {
-            FetchPlan.Fetch(servesResidentWhileFetching = hasResidentValue)
+        if (
+            !hasResidentValue ||
+            meta == null ||
+            epochStale ||
+            status?.durablyStale == true
+        ) {
+            fetchPlan(servesResidentWhileFetching = hasResidentValue)
         } else {
             FetchPlan.Skip
         }
 
     private fun FreshnessContext.maxAgePlan(freshness: Freshness.MaxAge): FetchPlan {
         if (!hasResidentValue) {
-            return FetchPlan.Fetch(servesResidentWhileFetching = false)
+            return fetchPlan(servesResidentWhileFetching = false)
         }
 
-        val overAge =
-            if (meta == null) {
-                true
-            } else {
-                val elapsedMillis =
-                    if (nowEpochMillis <= meta.writtenAtEpochMillis) {
-                        0L
-                    } else {
-                        val delta = nowEpochMillis - meta.writtenAtEpochMillis
-                        if (delta < 0L) Long.MAX_VALUE else delta
-                    }
+        val overAge = meta == null || elapsedAge(nowEpochMillis, meta) > freshness.notOlderThan
 
-                elapsedMillis.milliseconds > freshness.notOlderThan
-            }
-
-        return if (epochStale || overAge) {
-            FetchPlan.Fetch(servesResidentWhileFetching = false)
+        return if (epochStale || status?.durablyStale == true || overAge) {
+            fetchPlan(servesResidentWhileFetching = false)
         } else {
             FetchPlan.Skip
+        }
+    }
+
+    private fun FreshnessContext.fetchPlan(servesResidentWhileFetching: Boolean): FetchPlan {
+        val etag = meta?.etag
+        return if (hasResidentValue && etag != null) {
+            FetchPlan.Conditional(etag, servesResidentWhileFetching)
+        } else {
+            FetchPlan.Fetch(servesResidentWhileFetching)
         }
     }
 }

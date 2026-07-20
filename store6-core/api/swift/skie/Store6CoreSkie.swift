@@ -1448,7 +1448,7 @@ extension Store6CoreSkie.Skie.RuntimeKotlin.SkieColdFlowIterator.__Suspend {
     @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
     public func hasNext() async throws -> Store6CoreSkie.KotlinBoolean {
         return try await SwiftCoroutineDispatcher.dispatch {
-            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__12__hasNext(dispatchReceiver: __kotlinObject as! Store6CoreSkie.SkieColdFlowIterator<Swift.AnyObject>, suspendHandler: $0)
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__14__hasNext(dispatchReceiver: __kotlinObject as! Store6CoreSkie.SkieColdFlowIterator<Swift.AnyObject>, suspendHandler: $0)
         }
     }
 
@@ -2330,7 +2330,7 @@ extension Store6CoreSkie.KotlinSuspendFunction1 {
     @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
     public func invoke(p1: Any?) async throws -> Any? {
         return try await SwiftCoroutineDispatcher.dispatch {
-            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__11__invoke(dispatchReceiver: self, p1: p1, suspendHandler: $0)
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__13__invoke(dispatchReceiver: self, p1: p1, suspendHandler: $0)
         }
     }
 
@@ -2518,9 +2518,23 @@ extension Store6CoreSkie.SourceOfTruth {
     }
 
     @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
+    public func deleteAll() async throws -> Swift.Void {
+        return try await SwiftCoroutineDispatcher.dispatch {
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__10__deleteAll(dispatchReceiver: self, suspendHandler: $0)
+        }
+    }
+
+    @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
+    public func deleteNamespace(namespace: Store6CoreSkie.StoreNamespace) async throws -> Swift.Void {
+        return try await SwiftCoroutineDispatcher.dispatch {
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__11__deleteNamespace(dispatchReceiver: self, namespace: namespace, suspendHandler: $0)
+        }
+    }
+
+    @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
     public func write(key: Store6CoreSkie.StoreKey, value: Any) async throws -> Swift.Void {
         return try await SwiftCoroutineDispatcher.dispatch {
-            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__10__write(dispatchReceiver: self, key: key, value: value, suspendHandler: $0)
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__12__write(dispatchReceiver: self, key: key, value: value, suspendHandler: $0)
         }
     }
 

@@ -499,6 +499,18 @@ __attribute__((swift_name("SourceOfTruth")))
  * Other uncaught Kotlin exceptions are fatal.
 */
 - (void)deleteKey:(id<Store6CoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("delete(key:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)deleteAllWithCompletionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("deleteAll(completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)deleteNamespaceNamespace:(Store6CoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("deleteNamespace(namespace:completionHandler:)")));
 - (id<Store6CoreKotlinx_coroutines_coreFlow>)readerKey:(id<Store6CoreStoreKey>)key __attribute__((swift_name("reader(key:)")));
 
 /**

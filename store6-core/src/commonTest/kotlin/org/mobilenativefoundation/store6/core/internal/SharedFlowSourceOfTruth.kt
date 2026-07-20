@@ -12,12 +12,16 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
+import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 
 /** Reusable SharedFlow-backed source-of-truth fake exercised by the full contract kit. */
 @OptIn(ExperimentalStoreApi::class)
-internal class SharedFlowSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<K, V> {
-    private val lock = Mutex()
+internal class SharedFlowSourceOfTruth<K : StoreKey, V : Any>(
+    private val beforeBulkEmission: suspend () -> Unit = {},
+) : SourceOfTruth<K, V> {
+    private val slotsLock = Mutex()
+    private val mutationLock = Mutex()
     private val slots = HashMap<KeyId, MutableSharedFlow<V?>>()
 
     override fun reader(key: K): Flow<V?> =
@@ -36,21 +40,41 @@ internal class SharedFlowSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<K,
         update(key, null)
     }
 
+    override suspend fun deleteNamespace(namespace: StoreNamespace) {
+        emitNullToSlots { keyId -> keyId.namespace == namespace.value }
+    }
+
+    override suspend fun deleteAll() {
+        emitNullToSlots { true }
+    }
+
     private suspend fun update(
         key: K,
         row: V?,
     ) {
-        val slot = slotFor(key)
         currentCoroutineContext().ensureActive()
-        withContext(NonCancellable) {
-            slot.emit(row)
+        mutationLock.withLock {
+            withContext(NonCancellable) {
+                slotFor(key).emit(row)
+            }
         }
     }
 
     private suspend fun slotFor(key: K): MutableSharedFlow<V?> {
         val keyId = KeyId.from(key)
-        return lock.withLock {
+        return slotsLock.withLock {
             slots.getOrPut(keyId) { newSlot() }
+        }
+    }
+
+    private suspend fun emitNullToSlots(matches: (KeyId) -> Boolean) {
+        currentCoroutineContext().ensureActive()
+        mutationLock.withLock {
+            withContext(NonCancellable) {
+                val matchingSlots = slotsLock.withLock { slots.filterKeys(matches).toList() }
+                beforeBulkEmission()
+                matchingSlots.forEach { (_, slot) -> slot.emit(null) }
+            }
         }
     }
 
