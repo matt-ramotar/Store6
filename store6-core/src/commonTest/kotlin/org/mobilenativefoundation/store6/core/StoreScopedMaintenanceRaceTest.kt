@@ -35,7 +35,7 @@ class StoreScopedMaintenanceRaceTest {
         val laterSuccess = backgroundScope.async { store.get(key, Freshness.MustBeFresh) }
         testScheduler.runCurrent()
         try {
-            withTimeout(1_000) { successEntered.await() }
+            withRealTimeout { successEntered.await() }
             val invalidation = backgroundScope.async {
                 store.invalidateNamespace(StoreNamespace("a"))
             }
@@ -80,7 +80,7 @@ class StoreScopedMaintenanceRaceTest {
         val laterSuccess = backgroundScope.async { store.get(key, Freshness.MustBeFresh) }
         testScheduler.runCurrent()
         try {
-            withTimeout(1_000) { successEntered.await() }
+            withRealTimeout { successEntered.await() }
             val invalidation = backgroundScope.async { store.invalidateAll() }
             testScheduler.runCurrent()
             assertTrue(
@@ -135,17 +135,17 @@ class StoreScopedMaintenanceRaceTest {
         testScheduler.runCurrent()
 
         try {
-            withTimeout(1_000) { affectedFetchStarted.await() }
+            withRealTimeout { affectedFetchStarted.await() }
             val clear = backgroundScope.async { store.clearNamespace(StoreNamespace("a")) }
             testScheduler.runCurrent()
             assertTrue(gated.namespaceDeleted.isCompleted, "clear must reach atomic bulk delete")
             releaseAffectedFetch.complete(Unit)
             val newEngineTail = backgroundScope.async { runCatching { store.get(betweenSweeps) } }
             testScheduler.runCurrent()
-            withTimeout(1_000) { betweenSweepsFetchStarted.await() }
+            withRealTimeout { betweenSweepsFetchStarted.await() }
             assertEquals("b/1-v2", store.get(unrelated, Freshness.MustBeFresh))
             gated.releaseDelete.complete(Unit)
-            withTimeout(1_000) { clear.await() }
+            withRealTimeout { clear.await() }
             assertMissingResult(withRealTimeout { oldTail.await() })
             assertMissingResult(withRealTimeout { newEngineTail.await() })
             assertNull(backing.reader(affected).first())
@@ -189,16 +189,16 @@ class StoreScopedMaintenanceRaceTest {
         testScheduler.runCurrent()
 
         try {
-            withTimeout(1_000) { affectedFetchStarted.await() }
+            withRealTimeout { affectedFetchStarted.await() }
             val clear = backgroundScope.async { store.clearAll() }
             testScheduler.runCurrent()
             assertTrue(gated.allDeleted.isCompleted, "clearAll must reach atomic bulk delete")
             releaseAffectedFetch.complete(Unit)
             val newEngineTail = backgroundScope.async { runCatching { store.get(betweenSweeps) } }
             testScheduler.runCurrent()
-            withTimeout(1_000) { betweenSweepsFetchStarted.await() }
+            withRealTimeout { betweenSweepsFetchStarted.await() }
             gated.releaseDelete.complete(Unit)
-            withTimeout(1_000) { clear.await() }
+            withRealTimeout { clear.await() }
             assertMissingResult(withRealTimeout { oldTail.await() })
             assertMissingResult(withRealTimeout { newEngineTail.await() })
             assertNull(backing.reader(existing).first())
