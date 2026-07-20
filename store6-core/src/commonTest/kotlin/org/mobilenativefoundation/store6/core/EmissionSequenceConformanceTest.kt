@@ -12,13 +12,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-class EmissionSequenceConformanceTest {
+open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
     @Test
     fun ac1a_staleWhileRevalidate_successEmitsStaleThenExactlyOneFreshData() = runTest {
         var calls = 0
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 when (++calls) {
                     1 -> "v1"
@@ -64,7 +64,7 @@ class EmissionSequenceConformanceTest {
         val boom = IllegalStateException("boom")
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 when (++calls) {
                     1 -> "v1"
@@ -112,7 +112,7 @@ class EmissionSequenceConformanceTest {
         val firstGate = CompletableDeferred<Unit>()
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcherOfResult {
                 when (++calls) {
                     1 -> {
@@ -167,7 +167,7 @@ class EmissionSequenceConformanceTest {
         var calls = 0
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcherOfResult {
                 when (++calls) {
                     1 -> FetcherResult.Success("v1", etag = "e1")

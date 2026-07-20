@@ -15,12 +15,12 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
-class FreshnessPolicyConformanceTest {
+open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
     @Test
     fun maxAgeWithinBoundServesResidentWithoutSecondFetch() = runTest {
         val clock = FakeWallClock(now = 0L)
         var calls = 0
-        val store = storeWith<TestKey, String>(clock = clock) {
+        val store = testStoreWith<TestKey, String>(clock = clock) {
             fetcher { "v${++calls}" }
         }
 
@@ -44,7 +44,7 @@ class FreshnessPolicyConformanceTest {
         var calls = 0
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
-        val store = storeWith<TestKey, String>(clock = clock) {
+        val store = testStoreWith<TestKey, String>(clock = clock) {
             fetcher {
                 when (++calls) {
                     1 -> "v1"
@@ -83,7 +83,7 @@ class FreshnessPolicyConformanceTest {
         var calls = 0
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
-        val store = storeWith<TestKey, String>(clock = clock) {
+        val store = testStoreWith<TestKey, String>(clock = clock) {
             fetcher {
                 when (++calls) {
                     1 -> "v1"
@@ -128,7 +128,7 @@ class FreshnessPolicyConformanceTest {
         val clock = FakeWallClock(now = 0L)
         val boom = IllegalStateException("boom")
         var calls = 0
-        val store = storeWith<TestKey, String>(clock = clock) {
+        val store = testStoreWith<TestKey, String>(clock = clock) {
             fetcher {
                 if (++calls == 1) "v1" else throw boom
             }
@@ -165,7 +165,7 @@ class FreshnessPolicyConformanceTest {
     @Test
     fun mustBeFreshRefetchesFreshResident() = runTest {
         var calls = 0
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher { "v${++calls}" }
         }
 
@@ -182,7 +182,7 @@ class FreshnessPolicyConformanceTest {
     fun mustBeFreshFailureHasNoFallbackAndStreamCompletes() = runTest {
         val boom = IllegalStateException("boom")
         var calls = 0
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 if (++calls == 1) "v1" else throw boom
             }
@@ -217,7 +217,7 @@ class FreshnessPolicyConformanceTest {
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
         val boom = IllegalStateException("boom")
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 when (++calls) {
                     1 -> "v1"
@@ -254,7 +254,7 @@ class FreshnessPolicyConformanceTest {
     fun staleIfErrorWithoutResidentThrowsFetch() = runTest {
         val boom = IllegalStateException("boom")
         var calls = 0
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 calls++
                 throw boom
@@ -280,7 +280,7 @@ class FreshnessPolicyConformanceTest {
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
         val boom = IllegalStateException("boom")
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 when (++calls) {
                     1 -> "v1"
@@ -323,7 +323,7 @@ class FreshnessPolicyConformanceTest {
     @Test
     fun localOnlyWithoutResidentReportsMissingWithoutLoadingOrFetcherCall() = runTest {
         var calls = 0
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 calls++
                 "remote"
@@ -354,7 +354,7 @@ class FreshnessPolicyConformanceTest {
     @Test
     fun localOnlyResidentIgnoresInvalidationForGetAndStream() = runTest {
         var calls = 0
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher { "v${++calls}" }
         }
         val key = TestKey("1")
@@ -379,7 +379,7 @@ class FreshnessPolicyConformanceTest {
     @Test
     fun dataAgeUsesInjectedWallClock() = runTest {
         val clock = FakeWallClock(now = 1_000L)
-        val store = storeWith<TestKey, String>(clock = clock) {
+        val store = testStoreWith<TestKey, String>(clock = clock) {
             fetcher { "v" }
         }
 

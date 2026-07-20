@@ -12,13 +12,13 @@ import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-class SingleFlightConformanceTest {
+open class SingleFlightConformanceTest : SourceOfTruthSubstitutionTest() {
     @Test
     fun ac2_fiftyGettersAndFiftyCollectorsShareOneFetch() = runTest {
         var calls = 0
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 calls++
                 started.complete(Unit)
@@ -60,7 +60,7 @@ class SingleFlightConformanceTest {
         var calls = 0
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 calls++
                 started.complete(Unit)
