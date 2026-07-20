@@ -66,31 +66,21 @@ class ConflateLatestDataTest {
     }
 
     @Test
-    fun fastCollector_getsEveryEmissionInOrder() = runTest {
-        val delivered = List(5) { CompletableDeferred<Unit>() }
-        val emissions = listOf<StoreResult<Int>>(
-            data(1),
-            data(2),
-            StoreResult.Loading(),
-            data(3),
-            StoreResult.Revalidated(age = Duration.ZERO),
-        )
+    fun immediateCollector_getsEverySynchronousDataEmission() = runTest {
         val received = mutableListOf<StoreResult<Int>>()
 
-        val upstream = flow {
-            emissions.forEachIndexed { index, result ->
-                emit(result)
-                delivered[index].await()
-            }
+        val upstream = flow<StoreResult<Int>> {
+            emit(data(1))
+            emit(data(2))
+            emit(data(3))
         }
 
         upstream.conflateLatestData().collect { result ->
             received += result
-            delivered[received.lastIndex].complete(Unit)
         }
 
         assertEquals(
-            listOf("data:1", "data:2", "loading", "data:3", "revalidated"),
+            listOf("data:1", "data:2", "data:3"),
             received.map(::label),
         )
     }

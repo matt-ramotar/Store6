@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.StoreResult
 
 /**
@@ -39,6 +40,7 @@ internal fun <V> Flow<StoreResult<V>>.conflateLatestData(): Flow<StoreResult<V>>
                         pending.addLast(result)
                         wakeVersion.value += 1
                     }
+                    yield()
                 }
             } catch (failure: Throwable) {
                 if (failure is CancellationException) throw failure
