@@ -13,6 +13,7 @@ import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 @OptIn(ExperimentalStoreApi::class)
@@ -48,30 +49,55 @@ class SharedFlowSourceOfTruthLinearizationTest {
         val keyA = NamespacedTestKey(ns = "primary", id = "a")
         val keyB = NamespacedTestKey(ns = "primary", id = "b")
         val keyCreatedDuringBulk = NamespacedTestKey(ns = "primary", id = "new")
-        val firstMatchingSlotDeleted = CompletableDeferred<Unit>()
+        val bulkEmissionStarted = CompletableDeferred<Unit>()
         val releaseBulkDelete = CompletableDeferred<Unit>()
         val sourceOfTruth =
-            SharedFlowSourceOfTruth<NamespacedTestKey, String> { keyId ->
-                if (keyId == KeyId.from(keyA)) {
-                    firstMatchingSlotDeleted.complete(Unit)
-                    releaseBulkDelete.await()
-                }
+            SharedFlowSourceOfTruth<NamespacedTestKey, String> {
+                bulkEmissionStarted.complete(Unit)
+                releaseBulkDelete.await()
             }
         sourceOfTruth.write(keyA, "a")
         sourceOfTruth.write(keyB, "b")
 
         val bulkDelete = async { sourceOfTruth.deleteNamespace(keyA.namespace) }
-        firstMatchingSlotDeleted.await()
-        val laterWrite = async { sourceOfTruth.write(keyA, "later") }
-        runCurrent()
-        val writeInterleaved = laterWrite.isCompleted
-        assertNull(sourceOfTruth.reader(keyCreatedDuringBulk).first())
+        var laterWrite: kotlinx.coroutines.Deferred<Unit>? = null
+        var writeInterleaved = false
+        try {
+            bulkEmissionStarted.await()
+            laterWrite = async { sourceOfTruth.write(keyA, "later") }
+            runCurrent()
+            writeInterleaved = laterWrite.isCompleted
+            assertNull(sourceOfTruth.reader(keyCreatedDuringBulk).first())
+        } finally {
+            releaseBulkDelete.complete(Unit)
+        }
 
-        releaseBulkDelete.complete(Unit)
         bulkDelete.await()
-        laterWrite.await()
+        checkNotNull(laterWrite).await()
 
         assertFalse(writeInterleaved)
         assertEquals("later", sourceOfTruth.reader(keyA).first())
+    }
+
+    @Test
+    fun bulkGateFailureLeavesEveryRowUnchanged(): TestResult = runTest {
+        val keyA = NamespacedTestKey(ns = "primary", id = "a")
+        val keyB = NamespacedTestKey(ns = "primary", id = "b")
+        val failure = IllegalStateException("bulk gate failed")
+        val sourceOfTruth =
+            SharedFlowSourceOfTruth<NamespacedTestKey, String> {
+                throw failure
+            }
+        sourceOfTruth.write(keyA, "a")
+        sourceOfTruth.write(keyB, "b")
+
+        val thrown =
+            assertFailsWith<IllegalStateException> {
+                sourceOfTruth.deleteAll()
+            }
+
+        assertEquals(failure.message, thrown.message)
+        assertEquals("a", sourceOfTruth.reader(keyA).first())
+        assertEquals("b", sourceOfTruth.reader(keyB).first())
     }
 }

@@ -34,7 +34,7 @@ public abstract class SourceOfTruthContractKit<K : StoreKey, V : Any> {
     /** Returns the first stable test key. */
     public abstract val keyA: K
 
-    /** Returns a stable test key distinct from [keyA]. */
+    /** Returns a stable test key distinct from [keyA] in the same namespace as [keyA]. */
     public abstract val keyB: K
 
     /** Returns a stable test key in a namespace distinct from [keyA]. */
@@ -236,14 +236,33 @@ public abstract class SourceOfTruthContractKit<K : StoreKey, V : Any> {
     @Test
     public fun deleteNamespaceEmitsNullToActiveMatchingReader(): TestResult = runTest {
         val sourceOfTruth = createSourceOfTruth()
-        val current = value(1)
-        sourceOfTruth.write(keyA, current)
+        val matchingA = value(1)
+        val matchingB = value(2)
+        val otherValue = value(3)
+        sourceOfTruth.write(keyA, matchingA)
+        sourceOfTruth.write(keyB, matchingB)
+        sourceOfTruth.write(keyOtherNamespace, otherValue)
 
-        sourceOfTruth.reader(keyA).test {
-            assertEquals(current, awaitItem())
-            sourceOfTruth.deleteNamespace(StoreNamespace(keyA.namespace.value))
-            assertNull(awaitItem())
-            cancelAndIgnoreRemainingEvents()
+        turbineScope {
+            val firstMatching = sourceOfTruth.reader(keyA).testIn(backgroundScope)
+            val secondMatching = sourceOfTruth.reader(keyB).testIn(backgroundScope)
+            val other = sourceOfTruth.reader(keyOtherNamespace).testIn(backgroundScope)
+            try {
+                assertEquals(matchingA, firstMatching.awaitItem())
+                assertEquals(matchingB, secondMatching.awaitItem())
+                assertEquals(otherValue, other.awaitItem())
+
+                sourceOfTruth.deleteNamespace(StoreNamespace(keyA.namespace.value))
+
+                assertNull(firstMatching.awaitItem())
+                assertNull(secondMatching.awaitItem())
+                runCurrent()
+                other.expectNoEvents()
+            } finally {
+                firstMatching.cancelAndIgnoreRemainingEvents()
+                secondMatching.cancelAndIgnoreRemainingEvents()
+                other.cancelAndIgnoreRemainingEvents()
+            }
         }
     }
 

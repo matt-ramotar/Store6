@@ -18,7 +18,7 @@ import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 /** Reusable SharedFlow-backed source-of-truth fake exercised by the full contract kit. */
 @OptIn(ExperimentalStoreApi::class)
 internal class SharedFlowSourceOfTruth<K : StoreKey, V : Any>(
-    private val afterBulkSlotEmission: suspend (KeyId) -> Unit = {},
+    private val beforeBulkEmission: suspend () -> Unit = {},
 ) : SourceOfTruth<K, V> {
     private val slotsLock = Mutex()
     private val mutationLock = Mutex()
@@ -72,10 +72,8 @@ internal class SharedFlowSourceOfTruth<K : StoreKey, V : Any>(
         mutationLock.withLock {
             withContext(NonCancellable) {
                 val matchingSlots = slotsLock.withLock { slots.filterKeys(matches).toList() }
-                matchingSlots.forEach { (keyId, slot) ->
-                    slot.emit(null)
-                    afterBulkSlotEmission(keyId)
-                }
+                beforeBulkEmission()
+                matchingSlots.forEach { (_, slot) -> slot.emit(null) }
             }
         }
     }
