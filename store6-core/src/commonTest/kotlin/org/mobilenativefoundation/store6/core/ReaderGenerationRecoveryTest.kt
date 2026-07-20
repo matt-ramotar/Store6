@@ -27,7 +27,16 @@ class ReaderGenerationRecoveryTest {
         var fetchCalls = 0
         val store = store<TestKey, String> {
             persistence(sourceOfTruth)
-            fetcher { "v${++fetchCalls}" }
+            fetcher {
+                when (++fetchCalls) {
+                    1 -> "v1"
+                    2 -> {
+                        sourceOfTruth.awaitCurrentSlotReaderDelivery(key)
+                        "v2"
+                    }
+                    else -> error("unexpected fetch call $fetchCalls")
+                }
+            }
         }
 
         try {

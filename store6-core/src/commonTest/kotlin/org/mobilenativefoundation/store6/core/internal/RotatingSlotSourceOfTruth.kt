@@ -1,8 +1,9 @@
 package org.mobilenativefoundation.store6.core.internal
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -19,8 +20,13 @@ import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
  */
 @OptIn(ExperimentalStoreApi::class)
 internal class RotatingSlotSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<K, V> {
+    private class Slot<V : Any>(
+        val rows: MutableSharedFlow<V?>,
+        val firstReaderDelivery: CompletableDeferred<Unit>,
+    )
+
     private class Entry<V : Any>(
-        var slot: MutableSharedFlow<V?>,
+        var slot: Slot<V>,
         var subscriptionCount: Int,
     )
 
@@ -29,7 +35,11 @@ internal class RotatingSlotSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<
 
     override fun reader(key: K): Flow<V?> =
         flow {
-            emitAll(captureSlot(key))
+            val captured = captureSlot(key)
+            captured.rows.collect { value ->
+                emit(value)
+                captured.firstReaderDelivery.complete(Unit)
+            }
         }
 
     override suspend fun write(
@@ -38,7 +48,7 @@ internal class RotatingSlotSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<
     ) {
         val keyId = KeyId.from(key)
         lock.withLock {
-            check(entryFor(keyId).slot.tryEmit(value))
+            check(entryFor(keyId).slot.rows.tryEmit(value))
         }
     }
 
@@ -54,7 +64,14 @@ internal class RotatingSlotSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<
         return lock.withLock { entries[keyId]?.subscriptionCount ?: 0 }
     }
 
-    private suspend fun captureSlot(key: K): MutableSharedFlow<V?> {
+    /** Waits until the current slot's first row has crossed downstream raw-reader capture. */
+    internal suspend fun awaitCurrentSlotReaderDelivery(key: K) {
+        val keyId = KeyId.from(key)
+        val delivery = lock.withLock { entryFor(keyId).slot.firstReaderDelivery }
+        delivery.await()
+    }
+
+    private suspend fun captureSlot(key: K): Slot<V> {
         val keyId = KeyId.from(key)
         return lock.withLock {
             entryFor(keyId).also { entry ->
@@ -68,11 +85,16 @@ internal class RotatingSlotSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<
             Entry(slot = newSlot(), subscriptionCount = 0)
         }
 
-    private fun newSlot(): MutableSharedFlow<V?> =
-        MutableSharedFlow<V?>(
-            replay = 1,
-            extraBufferCapacity = 64,
-        ).also { slot ->
-            check(slot.tryEmit(null))
-        }
+    private fun newSlot(): Slot<V> {
+        val rows =
+            MutableSharedFlow<V?>(
+                replay = 1,
+                extraBufferCapacity = 64,
+            )
+        check(rows.tryEmit(null))
+        return Slot(
+            rows = rows,
+            firstReaderDelivery = CompletableDeferred(),
+        )
+    }
 }

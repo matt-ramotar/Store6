@@ -35,11 +35,21 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
         }
 
         try {
-            assertEquals("v1", store.get(TestKey("1")))
-            store.invalidate(TestKey("1"))
+            val key = TestKey("1")
+            turbineScope {
+                // A successful one-shot get proves the SoT publication edge, but it does not
+                // start the shared reader pipeline. Keep a live seed collector so its v1 Data is
+                // also the causal barrier for the queued writer echo before revalidation begins.
+                val initialCollector = store.stream(key).testIn(backgroundScope)
+                assertIs<StoreResult.Loading>(initialCollector.awaitItem())
+                val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
+                assertEquals("v1", initial.value)
+                assertFalse(initial.isStale)
+                assertFalse(initial.refreshing)
 
-            store.stream(TestKey("1")).test {
-                val stale = assertIs<StoreResult.Data<String>>(awaitItem())
+                store.invalidate(key)
+                val collector = store.stream(key).testIn(backgroundScope)
+                val stale = assertIs<StoreResult.Data<String>>(collector.awaitItem())
                 assertEquals("v1", stale.value)
                 assertTrue(stale.isStale)
                 assertTrue(stale.refreshing)
@@ -47,13 +57,14 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
                 secondStarted.await()
                 secondGate.complete(Unit)
 
-                val fresh = assertIs<StoreResult.Data<String>>(awaitItem())
+                val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
                 assertEquals("v2", fresh.value)
                 assertFalse(fresh.isStale)
                 assertFalse(fresh.refreshing)
-                expectNoEvents()
+                collector.expectNoEvents()
                 assertEquals(2, calls)
-                cancelAndIgnoreRemainingEvents()
+                initialCollector.cancelAndIgnoreRemainingEvents()
+                collector.cancelAndIgnoreRemainingEvents()
             }
         } finally {
             store.close()
