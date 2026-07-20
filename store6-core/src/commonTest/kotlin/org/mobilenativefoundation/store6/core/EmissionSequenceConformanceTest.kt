@@ -48,13 +48,16 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
                 assertFalse(initial.refreshing)
 
                 store.invalidate(key)
+                // Prove the retained seed collector has processed invalidation and registered
+                // the gated refetch before the target collector joins it. Otherwise a delayed
+                // seed watcher can first run in the slot-settle/write-through I3 window.
+                secondStarted.await()
                 val collector = store.stream(key).testIn(backgroundScope)
                 val stale = assertIs<StoreResult.Data<String>>(collector.awaitItem())
                 assertEquals("v1", stale.value)
                 assertTrue(stale.isStale)
                 assertTrue(stale.refreshing)
 
-                secondStarted.await()
                 secondGate.complete(Unit)
 
                 val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
