@@ -359,7 +359,7 @@ class SourceOfTruthCancellationConformanceTest {
             engineScope = scope,
         )
 
-    private class ThrowingWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class ThrowingWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val row = MutableStateFlow<String?>(null)
         val writeStarted = CompletableDeferred<Unit>()
         val releaseCancellation = CompletableDeferred<Unit>()
@@ -388,7 +388,7 @@ class SourceOfTruthCancellationConformanceTest {
 
     private class ThrowingDeleteSourceOfTruth(
         initial: String?,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private val row = MutableStateFlow(initial)
         val deleteStarted = CompletableDeferred<Unit>()
         val releaseCancellation = CompletableDeferred<Unit>()
@@ -414,7 +414,7 @@ class SourceOfTruthCancellationConformanceTest {
         }
     }
 
-    private class PostWriteReturnSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class PostWriteReturnSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val row = MutableStateFlow<String?>(null)
         val writeApplied = CompletableDeferred<Unit>()
         val releaseReturn = CompletableDeferred<Unit>()
@@ -439,7 +439,7 @@ class SourceOfTruthCancellationConformanceTest {
 
     private class GatedSuccessfulDeleteSourceOfTruth(
         initial: String?,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private val row = MutableStateFlow(initial)
         val deleteStarted = CompletableDeferred<Unit>()
         val releaseDelete = CompletableDeferred<Unit>()
@@ -467,7 +467,7 @@ class SourceOfTruthCancellationConformanceTest {
 
     private class PostDeleteReturnSourceOfTruth(
         initial: String?,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private val row = MutableStateFlow(initial)
         val deleteApplied = CompletableDeferred<Unit>()
         val releaseReturn = CompletableDeferred<Unit>()

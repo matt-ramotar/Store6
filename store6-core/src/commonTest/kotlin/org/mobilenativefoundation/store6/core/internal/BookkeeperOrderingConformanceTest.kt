@@ -15,6 +15,7 @@ import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.TestKey
+import org.mobilenativefoundation.store6.core.SingleRowTestSourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -316,7 +317,7 @@ class BookkeeperOrderingConformanceTest {
         }
     }
 
-    private class ThrowingWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class ThrowingWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val value = MutableStateFlow<String?>(null)
         val writeAttempted = CompletableDeferred<Unit>()
 

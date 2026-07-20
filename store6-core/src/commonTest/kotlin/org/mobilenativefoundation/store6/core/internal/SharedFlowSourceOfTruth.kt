@@ -12,6 +12,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
+import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 
 /** Reusable SharedFlow-backed source-of-truth fake exercised by the full contract kit. */
@@ -36,6 +37,14 @@ internal class SharedFlowSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<K,
         update(key, null)
     }
 
+    override suspend fun deleteNamespace(namespace: StoreNamespace) {
+        emitNullToSlots { keyId -> keyId.namespace == namespace.value }
+    }
+
+    override suspend fun deleteAll() {
+        emitNullToSlots { true }
+    }
+
     private suspend fun update(
         key: K,
         row: V?,
@@ -51,6 +60,14 @@ internal class SharedFlowSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<K,
         val keyId = KeyId.from(key)
         return lock.withLock {
             slots.getOrPut(keyId) { newSlot() }
+        }
+    }
+
+    private suspend fun emitNullToSlots(matches: (KeyId) -> Boolean) {
+        val matchingSlots = lock.withLock { slots.filterKeys(matches).values.toList() }
+        currentCoroutineContext().ensureActive()
+        withContext(NonCancellable) {
+            matchingSlots.forEach { slot -> slot.emit(null) }
         }
     }
 

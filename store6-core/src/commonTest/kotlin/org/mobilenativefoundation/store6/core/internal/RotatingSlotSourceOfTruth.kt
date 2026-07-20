@@ -9,6 +9,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
+import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 
 /**
@@ -56,6 +57,22 @@ internal class RotatingSlotSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<
         val keyId = KeyId.from(key)
         lock.withLock {
             entryFor(keyId).slot = newSlot()
+        }
+    }
+
+    override suspend fun deleteNamespace(namespace: StoreNamespace) {
+        lock.withLock {
+            entries.forEach { (keyId, entry) ->
+                if (keyId.namespace == namespace.value) {
+                    entry.slot = newSlot()
+                }
+            }
+        }
+    }
+
+    override suspend fun deleteAll() {
+        lock.withLock {
+            entries.values.forEach { entry -> entry.slot = newSlot() }
         }
     }
 

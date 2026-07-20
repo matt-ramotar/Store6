@@ -22,6 +22,7 @@ import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.TestKey
+import org.mobilenativefoundation.store6.core.SingleRowTestSourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -2812,7 +2813,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class ReplayEveryRowSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class ReplayEveryRowSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableSharedFlow<String?>(replay = 1)
         private var readerCalls = 0
         val liveReaderStarted = CompletableDeferred<Unit>()
@@ -2843,7 +2844,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class InterleavedWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class InterleavedWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -2881,7 +2882,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class SingleWriterCurrentSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class SingleWriterCurrentSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -2920,7 +2921,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class CancellingWriterSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class CancellingWriterSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -2963,7 +2964,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class MatchingOtherMatchingSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class MatchingOtherMatchingSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -3001,7 +3002,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class FailingWriterSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class FailingWriterSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -3042,7 +3043,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class FailingAfterPostMatchExternalSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class FailingAfterPostMatchExternalSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = MutableSharedFlow<String?>()
         private var readerCalls = 0
         private var current: String? = "seed"
@@ -3081,7 +3082,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class StartupRaceSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class StartupRaceSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("seed")
         private var readerCalls = 0
         val liveReaderStarted = CompletableDeferred<Unit>()
@@ -3115,7 +3116,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class WriteStartedSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class WriteStartedSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(null)
         val writeStarted = CompletableDeferred<Unit>()
 
@@ -3134,7 +3135,7 @@ class KeyEnginePlanningTest {
         }
     }
 
-    private class GatedWriterReturnSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GatedWriterReturnSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("seed")
         val writeStarted = CompletableDeferred<Unit>()
         val releaseWrite = CompletableDeferred<Unit>()

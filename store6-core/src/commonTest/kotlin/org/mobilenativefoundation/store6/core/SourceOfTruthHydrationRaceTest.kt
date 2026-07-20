@@ -151,7 +151,7 @@ class SourceOfTruthHydrationRaceTest {
             fetcher { error("fetch must not run") }
         }
 
-    private class ClearRacingHydrationSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class ClearRacingHydrationSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("snapshot")
         private var gateFirstReader = true
         val readerStarted = CompletableDeferred<Unit>()
@@ -181,7 +181,7 @@ class SourceOfTruthHydrationRaceTest {
         }
     }
 
-    private class ReactiveHydrationSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class ReactiveHydrationSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows =
             MutableSharedFlow<String?>(
                 replay = 1,

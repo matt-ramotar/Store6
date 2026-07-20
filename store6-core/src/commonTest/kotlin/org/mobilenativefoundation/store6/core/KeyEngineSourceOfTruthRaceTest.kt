@@ -462,7 +462,7 @@ class KeyEngineSourceOfTruthRaceTest {
         }
     }
 
-    private class FailingReaderSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class FailingReaderSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(null)
         private var factoryFailuresRemaining: Int = 0
         private var collectionFailuresRemaining: Int = 0
@@ -522,7 +522,7 @@ class KeyEngineSourceOfTruthRaceTest {
         }
     }
 
-    private class GatedWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GatedWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>("seed")
         private var readerCalls = 0
         val liveReaderStarted = CompletableDeferred<Unit>()
@@ -560,7 +560,7 @@ class KeyEngineSourceOfTruthRaceTest {
 
     private class GatedFailingWriteSourceOfTruth(
         private val failure: Throwable,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(null)
         val writeStarted = CompletableDeferred<Unit>()
         val releaseWrite = CompletableDeferred<Unit>()
@@ -594,7 +594,7 @@ class KeyEngineSourceOfTruthRaceTest {
         private var readerFailure: Throwable? = null,
         private var writeFailure: Throwable? = null,
         var deleteFailure: Throwable? = null,
-    ) : SourceOfTruth<TestKey, String> {
+    ) : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(null)
         var deleteCalls: Int = 0
             private set
