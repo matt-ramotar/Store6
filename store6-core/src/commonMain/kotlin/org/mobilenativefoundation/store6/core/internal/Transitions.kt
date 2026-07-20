@@ -22,6 +22,16 @@ internal sealed interface KeyEvent {
         val ticket: FetchTicket,
     ) : KeyEvent
 
+    /**
+     * Reports that the write handle confirmed [value] for direct source-of-truth commit; [ticket]
+     * is the synthetic owner of the stamped SOT attribution.
+     */
+    class ApplyWrite(
+        val ticket: FetchTicket,
+        val value: Any,
+        val meta: StoreMeta,
+    ) : KeyEvent
+
     /** Reports that the fetch represented by [ticket] observed a server-side deletion. */
     class CommitDeleted(
         val ticket: FetchTicket,
@@ -64,6 +74,9 @@ internal sealed interface KeyEffect {
 
     /** Refresh resident metadata inside the same critical section. */
     data object CommitRevalidation : KeyEffect
+
+    /** Stamp SOT attribution; the engine writes the SoT and residence through under writeLock. */
+    data object CommitWrite : KeyEffect
 
     /** Null out residence and forget bookkeeping: the server deleted the value. */
     data object CommitDelete : KeyEffect
@@ -182,6 +195,20 @@ internal fun transition(
                 FetchSlot.Idle ->
                     KeyTransition(state = state, effect = KeyEffect.Ignored)
             }
+
+        is KeyEvent.ApplyWrite ->
+            KeyTransition(
+                state = state.copy(
+                    attribution = AttributionTag(
+                        owner = event.ticket,
+                        value = event.value,
+                        origin = Origin.SOT,
+                        meta = event.meta,
+                        staleEpochAtCommit = state.staleEpoch,
+                    ),
+                ),
+                effect = KeyEffect.CommitWrite,
+            )
 
         is KeyEvent.CommitDeleted ->
             when (val slot = state.fetch) {

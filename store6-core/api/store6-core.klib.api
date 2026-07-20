@@ -43,6 +43,21 @@ abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kot
     abstract suspend fun write(#A, #B) // org.mobilenativefoundation.store6.core.seam/SourceOfTruth.write|write(1:0;1:1){}[0]
 }
 
+abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core.seam/StoreRuntime { // org.mobilenativefoundation.store6.core.seam/StoreRuntime|null[0]
+    abstract val keyEvents // org.mobilenativefoundation.store6.core.seam/StoreRuntime.keyEvents|{}keyEvents[0]
+        abstract fun <get-keyEvents>(): kotlinx.coroutines.flow/Flow<org.mobilenativefoundation.store6.core.seam/KeyEvents> // org.mobilenativefoundation.store6.core.seam/StoreRuntime.keyEvents.<get-keyEvents>|<get-keyEvents>(){}[0]
+    abstract val telemetry // org.mobilenativefoundation.store6.core.seam/StoreRuntime.telemetry|{}telemetry[0]
+        abstract fun <get-telemetry>(): org.mobilenativefoundation.store6.core.seam/StoreTelemetry? // org.mobilenativefoundation.store6.core.seam/StoreRuntime.telemetry.<get-telemetry>|<get-telemetry>(){}[0]
+    abstract val writeHandle // org.mobilenativefoundation.store6.core.seam/StoreRuntime.writeHandle|{}writeHandle[0]
+        abstract fun <get-writeHandle>(): org.mobilenativefoundation.store6.core.seam/StoreWriteHandle<#A, #B> // org.mobilenativefoundation.store6.core.seam/StoreRuntime.writeHandle.<get-writeHandle>|<get-writeHandle>(){}[0]
+}
+
+abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core.seam/StoreWriteHandle { // org.mobilenativefoundation.store6.core.seam/StoreWriteHandle|null[0]
+    abstract suspend fun apply(#A, #B) // org.mobilenativefoundation.store6.core.seam/StoreWriteHandle.apply|apply(1:0;1:1){}[0]
+    abstract suspend fun confirmFresh(#A, kotlin/String?) // org.mobilenativefoundation.store6.core.seam/StoreWriteHandle.confirmFresh|confirmFresh(1:0;kotlin.String?){}[0]
+    abstract suspend fun markStale(#A) // org.mobilenativefoundation.store6.core.seam/StoreWriteHandle.markStale|markStale(1:0){}[0]
+}
+
 abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core.seam/TransactionalSourceOfTruth : org.mobilenativefoundation.store6.core.seam/SourceOfTruth<#A, #B> { // org.mobilenativefoundation.store6.core.seam/TransactionalSourceOfTruth|null[0]
     abstract suspend fun <#A1: kotlin/Any?> withTransaction(kotlin.coroutines/SuspendFunction0<#A1>): #A1 // org.mobilenativefoundation.store6.core.seam/TransactionalSourceOfTruth.withTransaction|withTransaction(kotlin.coroutines.SuspendFunction0<0:0>){0§<kotlin.Any?>}[0]
 }
@@ -219,6 +234,28 @@ sealed interface org.mobilenativefoundation.store6.core/Freshness { // org.mobil
     }
 }
 
+abstract class org.mobilenativefoundation.store6.core.seam/KeyEvents { // org.mobilenativefoundation.store6.core.seam/KeyEvents|null[0]
+    abstract val key // org.mobilenativefoundation.store6.core.seam/KeyEvents.key|{}key[0]
+        abstract fun <get-key>(): org.mobilenativefoundation.store6.core/StoreKey // org.mobilenativefoundation.store6.core.seam/KeyEvents.key.<get-key>|<get-key>(){}[0]
+
+    final class Deleted : org.mobilenativefoundation.store6.core.seam/KeyEvents { // org.mobilenativefoundation.store6.core.seam/KeyEvents.Deleted|null[0]
+        final val key // org.mobilenativefoundation.store6.core.seam/KeyEvents.Deleted.key|{}key[0]
+            final fun <get-key>(): org.mobilenativefoundation.store6.core/StoreKey // org.mobilenativefoundation.store6.core.seam/KeyEvents.Deleted.key.<get-key>|<get-key>(){}[0]
+    }
+
+    final class Invalidated : org.mobilenativefoundation.store6.core.seam/KeyEvents { // org.mobilenativefoundation.store6.core.seam/KeyEvents.Invalidated|null[0]
+        final val key // org.mobilenativefoundation.store6.core.seam/KeyEvents.Invalidated.key|{}key[0]
+            final fun <get-key>(): org.mobilenativefoundation.store6.core/StoreKey // org.mobilenativefoundation.store6.core.seam/KeyEvents.Invalidated.key.<get-key>|<get-key>(){}[0]
+    }
+
+    final class Written : org.mobilenativefoundation.store6.core.seam/KeyEvents { // org.mobilenativefoundation.store6.core.seam/KeyEvents.Written|null[0]
+        final val key // org.mobilenativefoundation.store6.core.seam/KeyEvents.Written.key|{}key[0]
+            final fun <get-key>(): org.mobilenativefoundation.store6.core/StoreKey // org.mobilenativefoundation.store6.core.seam/KeyEvents.Written.key.<get-key>|<get-key>(){}[0]
+        final val origin // org.mobilenativefoundation.store6.core.seam/KeyEvents.Written.origin|{}origin[0]
+            final fun <get-origin>(): org.mobilenativefoundation.store6.core/Origin // org.mobilenativefoundation.store6.core.seam/KeyEvents.Written.origin.<get-origin>|<get-origin>(){}[0]
+    }
+}
+
 final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core/StoreBuilder { // org.mobilenativefoundation.store6.core/StoreBuilder|null[0]
     final fun bookkeeper(org.mobilenativefoundation.store6.core.seam/Bookkeeper) // org.mobilenativefoundation.store6.core/StoreBuilder.bookkeeper|bookkeeper(org.mobilenativefoundation.store6.core.seam.Bookkeeper){}[0]
     final fun fetcher(kotlin.coroutines/SuspendFunction1<#A, #B>) // org.mobilenativefoundation.store6.core/StoreBuilder.fetcher|fetcher(kotlin.coroutines.SuspendFunction1<1:0,1:1>){}[0]
@@ -316,4 +353,5 @@ sealed class org.mobilenativefoundation.store6.core/StoreError { // org.mobilena
     }
 }
 
+final fun <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> (org.mobilenativefoundation.store6.core/Store<#A, #B>).org.mobilenativefoundation.store6.core.seam/runtime(): org.mobilenativefoundation.store6.core.seam/StoreRuntime<#A, #B>? // org.mobilenativefoundation.store6.core.seam/runtime|runtime@org.mobilenativefoundation.store6.core.Store<0:0,0:1>(){0§<org.mobilenativefoundation.store6.core.StoreKey>;1§<kotlin.Any>}[0]
 final fun <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core/store(kotlin/Function1<org.mobilenativefoundation.store6.core/StoreBuilder<#A, #B>, kotlin/Unit>): org.mobilenativefoundation.store6.core/Store<#A, #B> // org.mobilenativefoundation.store6.core/store|store(kotlin.Function1<org.mobilenativefoundation.store6.core.StoreBuilder<0:0,0:1>,kotlin.Unit>){0§<org.mobilenativefoundation.store6.core.StoreKey>;1§<kotlin.Any>}[0]

@@ -9,11 +9,13 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.SharedFlow
@@ -51,6 +53,7 @@ import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.seam.FreshnessContext
 import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
+import org.mobilenativefoundation.store6.core.seam.KeyEvents
 import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.StoreTelemetry
@@ -73,7 +76,7 @@ internal fun Flow<KeyState>.staleEpochsAfter(planningEpoch: Long): Flow<Long> =
  */
 @OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 internal class KeyEngine<K : StoreKey, V : Any>(
-    private val key: K,
+    internal val key: K,
     private val keyId: KeyId,
     private val fetcher: Fetcher<K, V>,
     private val sot: SourceOfTruth<K, V>,
@@ -97,6 +100,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private val maintenanceCoordinator: MaintenanceCoordinator = MaintenanceCoordinator(),
     /** Null keeps every telemetry hook and fetch-duration allocation off the unconfigured path. */
     private val telemetry: StoreTelemetry? = null,
+    /** Store-level advisory bus; direct engine tests receive an isolated equivalent by default. */
+    private val events: MutableSharedFlow<KeyEvents> =
+        MutableSharedFlow(
+            replay = 0,
+            extraBufferCapacity = 64,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        ),
 ) {
     private val stateLock = Mutex()
     private val writeLock = Mutex()
@@ -747,6 +757,28 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private fun staleServingTolerated(freshness: Freshness): Boolean =
         freshness == Freshness.CachedOrFetch || freshness == Freshness.StaleIfError
 
+    /** Recognizes both fetched envelopes and the exact envelope installed by a writer boundary. */
+    private fun isEngineConfirmedEnvelope(envelope: ValueEnvelope<V>): Boolean =
+        envelope.origin == Origin.FETCHER || rawCommitResolution?.envelope === envelope
+
+    /** Keeps synthetic-writer SOT provenance instead of re-stamping that exact envelope MEMORY. */
+    private fun canRestampEngineMemoryOrigin(
+        memoryEnvelope: ValueEnvelope<V>?,
+        memoryRevision: Long,
+        currentEnvelope: ValueEnvelope<V>?,
+        currentRevision: Long,
+    ): Boolean =
+        canRestampMemoryOrigin(
+            memoryEnvelope = memoryEnvelope,
+            memoryRevision = memoryRevision,
+            currentEnvelope = currentEnvelope,
+            currentRevision = currentRevision,
+        ) &&
+            !(
+                memoryEnvelope?.origin == Origin.SOT &&
+                    rawCommitResolution?.envelope === memoryEnvelope
+            )
+
     private fun revalidatedSatisfiesDemand(
         freshness: Freshness,
         snapshot: ResidenceSnapshot<V>,
@@ -755,7 +787,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         when (freshness) {
             Freshness.MustBeFresh ->
                 snapshot.envelope?.let { envelope ->
-                    envelope.origin == Origin.FETCHER &&
+                    isEngineConfirmedEnvelope(envelope) &&
                         envelope.meta != null &&
                         envelope.staleEpochAtCommit >= snapshot.state.staleEpoch &&
                         snapshot.status?.durablyStale != true
@@ -1035,6 +1067,130 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             }
         }
 
+    /**
+     * Commits an acknowledged source-of-truth value without fetching or recording success.
+     *
+     * A synthetic ticket participates only in the attribution/disposition handshake; it never
+     * enters the fetch slot and never launches work.
+     */
+    internal suspend fun applyWrite(value: V) {
+        ensureOpen()
+        val meta = EngineStoreMeta(wallClock.nowEpochMillis(), etag = null)
+        val ticket = FetchTicket(CompletableDeferred())
+        maintenanceCoordinator.withCommit(keyId.namespace) {
+            writeLock.withLock {
+                val stamped =
+                    stateLock.withLock {
+                        val result =
+                            transition(
+                                mutableState.value,
+                                KeyEvent.ApplyWrite(
+                                    ticket = ticket,
+                                    value = value,
+                                    meta = meta,
+                                ),
+                            )
+                        check(result.effect == KeyEffect.CommitWrite) {
+                            "Apply-write transition produced an invalid effect: ${result.effect}"
+                        }
+                        mutableState.value = result.state
+                        val attribution = checkNotNull(result.state.attribution)
+                        ticket.disposition.value =
+                            FetchDisposition.Committing(
+                                attribution = attribution,
+                                successfulWriteSequenceAtStart =
+                                    writeObservationBoundary.value.successfulSequence,
+                            )
+                        updateWriteObservationBoundary { current ->
+                            current.copy(
+                                readerGen = result.state.readerGen,
+                                observedAttribution = attribution,
+                                activeAttribution = attribution,
+                                activeRawPhase = ActiveRawPhase.Unobserved,
+                            )
+                        }
+                        attribution
+                    }
+
+                try {
+                    sot.write(key, value)
+                } catch (cancellation: CancellationException) {
+                    withContext(NonCancellable) {
+                        stateLock.withLock {
+                            terminalizeFailedWriteLocked(
+                                stamped = stamped,
+                                ticket = ticket,
+                                disposition = FetchDisposition.Cancelled,
+                            )
+                        }
+                    }
+                    throw cancellation
+                } catch (failure: Throwable) {
+                    withContext(NonCancellable) {
+                        stateLock.withLock {
+                            terminalizeFailedWriteLocked(
+                                stamped = stamped,
+                                ticket = ticket,
+                                disposition = FetchDisposition.Failed,
+                            )
+                        }
+                    }
+                    throw writeHandleException(failure)
+                }
+
+                // This CAS must remain the first non-suspending instruction after normal return.
+                val closedWriteBoundary = closeSuccessfulWriteBoundary()
+                withContext(NonCancellable) {
+                    stateLock.withLock {
+                        val committed =
+                            convergeSuccessfulWriteLocked(
+                                stamped = stamped,
+                                value = value,
+                                closed = closedWriteBoundary,
+                            )
+                        ticket.disposition.value =
+                            FetchDisposition.Committed(
+                                successfulWriteSequence = committed.successfulWriteSequence,
+                                attribution = stamped,
+                                rawReaderGen = committed.readerGen,
+                                rawCommitCutoff = committed.rawCommitCutoff,
+                                authoritativeRawSequence =
+                                    committed.authoritativeRawSequence,
+                            )
+                    }
+                }
+            }
+        }
+        events.tryEmit(KeyEvents.Written(key, Origin.SOT))
+    }
+
+    /** Refreshes resident metadata and durable success without a fetch. */
+    internal suspend fun confirmFresh(etag: String?) {
+        ensureOpen()
+        val meta = EngineStoreMeta(wallClock.nowEpochMillis(), etag)
+        maintenanceCoordinator.withCommit(keyId.namespace) {
+            writeLock.withLock {
+                var replaced = false
+                stateLock.withLock state@{
+                    val current = residence.value ?: return@state
+                    replaceResidenceLocked(
+                        ValueEnvelope(
+                            value = current.value,
+                            origin = current.origin,
+                            meta = meta,
+                            staleEpochAtCommit = mutableState.value.staleEpoch,
+                        ),
+                    )
+                    syncObservedAttributionLocked(mutableState.value)
+                    replaced = true
+                }
+                if (replaced) {
+                    withContext(NonCancellable) { bookkeeper.recordSuccess(key, meta) }
+                }
+            }
+        }
+    }
+
     /** Closes raw source order and converges its durable winner before bookkeeping. */
     private fun convergeSuccessfulWriteLocked(
         stamped: AttributionTag,
@@ -1209,7 +1365,10 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     /** Applies a server deletion only after its ticket is still proven current. */
     private suspend fun commitDeleted(ticket: FetchTicket): FetchOutcome {
         val outcome = commitDeletedUnderFence(ticket)
-        if (outcome === FetchOutcome.Deleted) telemetry?.onCleared(key)
+        if (outcome === FetchOutcome.Deleted) {
+            telemetry?.onCleared(key)
+            events.tryEmit(KeyEvents.Deleted(key))
+        }
         return outcome
     }
 
@@ -1296,6 +1455,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             val classified = finishFailedFetch(ticket, outcome)
             withContext(NonCancellable) {
                 notifyFetchTerminal(classified, mark)
+                notifyFetchEvent(classified)
                 completeTicket(ticket, classified)
             }
         } else {
@@ -1307,6 +1467,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         stateLock.withLock { classifySettledOutcome(ticket, outcome) }
                     }
                 notifyFetchTerminal(classified, mark)
+                notifyFetchEvent(classified)
                 completeTicket(ticket, classified)
             }
         }
@@ -1354,6 +1515,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             FetchOutcome.ObsoleteRevalidation,
             FetchOutcome.Superseded,
             -> Unit
+        }
+    }
+
+    /** Publishes successful fetch writes after classification and before ticket completion. */
+    private fun notifyFetchEvent(outcome: FetchOutcome) {
+        if (outcome is FetchOutcome.Committed) {
+            events.tryEmit(KeyEvents.Written(key, Origin.FETCHER))
         }
     }
 
@@ -1422,6 +1590,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             }
         }
         telemetry?.onInvalidated(key)
+        events.tryEmit(KeyEvents.Invalidated(key))
     }
 
     /** Signals resident demand only while the previously advanced watermark still covers it. */
@@ -1434,6 +1603,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             }
         }
         telemetry?.onInvalidated(key)
+        events.tryEmit(KeyEvents.Invalidated(key))
     }
 
     /** Deletes persistence first, then performs the irreversible state/bookkeeping tail. */
@@ -1466,6 +1636,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             }
         }
         telemetry?.onCleared(key)
+        events.tryEmit(KeyEvents.Deleted(key))
     }
 
     /** Applies only the resident clear atom; store-scoped maintenance owns the durable fence. */
@@ -1485,6 +1656,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     /** Reports one completed store-scoped clear after its maintenance fence has been released. */
     internal fun notifyBulkClearCompleted() {
         telemetry?.onCleared(key)
+        events.tryEmit(KeyEvents.Deleted(key))
     }
 
     /** Applies the landed clear transition while [stateLock] is held. */
@@ -2075,7 +2247,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                 envelope = checkNotNull(reservedCollectorEnvelope),
                                 originOverride =
                                     if (
-                                        canRestampMemoryOrigin(
+                                        canRestampEngineMemoryOrigin(
                                             memoryEnvelope = memoryEnvelope,
                                             memoryRevision = memoryRevision,
                                             currentEnvelope = snapshot.envelope,
@@ -2312,7 +2484,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         envelope = reservedCollectorEnvelope,
                     )
                 val memoryOverride =
-                    canRestampMemoryOrigin(
+                    canRestampEngineMemoryOrigin(
                         memoryEnvelope = memoryEnvelope,
                         memoryRevision = memoryRevision,
                         currentEnvelope = snapshot.envelope,
@@ -2354,7 +2526,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             envelope = reservedCollectorEnvelope,
                             originOverride =
                                 if (
-                                    canRestampMemoryOrigin(
+                                    canRestampEngineMemoryOrigin(
                                         memoryEnvelope = memoryEnvelope,
                                         memoryRevision = memoryRevision,
                                         currentEnvelope = reservedCollectorEnvelope,
@@ -2925,7 +3097,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 Freshness.StaleIfError,
                 Freshness.MustBeFresh,
                 ->
-                    envelope.origin == Origin.FETCHER &&
+                    isEngineConfirmedEnvelope(envelope) &&
                         envelope.meta != null &&
                         envelope.staleEpochAtCommit >= state.staleEpoch
 
@@ -3565,6 +3737,17 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 "The fetch succeeded but the source of truth rejected the write; inspect the " +
                 "cause and retry the read."
         return StoreException(StoreError.Persistence(message, failure), failure)
+    }
+
+    private fun writeHandleException(failure: Throwable): StoreException {
+        val message =
+            "Write-handle apply failed for key '${keyId.namespace}/${keyId.canonicalId}': " +
+                "${failure.message}. The source of truth rejected the write; state is unchanged. " +
+                "Inspect the cause and retry."
+        return StoreException(
+            error = StoreError.Persistence(message = message, cause = failure),
+            cause = failure,
+        )
     }
 
     private fun clearPersistenceException(failure: Throwable): StoreException {

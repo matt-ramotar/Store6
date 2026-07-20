@@ -2,8 +2,10 @@ package org.mobilenativefoundation.store6.core
 
 import kotlinx.coroutines.test.runTest
 import org.mobilenativefoundation.store6.core.seam.StoreTelemetry
+import org.mobilenativefoundation.store6.core.seam.runtime
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.time.Duration
 
 @OptIn(ExperimentalStoreApi::class, DelicateStoreApi::class)
@@ -105,8 +107,7 @@ class StoreTelemetryTest {
             fetcher { "v" }
             telemetry(RecordingTelemetry())
         }
-        // The structural null-reference assertion lands in T4 with StoreRuntime; this behavioral
-        // half proves that leaving the sink unconfigured does not alter store behavior.
+        assertNull(plain.runtime()!!.telemetry)
         assertEquals(plain.get(TestKey("1")), instrumented.get(TestKey("1")))
         plain.close()
         instrumented.close()

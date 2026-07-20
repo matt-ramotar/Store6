@@ -240,6 +240,23 @@ public abstract interface class org/mobilenativefoundation/store6/core/seam/Fres
 	public abstract fun plan (Lorg/mobilenativefoundation/store6/core/seam/FreshnessContext;)Lorg/mobilenativefoundation/store6/core/seam/FetchPlan;
 }
 
+public abstract class org/mobilenativefoundation/store6/core/seam/KeyEvents {
+	public abstract fun getKey ()Lorg/mobilenativefoundation/store6/core/StoreKey;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/KeyEvents$Deleted : org/mobilenativefoundation/store6/core/seam/KeyEvents {
+	public fun getKey ()Lorg/mobilenativefoundation/store6/core/StoreKey;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/KeyEvents$Invalidated : org/mobilenativefoundation/store6/core/seam/KeyEvents {
+	public fun getKey ()Lorg/mobilenativefoundation/store6/core/StoreKey;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/KeyEvents$Written : org/mobilenativefoundation/store6/core/seam/KeyEvents {
+	public fun getKey ()Lorg/mobilenativefoundation/store6/core/StoreKey;
+	public final fun getOrigin ()Lorg/mobilenativefoundation/store6/core/Origin;
+}
+
 public final class org/mobilenativefoundation/store6/core/seam/KeyStatus {
 	public fun <init> (Lorg/mobilenativefoundation/store6/core/StoreMeta;Ljava/lang/Long;Ljava/lang/Long;IZ)V
 	public final fun getConsecutiveFailures ()I
@@ -255,6 +272,16 @@ public abstract interface class org/mobilenativefoundation/store6/core/seam/Sour
 	public abstract fun deleteNamespace (Lorg/mobilenativefoundation/store6/core/StoreNamespace;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun reader (Lorg/mobilenativefoundation/store6/core/StoreKey;)Lkotlinx/coroutines/flow/Flow;
 	public abstract fun write (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/seam/StoreRuntime {
+	public abstract fun getKeyEvents ()Lkotlinx/coroutines/flow/Flow;
+	public abstract fun getTelemetry ()Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;
+	public abstract fun getWriteHandle ()Lorg/mobilenativefoundation/store6/core/seam/StoreWriteHandle;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/StoreRuntimeKt {
+	public static final fun runtime (Lorg/mobilenativefoundation/store6/core/Store;)Lorg/mobilenativefoundation/store6/core/seam/StoreRuntime;
 }
 
 public abstract interface class org/mobilenativefoundation/store6/core/seam/StoreTelemetry {
@@ -273,6 +300,12 @@ public final class org/mobilenativefoundation/store6/core/seam/StoreTelemetry$De
 	public static fun onFetchSucceeded-HG0u8IE (Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;Lorg/mobilenativefoundation/store6/core/StoreKey;J)V
 	public static fun onInvalidated (Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;Lorg/mobilenativefoundation/store6/core/StoreKey;)V
 	public static fun onServe (Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;Lorg/mobilenativefoundation/store6/core/StoreKey;Lorg/mobilenativefoundation/store6/core/Origin;)V
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/seam/StoreWriteHandle {
+	public abstract fun apply (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun confirmFresh (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun markStale (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public abstract interface class org/mobilenativefoundation/store6/core/seam/TransactionalSourceOfTruth : org/mobilenativefoundation/store6/core/seam/SourceOfTruth {

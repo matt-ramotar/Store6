@@ -4,7 +4,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
@@ -19,7 +21,9 @@ import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
+import org.mobilenativefoundation.store6.core.seam.KeyEvents
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.StoreRuntime
 import org.mobilenativefoundation.store6.core.seam.StoreTelemetry
 import org.mobilenativefoundation.store6.core.seam.WallClock
 
@@ -38,11 +42,18 @@ internal class RealStore<K : StoreKey, V : Any>(
     wallClock: WallClock,
     private val bookkeeper: Bookkeeper,
     validator: FreshnessValidator,
-    private val telemetry: StoreTelemetry?,
+    internal val telemetry: StoreTelemetry?,
 ) : Store<K, V> {
     private val storeJob = SupervisorJob()
     private val storeScope = CoroutineScope(Dispatchers.Default + storeJob)
     private val maintenanceCoordinator = MaintenanceCoordinator()
+    internal val events =
+        MutableSharedFlow<KeyEvents>(
+            replay = 0,
+            extraBufferCapacity = 64,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
+    internal val runtime: StoreRuntime<K, V> = RealStoreRuntime(this)
     private val registry =
         KeyRegistry<K, V> { key, id ->
             val engineJob = SupervisorJob(storeJob)
@@ -55,6 +66,7 @@ internal class RealStore<K : StoreKey, V : Any>(
                 validator = validator,
                 wallClock = wallClock,
                 telemetry = telemetry,
+                events = events,
                 engineScope = CoroutineScope(storeScope.coroutineContext + engineJob),
                 maintenanceCoordinator = maintenanceCoordinator,
             )
@@ -77,8 +89,7 @@ internal class RealStore<K : StoreKey, V : Any>(
         key: K,
         freshness: Freshness,
     ): V {
-        ensureOpen()
-        return registry.withEngine(key) { engine -> engine.get(freshness) }
+        return withEngine(key) { engine -> engine.get(freshness) }
     }
 
     override suspend fun invalidate(key: K) {
@@ -109,19 +120,6 @@ internal class RealStore<K : StoreKey, V : Any>(
 
     override suspend fun clearNamespace(namespace: StoreNamespace) {
         ensureOpen()
-        if (telemetry == null) {
-            maintenanceCoordinator.withNamespaceMaintenance(namespace.value) {
-                registry.forEachResident(namespace.value) { engine -> engine.clearResident() }
-                durably("clearNamespace", "namespace '${namespace.value}'") {
-                    sot.deleteNamespace(namespace)
-                }
-                durably("clearNamespace", "namespace '${namespace.value}'") {
-                    bookkeeper.forgetNamespace(namespace)
-                }
-                registry.forEachResident(namespace.value) { engine -> engine.clearResident() }
-            }
-            return
-        }
         val cleared =
             maintenanceCoordinator.withNamespaceMaintenance(namespace.value) {
                 val firstSweep =
@@ -142,15 +140,6 @@ internal class RealStore<K : StoreKey, V : Any>(
 
     override suspend fun clearAll() {
         ensureOpen()
-        if (telemetry == null) {
-            maintenanceCoordinator.withGlobalMaintenance {
-                registry.forEachResident(namespace = null) { engine -> engine.clearResident() }
-                durably("clearAll", "all namespaces") { sot.deleteAll() }
-                durably("clearAll", "all namespaces") { bookkeeper.forgetAll() }
-                registry.forEachResident(namespace = null) { engine -> engine.clearResident() }
-            }
-            return
-        }
         val cleared =
             maintenanceCoordinator.withGlobalMaintenance {
                 val firstSweep =
@@ -163,6 +152,14 @@ internal class RealStore<K : StoreKey, V : Any>(
                 firstSweep
             }
         cleared.forEach { engine -> engine.notifyBulkClearCompleted() }
+    }
+
+    internal suspend fun <R> withEngine(
+        key: K,
+        action: suspend (KeyEngine<K, V>) -> R,
+    ): R {
+        ensureOpen()
+        return registry.withEngine(key, action)
     }
 
     override fun close() {

@@ -8,6 +8,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
@@ -401,6 +402,31 @@ class TransitionTest {
         assertEquals(KeyEffect.Ignored, result.effect)
         assertSame(state, result.state)
         assertSame(tag, result.state.attribution)
+    }
+
+    @Test
+    fun applyWrite_stampsSotAttribution_preservingSlotAndEpochs() {
+        val inFlight = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(FetchTicket(CompletableDeferred()), 0L),
+            staleEpoch = 3L,
+            clearEpoch = 1L,
+        )
+        val meta = EngineStoreMeta(writtenAtEpochMillis = 7L, etag = null)
+        val writeTicket = FetchTicket(CompletableDeferred())
+
+        val result = transition(
+            inFlight,
+            KeyEvent.ApplyWrite(ticket = writeTicket, value = "v", meta = meta),
+        )
+
+        assertEquals(KeyEffect.CommitWrite, result.effect)
+        assertEquals(inFlight.fetch, result.state.fetch)
+        assertEquals(3L, result.state.staleEpoch)
+        assertEquals(1L, result.state.clearEpoch)
+        val tag = assertNotNull(result.state.attribution)
+        assertSame(writeTicket, tag.owner)
+        assertEquals(Origin.SOT, tag.origin)
+        assertEquals(3L, tag.staleEpochAtCommit)
     }
 
     @Test
