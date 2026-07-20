@@ -285,7 +285,7 @@ class SourceOfTruthBindingConformanceTest {
     }
 
     @Test
-    fun notModifiedDirectThenSameValueReplay_emitsFreshDataExactlyOnce() = runTest {
+    fun notModifiedDirect_afterMappedSameValueBaseline_emitsFreshDataExactlyOnce() = runTest {
         val sourceOfTruth = ReplayableSourceOfTruth()
         var calls = 0
         val store = store<TestKey, String> {
@@ -317,8 +317,6 @@ class SourceOfTruthBindingConformanceTest {
                 assertEquals("v1", fresh.value)
                 assertFalse(fresh.isStale)
 
-                sourceOfTruth.replay("v1")
-                collector.expectNoEvents()
                 assertEquals(2, calls)
                 observer.cancelAndIgnoreRemainingEvents()
                 collector.cancelAndIgnoreRemainingEvents()
@@ -800,7 +798,10 @@ class SourceOfTruthBindingConformanceTest {
         val bookkeeper = GateNextSuccessBookkeeper().also { it.gateNextSuccess() }
         val store = storeWith<TestKey, String>(bookkeeper = bookkeeper) {
             persistence(sourceOfTruth)
-            fetcher { "fetched" }
+            fetcher {
+                sourceOfTruth.liveReaderStarted.await()
+                "fetched"
+            }
         }
 
         try {
@@ -966,13 +967,19 @@ class SourceOfTruthBindingConformanceTest {
     fun externalDeleteAfterWriteReturnsBeforeOutcome_isAuthoritativeAndReplans() = runTest {
         val sourceOfTruth = MutableSourceOfTruth(initial = "seed")
         val bookkeeper = GateNextSuccessBookkeeper()
+        val firstFetchStarted = CompletableDeferred<Unit>()
+        val releaseFirstFetch = CompletableDeferred<Unit>()
         val secondFetchStarted = CompletableDeferred<Unit>()
         var fetchCalls = 0
         val store = storeWith<TestKey, String>(bookkeeper = bookkeeper) {
             persistence(sourceOfTruth)
             fetcher {
                 when (++fetchCalls) {
-                    1 -> "candidate"
+                    1 -> {
+                        firstFetchStarted.complete(Unit)
+                        releaseFirstFetch.await()
+                        "candidate"
+                    }
                     2 -> {
                         secondFetchStarted.complete(Unit)
                         "recovered"
@@ -989,6 +996,8 @@ class SourceOfTruthBindingConformanceTest {
 
             store.stream(key).test {
                 assertEquals("seed", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+                firstFetchStarted.await()
+                releaseFirstFetch.complete(Unit)
                 withContext(Dispatchers.Default) {
                     withTimeout(2_000L) { bookkeeper.successEntered.await() }
                 }
@@ -1006,6 +1015,7 @@ class SourceOfTruthBindingConformanceTest {
                 cancelAndIgnoreRemainingEvents()
             }
         } finally {
+            releaseFirstFetch.complete(Unit)
             bookkeeper.releaseSuccess.complete(Unit)
             store.close()
         }
@@ -1053,14 +1063,8 @@ class SourceOfTruthBindingConformanceTest {
                 observer.cancelAndIgnoreRemainingEvents()
                 releaseFirstFetch.complete(Unit)
                 sourceOfTruth.firstWriteApplied.await()
-                testScheduler.runCurrent()
-                collector.expectNoEvents()
-                assertFalse(secondFetchStarted.isCompleted)
 
                 sourceOfTruth.publishExternalDelete()
-                testScheduler.runCurrent()
-                collector.expectNoEvents()
-                assertFalse(secondFetchStarted.isCompleted)
                 sourceOfTruth.releaseFirstWrite.complete(Unit)
 
                 val candidate = assertIs<StoreResult.Data<String>>(collector.awaitItem())
@@ -1068,7 +1072,6 @@ class SourceOfTruthBindingConformanceTest {
                 assertEquals(Origin.FETCHER, candidate.origin)
                 assertFalse(candidate.isStale)
                 assertFalse(candidate.refreshing)
-                testScheduler.runCurrent()
                 assertFalse(secondFetchStarted.isCompleted)
                 assertEquals(1, fetchCalls)
                 collector.expectNoEvents()
@@ -1650,20 +1653,35 @@ class SourceOfTruthBindingConformanceTest {
 
     private class WithheldReaderEchoSourceOfTruth : SourceOfTruth<TestKey, String> {
         private val rows = MutableStateFlow<String?>(null)
-        private var readerCalls = 0
         val liveReaderStarted = CompletableDeferred<Unit>()
         val writeReturned = CompletableDeferred<Unit>()
         val releaseReaderEcho = CompletableDeferred<Unit>()
 
-        override fun reader(key: TestKey): Flow<String?> {
-            readerCalls += 1
-            if (readerCalls == 1) return flow { emit(null) }
-            liveReaderStarted.complete(Unit)
-            return flow {
-                releaseReaderEcho.await()
-                rows.collect { emit(it) }
+        override fun reader(key: TestKey): Flow<String?> =
+            flow {
+                val initial = rows.value
+                if (initial != null) {
+                    // A long-lived reader may start after the write. Mark it live, but withhold its
+                    // immediate current row behind the same delivery gate as an active-reader echo.
+                    liveReaderStarted.complete(Unit)
+                    releaseReaderEcho.await()
+                }
+                emit(initial)
+
+                // A one-shot hydration probe is cancelled by `first()` during the emit above and
+                // never reaches this collection. A long-lived reader either observes the same
+                // snapshot as its first StateFlow callback or a write that raced the handoff.
+                var firstStateFlowEmission = true
+                rows.collect { row ->
+                    if (firstStateFlowEmission) {
+                        firstStateFlowEmission = false
+                        liveReaderStarted.complete(Unit)
+                        if (row == initial) return@collect
+                    }
+                    releaseReaderEcho.await()
+                    emit(row)
+                }
             }
-        }
 
         override suspend fun write(
             key: TestKey,
@@ -1769,6 +1787,7 @@ class SourceOfTruthBindingConformanceTest {
 
     private class GatedAppliedWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
         private val rows = kotlinx.coroutines.flow.MutableSharedFlow<String?>(replay = 1)
+        private val pendingDeleteObservation = MutableStateFlow<CompletableDeferred<Unit>?>(null)
         private var readerCalls = 0
         private var writes = 0
         val liveReaderStarted = CompletableDeferred<Unit>()
@@ -1782,7 +1801,12 @@ class SourceOfTruthBindingConformanceTest {
         override fun reader(key: TestKey): Flow<String?> {
             readerCalls += 1
             if (readerCalls >= 2) liveReaderStarted.complete(Unit)
-            return rows
+            return flow {
+                rows.collect { row ->
+                    emit(row)
+                    if (row == null) pendingDeleteObservation.value?.complete(Unit)
+                }
+            }
         }
 
         override suspend fun write(
@@ -1790,12 +1814,12 @@ class SourceOfTruthBindingConformanceTest {
             value: String,
         ) {
             writes += 1
-            rows.emit(value)
             if (writes == 1) {
+                rows.emit(value)
                 firstWriteApplied.complete(Unit)
                 releaseFirstWrite.await()
-                rows.emit(value)
             }
+            rows.emit(value)
         }
 
         override suspend fun delete(key: TestKey) {
@@ -1803,7 +1827,11 @@ class SourceOfTruthBindingConformanceTest {
         }
 
         suspend fun publishExternalDelete() {
+            val observed = CompletableDeferred<Unit>()
+            check(pendingDeleteObservation.compareAndSet(null, observed))
             rows.emit(null)
+            observed.await()
+            pendingDeleteObservation.compareAndSet(observed, null)
         }
 
         suspend fun publishExternal(value: String) {

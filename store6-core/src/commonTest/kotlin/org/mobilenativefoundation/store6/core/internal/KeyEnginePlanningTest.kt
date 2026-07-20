@@ -391,7 +391,8 @@ class KeyEnginePlanningTest {
     @Test
     fun mustNotModifiedReaderReplay_doesNotLaunchAThirdFetch() = runTest {
         val key = TestKey("must-304-replay")
-        val sourceOfTruth = StartupRaceSourceOfTruth()
+        val sourceOfTruth = ReplayEveryRowSourceOfTruth()
+        val readerDeliveryGate = InitialDeliveryGate()
         var calls = 0
         val engine =
             KeyEngine(
@@ -409,6 +410,7 @@ class KeyEnginePlanningTest {
                 validator = DefaultFreshnessValidator,
                 wallClock = FakeWallClock(now = 0L),
                 engineScope = backgroundScope,
+                beforeReaderDeliveryTestGate = readerDeliveryGate::awaitIfArmed,
             )
 
         assertEquals("v1", engine.get(Freshness.MustBeFresh))
@@ -419,6 +421,15 @@ class KeyEnginePlanningTest {
             assertFalse(fresh.isStale)
             assertFalse(fresh.refreshing)
             sourceOfTruth.liveReaderStarted.await()
+            testScheduler.runCurrent()
+
+            // Cross the reader-delivery gate after the direct 304 completion so the assertion is
+            // causally downstream of an actual equal-value replay, not merely its upstream emit.
+            readerDeliveryGate.arm()
+            sourceOfTruth.publish("v1")
+            readerDeliveryGate.entered.await()
+            expectNoEvents()
+            readerDeliveryGate.release()
             testScheduler.runCurrent()
             assertEquals(2, calls)
             expectNoEvents()

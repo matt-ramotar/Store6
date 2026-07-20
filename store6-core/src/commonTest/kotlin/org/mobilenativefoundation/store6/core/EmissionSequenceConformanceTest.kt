@@ -1,6 +1,8 @@
 package org.mobilenativefoundation.store6.core
 
 import app.cash.turbine.test
+import app.cash.turbine.testIn
+import app.cash.turbine.turbineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
@@ -182,11 +184,21 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
         }
 
         try {
-            assertEquals("v1", store.get(TestKey("1")))
-            store.invalidate(TestKey("1"))
+            turbineScope {
+                // A changing fetch is delivered through the SoT reader. Observing the initial
+                // Data is the causal barrier that its writer echo crossed the shared pipeline;
+                // `get()` returning alone only proves the mutation's publication edge.
+                val initialCollector = store.stream(TestKey("1")).testIn(backgroundScope)
+                assertIs<StoreResult.Loading>(initialCollector.awaitItem())
+                val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
+                assertEquals("v1", initial.value)
+                assertFalse(initial.isStale)
+                assertFalse(initial.refreshing)
+                assertEquals(1, calls)
 
-            store.stream(TestKey("1")).test {
-                val stale = assertIs<StoreResult.Data<String>>(awaitItem())
+                store.invalidate(TestKey("1"))
+                val collector = store.stream(TestKey("1")).testIn(backgroundScope)
+                val stale = assertIs<StoreResult.Data<String>>(collector.awaitItem())
                 assertEquals("v1", stale.value)
                 assertTrue(stale.isStale)
                 assertTrue(stale.refreshing)
@@ -194,13 +206,14 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
                 secondStarted.await()
                 secondGate.complete(Unit)
 
-                val fresh = assertIs<StoreResult.Data<String>>(awaitItem())
+                val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
                 assertEquals("v1", fresh.value)
                 assertFalse(fresh.isStale)
                 assertFalse(fresh.refreshing)
-                expectNoEvents()
+                collector.expectNoEvents()
                 assertEquals(2, calls)
-                cancelAndIgnoreRemainingEvents()
+                initialCollector.cancelAndIgnoreRemainingEvents()
+                collector.cancelAndIgnoreRemainingEvents()
             }
         } finally {
             store.close()

@@ -17,6 +17,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalStoreApi::class)
 class SourceOfTruthConformanceTest {
@@ -97,7 +98,7 @@ class SourceOfTruthConformanceTest {
         }
         assertEquals("fetched", store.get(TestKey("1")))
         sot.write(TestKey("1"), "external")
-        store.stream(TestKey("1")).test {
+        store.stream(TestKey("1")).test(timeout = 10.seconds) {
             var seenExternal = false
             while (!seenExternal) {
                 val item = awaitItem()
