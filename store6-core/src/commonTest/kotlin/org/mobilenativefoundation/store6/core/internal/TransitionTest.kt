@@ -1,13 +1,56 @@
 package org.mobilenativefoundation.store6.core.internal
 
 import kotlinx.coroutines.CompletableDeferred
+import org.mobilenativefoundation.store6.core.Origin
+import org.mobilenativefoundation.store6.core.StoreMeta
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNotSame
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 
 class TransitionTest {
     private fun ticket(): FetchTicket = FetchTicket(CompletableDeferred())
+
+    private fun meta(
+        writtenAtEpochMillis: Long = 10L,
+        etag: String? = "etag",
+    ): StoreMeta = EngineStoreMeta(writtenAtEpochMillis, etag)
+
+    private fun commitFetch(
+        ticket: FetchTicket,
+        value: Any = "value",
+        meta: StoreMeta = meta(),
+    ): KeyEvent.CommitFetch =
+        KeyEvent.CommitFetch(ticket, value, meta)
+
+    private fun attribution(
+        owner: FetchTicket = ticket(),
+        value: Any = "resident",
+        origin: Origin = Origin.SOT,
+        meta: StoreMeta = meta(),
+        staleEpochAtCommit: Long = 2L,
+    ): AttributionTag =
+        AttributionTag(
+            owner = owner,
+            value = value,
+            origin = origin,
+            meta = meta,
+            staleEpochAtCommit = staleEpochAtCommit,
+        )
+
+    @Test
+    fun attributionTag_equalPayloadInstances_areIdentityDistinct() {
+        val value = Any()
+        val meta = meta()
+        val first = attribution(value = value, meta = meta)
+        val second = attribution(value = value, meta = meta)
+
+        assertNotSame(first, second)
+        assertNotEquals(first, second)
+    }
 
     @Test
     fun ensureFetch_whenIdle_launchesWithFreshTicket() {
@@ -93,12 +136,41 @@ class TransitionTest {
             staleEpoch = 3L,
         )
 
-        val result = transition(state, KeyEvent.CommitFetch(current))
+        val result = transition(state, commitFetch(current))
 
         assertIs<KeyEffect.Commit>(result.effect)
         assertIs<FetchSlot.Idle>(result.state.fetch)
         assertEquals(3L, result.state.staleEpoch) // epochs preserved
         assertEquals(0L, result.state.clearEpoch)
+    }
+
+    @Test
+    fun commitFetch_matchingTicketAndEpoch_stampsValueBoundAttributionAtCommitEpoch() {
+        val current = ticket()
+        val value = Any()
+        val meta = meta(writtenAtEpochMillis = 123L, etag = "v2")
+        val state = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(current, clearEpochAtLaunch = 4L),
+            staleEpoch = 7L,
+            clearEpoch = 4L,
+            readerGen = 9L,
+        )
+
+        val result = transition(
+            state,
+            commitFetch(
+                ticket = current,
+                value = value,
+                meta = meta,
+            ),
+        )
+
+        val tag = requireNotNull(result.state.attribution)
+        assertSame(value, tag.value)
+        assertEquals(Origin.FETCHER, tag.origin)
+        assertSame(meta, tag.meta)
+        assertEquals(7L, tag.staleEpochAtCommit)
+        assertEquals(9L, result.state.readerGen)
     }
 
     @Test
@@ -109,7 +181,7 @@ class TransitionTest {
             clearEpoch = 1L,
         )
 
-        val result = transition(state, KeyEvent.CommitFetch(current))
+        val result = transition(state, commitFetch(current))
 
         assertIs<KeyEffect.Superseded>(result.effect)
         assertSame(state, result.state) // slot kept for the settle path
@@ -120,7 +192,7 @@ class TransitionTest {
         val current = ticket()
         val state = KeyState.Initial.copy(fetch = FetchSlot.InFlight(current, 0L))
 
-        val result = transition(state, KeyEvent.CommitFetch(ticket()))
+        val result = transition(state, commitFetch(ticket()))
 
         assertIs<KeyEffect.Ignored>(result.effect)
         assertSame(state, result.state)
@@ -128,28 +200,42 @@ class TransitionTest {
 
     @Test
     fun commitFetch_whenIdle_isIgnored() {
-        val result = transition(KeyState.Initial, KeyEvent.CommitFetch(ticket()))
+        val result = transition(KeyState.Initial, commitFetch(ticket()))
 
         assertIs<KeyEffect.Ignored>(result.effect)
     }
 
     @Test
-    fun invalidate_bumpsOnlyStaleEpoch() {
-        val result = transition(KeyState.Initial, KeyEvent.Invalidate)
+    fun invalidate_bumpsOnlyStaleEpoch_andPreservesReaderGenerationAndAttribution() {
+        val tag = attribution()
+        val state = KeyState.Initial.copy(readerGen = 5L, attribution = tag)
+
+        val result = transition(state, KeyEvent.Invalidate)
 
         assertIs<KeyEffect.Invalidated>(result.effect)
         assertEquals(1L, result.state.staleEpoch)
         assertEquals(0L, result.state.clearEpoch)
+        assertEquals(5L, result.state.readerGen)
+        assertSame(tag, result.state.attribution)
         assertIs<FetchSlot.Idle>(result.state.fetch)
     }
 
     @Test
-    fun clear_bumpsBothEpochs_andRequestsResidenceClear() {
-        val result = transition(KeyState.Initial, KeyEvent.Clear)
+    fun clear_bumpsBothEpochsAndReaderGeneration_revokesAttribution() {
+        val state = KeyState.Initial.copy(
+            staleEpoch = 2L,
+            clearEpoch = 3L,
+            readerGen = 4L,
+            attribution = attribution(),
+        )
+
+        val result = transition(state, KeyEvent.Clear)
 
         assertIs<KeyEffect.ClearResidence>(result.effect)
-        assertEquals(1L, result.state.staleEpoch)
-        assertEquals(1L, result.state.clearEpoch)
+        assertEquals(3L, result.state.staleEpoch)
+        assertEquals(4L, result.state.clearEpoch)
+        assertEquals(5L, result.state.readerGen)
+        assertNull(result.state.attribution)
     }
 
     @Test
@@ -190,7 +276,7 @@ class TransitionTest {
         val current = ticket()
         val committed = transition(
             KeyState.Initial.copy(fetch = FetchSlot.InFlight(current, 0L)),
-            KeyEvent.CommitFetch(current),
+            commitFetch(current),
         )
 
         val result = transition(committed.state, KeyEvent.SettleFetch(current))
@@ -202,12 +288,18 @@ class TransitionTest {
     @Test
     fun commitDeleted_matchingTicketAndEpoch_settlesAndRequestsDeleteCommit() {
         val owner = ticket()
-        val state = KeyState.Initial.copy(fetch = FetchSlot.InFlight(owner, clearEpochAtLaunch = 0L))
+        val state = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(owner, clearEpochAtLaunch = 0L),
+            readerGen = 6L,
+            attribution = attribution(),
+        )
         val result = transition(state, KeyEvent.CommitDeleted(owner))
         assertEquals(KeyEffect.CommitDelete, result.effect)
         assertEquals(FetchSlot.Idle, result.state.fetch)
         assertEquals(1L, result.state.clearEpoch)
         assertEquals(0L, result.state.staleEpoch) // no stale bump: deletion must not drive refetch loops
+        assertEquals(7L, result.state.readerGen)
+        assertNull(result.state.attribution)
     }
 
     @Test
@@ -245,10 +337,110 @@ class TransitionTest {
             fetch = FetchSlot.InFlight(owner, clearEpochAtLaunch = 2L),
             staleEpoch = 5L,
             clearEpoch = 2L,
+            readerGen = 8L,
+            attribution = attribution(),
         )
         val result = transition(state, KeyEvent.CommitDeleted(owner))
         assertEquals(KeyEffect.CommitDelete, result.effect)
         assertEquals(5L, result.state.staleEpoch)
         assertEquals(3L, result.state.clearEpoch)
+        assertEquals(9L, result.state.readerGen)
+        assertNull(result.state.attribution)
+    }
+
+    @Test
+    fun commitRevalidated_matchingTicketAndEpoch_settlesAndRevokesAttribution() {
+        val owner = ticket()
+        val state = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(owner, clearEpochAtLaunch = 2L),
+            staleEpoch = 5L,
+            clearEpoch = 2L,
+            readerGen = 8L,
+            attribution = attribution(),
+        )
+
+        val result = transition(state, KeyEvent.CommitRevalidated(owner))
+
+        assertEquals(KeyEffect.CommitRevalidation, result.effect)
+        assertEquals(FetchSlot.Idle, result.state.fetch)
+        assertEquals(5L, result.state.staleEpoch)
+        assertEquals(2L, result.state.clearEpoch)
+        assertEquals(8L, result.state.readerGen)
+        assertNull(result.state.attribution)
+    }
+
+    @Test
+    fun commitRevalidated_afterClearAdvancedEpoch_isSupersededWithoutRevokingAttribution() {
+        val owner = ticket()
+        val tag = attribution()
+        val state = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(owner, clearEpochAtLaunch = 1L),
+            clearEpoch = 2L,
+            attribution = tag,
+        )
+
+        val result = transition(state, KeyEvent.CommitRevalidated(owner))
+
+        assertEquals(KeyEffect.Superseded, result.effect)
+        assertSame(state, result.state)
+        assertSame(tag, result.state.attribution)
+    }
+
+    @Test
+    fun commitRevalidated_staleTicket_isIgnoredWithoutRevokingAttribution() {
+        val tag = attribution()
+        val state = KeyState.Initial.copy(
+            fetch = FetchSlot.InFlight(ticket(), clearEpochAtLaunch = 0L),
+            attribution = tag,
+        )
+
+        val result = transition(state, KeyEvent.CommitRevalidated(ticket()))
+
+        assertEquals(KeyEffect.Ignored, result.effect)
+        assertSame(state, result.state)
+        assertSame(tag, result.state.attribution)
+    }
+
+    @Test
+    fun consumeAttribution_whenPresent_returnsThenClearsTag() {
+        val tag = attribution()
+        val state = KeyState.Initial.copy(attribution = tag)
+
+        val result = transition(state, KeyEvent.ConsumeAttribution(tag))
+
+        assertSame(tag, assertIs<KeyEffect.Consumed>(result.effect).tag)
+        assertNull(result.state.attribution)
+    }
+
+    @Test
+    fun consumeAttribution_whenAbsent_returnsNullWithoutChangingStateInstance() {
+        val state = KeyState.Initial.copy(readerGen = 4L)
+
+        val result = transition(state, KeyEvent.ConsumeAttribution(null))
+
+        assertNull(assertIs<KeyEffect.Consumed>(result.effect).tag)
+        assertSame(state, result.state)
+    }
+
+    @Test
+    fun consumeAttribution_observedBeforeCurrentTag_doesNotConsumeTheLaterTag() {
+        val later = attribution()
+        val state = KeyState.Initial.copy(attribution = later)
+
+        val result = transition(state, KeyEvent.ConsumeAttribution(observed = null))
+
+        assertNull(assertIs<KeyEffect.Consumed>(result.effect).tag)
+        assertSame(state, result.state)
+        assertSame(later, result.state.attribution)
+    }
+
+    @Test
+    fun revokeAttribution_clearsTag() {
+        val state = KeyState.Initial.copy(attribution = attribution())
+
+        val result = transition(state, KeyEvent.RevokeAttribution)
+
+        assertEquals(KeyEffect.AttributionRevoked, result.effect)
+        assertNull(result.state.attribution)
     }
 }

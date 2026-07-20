@@ -2,9 +2,11 @@ package org.mobilenativefoundation.store6.core
 
 import org.mobilenativefoundation.store6.core.internal.Bookkeeper
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
+import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.internal.RealStore
 import org.mobilenativefoundation.store6.core.internal.SystemWallClock
 import org.mobilenativefoundation.store6.core.internal.WallClock
+import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 
 /**
  * Creates a [Store] using the settings supplied by [configure].
@@ -27,6 +29,10 @@ public fun <K : StoreKey, V : Any> store(
  */
 public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
     private var fetcher: (suspend (K) -> FetcherResult<V>)? = null
+
+    @OptIn(ExperimentalStoreApi::class)
+    private var sot: SourceOfTruth<K, V>? = null
+
     internal var wallClock: WallClock = SystemWallClock
     internal var bookkeeper: Bookkeeper = InMemoryBookkeeper()
 
@@ -58,10 +64,28 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
         this.fetcher = fetch
     }
 
+    /**
+     * Selects the persistence seam for this store.
+     *
+     * The engine reads [SourceOfTruth.reader], writes successfully fetched values through
+     * [SourceOfTruth.write], and treats [SourceOfTruth.delete] as destructive persistence removal.
+     * When the stored selection is consumed by the engine, an absent block installs the internal
+     * in-memory default. Custom implementations should be validated with the source-of-truth
+     * contract kit.
+     *
+     * @param sot the source of truth used by the store
+     */
+    @ExperimentalStoreApi
+    public fun persistence(sot: SourceOfTruth<K, V>) {
+        this.sot = sot
+    }
+
+    @OptIn(ExperimentalStoreApi::class)
     internal fun build(): Store<K, V> {
         val fetch = requireNotNull(fetcher) {
             "store<K, V> { } requires a fetcher { } or fetcherOfResult { } block."
         }
-        return RealStore(fetch, wallClock, bookkeeper)
+        val sourceOfTruth = sot ?: InMemorySourceOfTruth()
+        return RealStore(fetch, sourceOfTruth, wallClock, bookkeeper)
     }
 }

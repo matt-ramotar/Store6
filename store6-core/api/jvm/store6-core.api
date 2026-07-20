@@ -102,6 +102,7 @@ public final class org/mobilenativefoundation/store6/core/Store$DefaultImpls {
 public final class org/mobilenativefoundation/store6/core/StoreBuilder {
 	public final fun fetcher (Lkotlin/jvm/functions/Function2;)V
 	public final fun fetcherOfResult (Lkotlin/jvm/functions/Function2;)V
+	public final fun persistence (Lorg/mobilenativefoundation/store6/core/seam/SourceOfTruth;)V
 }
 
 public final class org/mobilenativefoundation/store6/core/StoreBuilderKt {
@@ -180,5 +181,11 @@ public final class org/mobilenativefoundation/store6/core/StoreResult$Loading : 
 
 public final class org/mobilenativefoundation/store6/core/StoreResult$Revalidated : org/mobilenativefoundation/store6/core/StoreResult {
 	public final fun getAge-UwyO8pc ()J
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/seam/SourceOfTruth {
+	public abstract fun delete (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun reader (Lorg/mobilenativefoundation/store6/core/StoreKey;)Lkotlinx/coroutines/flow/Flow;
+	public abstract fun write (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 

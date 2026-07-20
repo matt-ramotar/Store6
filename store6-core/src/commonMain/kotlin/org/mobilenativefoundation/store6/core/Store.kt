@@ -18,11 +18,12 @@ public interface Store<K : StoreKey, out V : Any> {
     /**
      * Observes retrieval state and values for [key].
      *
-     * Fetch failures are emitted as [StoreResult.Error] values rather than thrown to the
-     * collector. A [Freshness.MustBeFresh] initial-cycle failure emits one error and completes
-     * the flow; every other failure leaves the flow live. Otherwise, the flow remains active
-     * until its collector is cancelled or the store is closed, and continues to report later
-     * values, including refetches triggered by invalidation and the absent-value transition
+     * Fetcher and source-of-truth failures encountered while retrieving [key] are emitted as
+     * [StoreResult.Error] values rather than thrown to the collector. A
+     * [Freshness.MustBeFresh] initial-cycle fetch or revalidation failure emits one error and
+     * completes the flow; every other failure leaves the flow live. Otherwise, the flow remains
+     * active until its collector is cancelled or the store is closed, and continues to report
+     * later values, including refetches triggered by invalidation and the absent-value transition
      * after a clear. Concurrent collectors and callers for one key share a single fetch.
      *
      * [Freshness.CachedOrFetch] serves a resident value and refreshes it after invalidation;
@@ -53,9 +54,10 @@ public interface Store<K : StoreKey, out V : Any> {
      * @param key the key whose value is requested
      * @param freshness the freshness policy applied to this read
      * @return the resolved value
-     * @throws StoreException when no value can be returned: the fetch failed, a concurrent
-     * [clear] removed the key while its fetch was in flight, [Freshness.LocalOnly] found no local
-     * value, or the server reported deletion ([StoreError.Missing])
+     * @throws StoreException when no value can be returned because fetching or source-of-truth
+     * access failed, a concurrent [clear] removed the key while its fetch was in flight,
+     * [Freshness.LocalOnly] found no local value, or the server reported deletion
+     * ([StoreError.Missing])
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun get(
@@ -81,10 +83,9 @@ public interface Store<K : StoreKey, out V : Any> {
     /**
      * Marks every key in [namespace] stale without removing values.
      *
-     * Present behavior: covers every key this store instance has seen — which is complete
-     * coverage of resident state, the only state that exists at this stage. Durable namespace
-     * watermarks covering evicted and never-seen keys across restarts land with the
-     * invalidation engine.
+     * Present behavior: covers every key this store instance has seen. Durable namespace
+     * watermarks that also cover never-seen and later-evicted keys land with the invalidation
+     * engine.
      *
      * @param namespace the namespace to invalidate
      * @throws IllegalStateException if the store is already closed
@@ -107,10 +108,11 @@ public interface Store<K : StoreKey, out V : Any> {
      * ([StoreResult.Loading]) and then refetched data, and an in-flight fetch that started
      * before the clear can no longer commit — its waiters observe [StoreError.Missing].
      *
-     * Present behavior: removal covers resident state; durable row deletion lands with the
-     * source-of-truth engine.
+     * Present behavior: removal includes the configured source-of-truth row for [key].
      *
      * @param key the key to clear
+     * @throws StoreException if deleting the configured source-of-truth row fails; engine state
+     * for [key] remains unchanged
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun clear(key: K)
@@ -118,10 +120,12 @@ public interface Store<K : StoreKey, out V : Any> {
     /**
      * Destructively removes every value in [namespace].
      *
-     * Present behavior: see [invalidateNamespace] for the coverage statement and [clear] for
-     * per-key semantics.
+     * Present behavior: deletes configured source-of-truth rows only for keys this store instance
+     * has seen in [namespace]. Rows for never-seen keys in a custom source of truth remain until
+     * namespace-wide deletion lands with the invalidation engine.
      *
      * @param namespace the namespace to clear
+     * @throws StoreException if a row deletion fails; earlier keys may already have been cleared
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun clearNamespace(namespace: StoreNamespace)
@@ -129,8 +133,11 @@ public interface Store<K : StoreKey, out V : Any> {
     /**
      * Destructively removes every value in this store.
      *
-     * Present behavior: see [clearNamespace].
+     * Present behavior: deletes configured source-of-truth rows only for keys this store instance
+     * has seen, across all namespaces. Rows for never-seen keys in a custom source of truth remain
+     * until source-of-truth-wide deletion lands with the invalidation engine.
      *
+     * @throws StoreException if a row deletion fails; earlier keys may already have been cleared
      * @throws IllegalStateException if the store is already closed
      */
     public suspend fun clearAll()

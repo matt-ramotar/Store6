@@ -12,6 +12,7 @@ kotlin {
 
         val commonTest by getting {
             dependencies {
+                implementation(projects.store6ContractTests)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.turbine)
             }

@@ -6,19 +6,20 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
-class SingleFlightConformanceTest {
+open class SingleFlightConformanceTest : SourceOfTruthSubstitutionTest() {
     @Test
     fun ac2_fiftyGettersAndFiftyCollectorsShareOneFetch() = runTest {
         var calls = 0
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 calls++
                 started.complete(Unit)
@@ -35,15 +36,27 @@ class SingleFlightConformanceTest {
                         store.get(key)
                     }
                 }
+            val collectorRegistered = List(50) { CompletableDeferred<Unit>() }
             val collectors =
-                List(50) {
+                List(50) { index ->
                     backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
-                        val item = store.stream(key).first { it is StoreResult.Data<*> }
+                        val item =
+                            store
+                                .stream(key)
+                                .onEach { result ->
+                                    if (result is StoreResult.Loading) {
+                                        collectorRegistered[index].complete(Unit)
+                                    }
+                                }
+                                .first { it is StoreResult.Data<*> }
                         assertIs<StoreResult.Data<String>>(item).value
                     }
                 }
 
             started.await()
+            // A channelFlow producer may start after the fetcher's signal. Loading proves each
+            // stream demand joined the still-gated ticket before the fetch is allowed to settle.
+            collectorRegistered.awaitAll()
             assertEquals(1, calls)
             gate.complete(Unit)
 
@@ -60,7 +73,7 @@ class SingleFlightConformanceTest {
         var calls = 0
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 calls++
                 started.complete(Unit)

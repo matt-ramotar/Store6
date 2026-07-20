@@ -17,12 +17,12 @@ import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 
-class StoreConformanceTest {
+open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
 
     // (a) THE 001 acceptance test — cold stream: Loading then Data(origin=FETCHER). TEST-1 emission-sequence seed.
     @Test
     fun coldStream_noCachedValue_emitsLoadingThenDataFromFetcher() = runTest {
-        val store = store<TestKey, String> { fetcher { "value-for-${it.canonicalId()}" } }
+        val store = testStore<TestKey, String> { fetcher { "value-for-${it.canonicalId()}" } }
         store.stream(TestKey("1")).test {
             assertIs<StoreResult.Loading>(awaitItem())
             val data = assertIs<StoreResult.Data<String>>(awaitItem())
@@ -37,7 +37,7 @@ class StoreConformanceTest {
     // (b1) fetcher throws -> stream emits Error and stays live (FS-5: stream never throws)
     @Test
     fun fetcherThrows_streamEmitsErrorAndStaysLive() = runTest {
-        val store = store<TestKey, String> { fetcher { throw IllegalStateException("boom") } }
+        val store = testStore<TestKey, String> { fetcher { throw IllegalStateException("boom") } }
         store.stream(TestKey("1")).test {
             assertIs<StoreResult.Loading>(awaitItem())
             val error = assertIs<StoreResult.Error>(awaitItem())
@@ -51,7 +51,7 @@ class StoreConformanceTest {
     // (b2) fetcher throws -> get throws StoreException carrying StoreError.Fetch (FS-2/FS-5)
     @Test
     fun fetcherThrows_getThrowsStoreException() = runTest {
-        val store = store<TestKey, String> { fetcher { throw IllegalStateException("boom") } }
+        val store = testStore<TestKey, String> { fetcher { throw IllegalStateException("boom") } }
         val ex = assertFailsWith<StoreException> { store.get(TestKey("1")) }
         assertIs<StoreError.Fetch>(ex.error)
         store.close()
@@ -62,7 +62,7 @@ class StoreConformanceTest {
     fun twoConcurrentCollectors_singleFetcherInvocation() = runTest {
         var calls = 0
         val gate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 calls++
                 gate.await()
@@ -86,7 +86,7 @@ class StoreConformanceTest {
     @Test
     fun getAfterStreamCommitted_servesResidentValueWithoutRefetch() = runTest {
         var calls = 0
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 calls++
                 "v$calls"
@@ -105,7 +105,7 @@ class StoreConformanceTest {
     // (e) pins replay semantics: a late collector gets Data immediately, never a spurious Loading
     @Test
     fun lateCollectorAfterData_receivesDataImmediately() = runTest {
-        val store = store<TestKey, String> { fetcher { "v" } }
+        val store = testStore<TestKey, String> { fetcher { "v" } }
         assertEquals("v", store.get(TestKey("1"))) // commits residence
         store.stream(TestKey("1")).test {
             val first = assertIs<StoreResult.Data<String>>(awaitItem()) // no Loading first
@@ -119,7 +119,7 @@ class StoreConformanceTest {
     fun closeDuringFetch_getWaiterTerminatesPromptly() = runTest {
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 started.complete(Unit)
                 gate.await()
@@ -142,7 +142,7 @@ class StoreConformanceTest {
     fun closeDuringFetch_streamCollectorTerminatesPromptly() = runTest {
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 started.complete(Unit)
                 gate.await()
@@ -165,7 +165,7 @@ class StoreConformanceTest {
 
     @Test
     fun getAfterClose_failsFastWithDeterministicException() = runTest {
-        val store = store<TestKey, String> { fetcher { "v" } }
+        val store = testStore<TestKey, String> { fetcher { "v" } }
         store.close()
 
         val failure = assertFailsWith<IllegalStateException> {
@@ -177,7 +177,7 @@ class StoreConformanceTest {
 
     @Test
     fun streamAfterClose_failsFastWithDeterministicException() = runTest {
-        val store = store<TestKey, String> { fetcher { "v" } }
+        val store = testStore<TestKey, String> { fetcher { "v" } }
         store.close()
 
         val failure = assertFailsWith<IllegalStateException> {
@@ -189,7 +189,7 @@ class StoreConformanceTest {
 
     @Test
     fun streamCreatedBeforeClose_failsFastWhenCollectedAfterClose() = runTest {
-        val store = store<TestKey, String> { fetcher { "v" } }
+        val store = testStore<TestKey, String> { fetcher { "v" } }
         val stream = store.stream(TestKey("1"))
         store.close()
 
@@ -204,7 +204,7 @@ class StoreConformanceTest {
     fun nonCooperativeFetcher_closeTerminatesGetBeforeFetcherReleases() = runTest {
         val started = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 started.complete(Unit)
                 withContext(NonCancellable) { release.await() }
@@ -233,7 +233,7 @@ class StoreConformanceTest {
     fun nonCooperativeFetcher_closeTerminatesStreamBeforeFetcherReleases() = runTest {
         val started = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 started.complete(Unit)
                 withContext(NonCancellable) { release.await() }

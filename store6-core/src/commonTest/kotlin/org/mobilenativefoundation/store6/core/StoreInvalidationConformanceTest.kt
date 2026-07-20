@@ -15,13 +15,13 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration
 
-class StoreInvalidationConformanceTest {
+open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
 
     // AC-3 seed: an active stream signaled by invalidate observes refetched data.
     @Test
     fun invalidate_activeStream_observesRefetchedData() = runTest {
         var calls = 0
-        val store = store<TestKey, String> { fetcher { calls++; "v$calls" } }
+        val store = testStore<TestKey, String> { fetcher { calls++; "v$calls" } }
         store.stream(TestKey("1")).test {
             assertIs<StoreResult.Loading>(awaitItem())
             assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
@@ -38,13 +38,29 @@ class StoreInvalidationConformanceTest {
     @Test
     fun getOnStaleResident_servesStaleThenRefetchesInBackground() = runTest {
         var calls = 0
-        val store = store<TestKey, String> { fetcher { calls++; "v$calls" } }
+        val secondFetchStarted = CompletableDeferred<Unit>()
+        val releaseSecondFetch = CompletableDeferred<Unit>()
+        val store = testStore<TestKey, String> {
+            fetcher {
+                when (++calls) {
+                    1 -> "v1"
+                    2 -> {
+                        secondFetchStarted.complete(Unit)
+                        releaseSecondFetch.await()
+                        "v2"
+                    }
+                    else -> "v$calls"
+                }
+            }
+        }
         assertEquals("v1", store.get(TestKey("1")))
 
         store.invalidate(TestKey("1"))
 
         assertEquals("v1", store.get(TestKey("1"))) // stale served immediately, not blocked
+        secondFetchStarted.await()
         store.stream(TestKey("1")).test {           // deterministically await the background commit
+            releaseSecondFetch.complete(Unit)
             while (true) {
                 val item = awaitItem()
                 if (item is StoreResult.Data<String> && item.value == "v2") break
@@ -61,7 +77,7 @@ class StoreInvalidationConformanceTest {
     fun staleResident_newCollector_seesHonestFlagsThenFreshData() = runTest {
         var calls = 0
         val gate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 calls++
                 if (calls > 1) gate.await()
@@ -94,7 +110,7 @@ class StoreInvalidationConformanceTest {
     fun clear_activeStream_emitsLoadingThenRefetchedData() = runTest {
         var calls = 0
         val gate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 calls++
                 if (calls == 2) gate.await() // hold the refetch so Loading is observable
@@ -121,7 +137,7 @@ class StoreInvalidationConformanceTest {
         var calls = 0
         val firstStarted = CompletableDeferred<Unit>()
         val firstGate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 calls++
                 if (calls == 1) {
@@ -157,7 +173,7 @@ class StoreInvalidationConformanceTest {
     fun clearDuringInFlightFetch_thatFails_waiterObservesMissing() = runTest {
         val fetchStarted = CompletableDeferred<Unit>()
         val fetchGate = CompletableDeferred<Unit>()
-        val store = store<TestKey, String> {
+        val store = testStore<TestKey, String> {
             fetcher {
                 fetchStarted.complete(Unit)
                 fetchGate.await()
@@ -185,9 +201,22 @@ class StoreInvalidationConformanceTest {
     fun invalidateNamespace_touchesOnlyMatchingNamespace() = runTest {
         var aCalls = 0
         var bCalls = 0
-        val store = store<NamespacedTestKey, String> {
+        val a2Started = CompletableDeferred<Unit>()
+        val a2Gate = CompletableDeferred<Unit>()
+        val store = testStore<NamespacedTestKey, String> {
             fetcher { key ->
-                if (key.namespace.value == "a") "a${++aCalls}" else "b${++bCalls}"
+                if (key.namespace.value == "a") {
+                    when (++aCalls) {
+                        2 -> {
+                            a2Started.complete(Unit)
+                            a2Gate.await()
+                            "a2"
+                        }
+                        else -> "a$aCalls"
+                    }
+                } else {
+                    "b${++bCalls}"
+                }
             }
         }
         assertEquals("a1", store.get(NamespacedTestKey("a", "1")))
@@ -198,7 +227,9 @@ class StoreInvalidationConformanceTest {
         assertEquals("b1", store.get(NamespacedTestKey("b", "1"))) // untouched, no refetch
         assertEquals(1, bCalls)
         assertEquals("a1", store.get(NamespacedTestKey("a", "1"))) // stale served, refetch fired
+        a2Started.await()
         store.stream(NamespacedTestKey("a", "1")).test {
+            a2Gate.complete(Unit)
             while (true) {
                 val item = awaitItem()
                 if (item is StoreResult.Data<String> && item.value == "a2") break
@@ -212,7 +243,7 @@ class StoreInvalidationConformanceTest {
     @Test
     fun clearAll_dropsResidenceForEveryKey() = runTest {
         var calls = 0
-        val store = store<NamespacedTestKey, String> { fetcher { "v${++calls}" } }
+        val store = testStore<NamespacedTestKey, String> { fetcher { "v${++calls}" } }
         assertEquals("v1", store.get(NamespacedTestKey("a", "1")))
         assertEquals("v2", store.get(NamespacedTestKey("b", "2")))
 
@@ -226,7 +257,7 @@ class StoreInvalidationConformanceTest {
 
     @Test
     fun maintenanceAfterClose_failsFastWithDeterministicException() = runTest {
-        val store = store<TestKey, String> { fetcher { "v" } }
+        val store = testStore<TestKey, String> { fetcher { "v" } }
         store.close()
 
         assertEquals(

@@ -8,7 +8,7 @@
 
 @class Store6CoreFetcherResultDeleted, Store6CoreFreshnessCachedOrFetch, Store6CoreFreshnessLocalOnly, Store6CoreFreshnessMustBeFresh, Store6CoreFreshnessStaleIfError, Store6CoreKotlinArray<T>, Store6CoreKotlinEnum<E>, Store6CoreKotlinEnumCompanion, Store6CoreKotlinException, Store6CoreKotlinIllegalStateException, Store6CoreKotlinRuntimeException, Store6CoreKotlinThrowable, Store6CoreOrigin, Store6CoreStoreBuilder<K, V>, Store6CoreStoreError, Store6CoreStoreNamespace;
 
-@protocol Store6CoreFetcherResult, Store6CoreFreshness, Store6CoreKotlinComparable, Store6CoreKotlinFunction, Store6CoreKotlinIterator, Store6CoreKotlinSuspendFunction1, Store6CoreKotlinx_coroutines_coreFlow, Store6CoreKotlinx_coroutines_coreFlowCollector, Store6CoreStore, Store6CoreStoreKey, Store6CoreStoreMeta, Store6CoreStoreResult;
+@protocol Store6CoreFetcherResult, Store6CoreFreshness, Store6CoreKotlinComparable, Store6CoreKotlinFunction, Store6CoreKotlinIterator, Store6CoreKotlinSuspendFunction1, Store6CoreKotlinx_coroutines_coreFlow, Store6CoreKotlinx_coroutines_coreFlowCollector, Store6CoreSourceOfTruth, Store6CoreStore, Store6CoreStoreKey, Store6CoreStoreMeta, Store6CoreStoreResult;
 
 NS_ASSUME_NONNULL_BEGIN
 #pragma clang diagnostic push
@@ -329,6 +329,12 @@ __attribute__((swift_name("StoreBuilder")))
 @interface Store6CoreStoreBuilder<K, V> : Store6CoreBase
 - (void)fetcherFetch:(id<Store6CoreKotlinSuspendFunction1>)fetch __attribute__((swift_name("fetcher(fetch:)")));
 - (void)fetcherOfResultFetch:(id<Store6CoreKotlinSuspendFunction1>)fetch __attribute__((swift_name("fetcherOfResult(fetch:)")));
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+- (void)persistenceSot:(id<Store6CoreSourceOfTruth>)sot __attribute__((swift_name("persistence(sot:)")));
 @end
 
 __attribute__((swift_name("StoreError")))
@@ -477,6 +483,29 @@ __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("StoreResultRevalidated")))
 @interface Store6CoreStoreResultRevalidated : Store6CoreBase <Store6CoreStoreResult>
 @property (readonly) int64_t age __attribute__((swift_name("age")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((swift_name("SourceOfTruth")))
+@protocol Store6CoreSourceOfTruth
+@required
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)deleteKey:(id<Store6CoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("delete(key:completionHandler:)")));
+- (id<Store6CoreKotlinx_coroutines_coreFlow>)readerKey:(id<Store6CoreStoreKey>)key __attribute__((swift_name("reader(key:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)writeKey:(id<Store6CoreStoreKey>)key value:(id)value completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("write(key:value:completionHandler:)")));
 @end
 
 __attribute__((objc_subclassing_restricted))
