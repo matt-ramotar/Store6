@@ -17,7 +17,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
-import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalStoreApi::class)
 class SourceOfTruthConformanceTest {
@@ -91,17 +90,21 @@ class SourceOfTruthConformanceTest {
     // not inherit it (value binding). Guards the SoT-read values-never-labeled-FETCHER criterion.
     @Test
     fun dormantCommit_externalWriteBeforeFirstCollector_attributesSot() = runTest {
+        val key = TestKey("1")
         val sot = SharedFlowSourceOfTruth<TestKey, String>()
         val store = store<TestKey, String> {
             fetcher { "fetched" }
             persistence(sot)
         }
-        assertEquals("fetched", store.get(TestKey("1")))
-        sot.write(TestKey("1"), "external")
-        store.stream(TestKey("1")).test(timeout = 10.seconds) {
+        assertEquals("fetched", store.get(key))
+        sot.write(key, "external")
+        val externalObserved = sot.expectReaderObservation(key, "external")
+        turbineScope {
+            val collector = store.stream(key).testIn(backgroundScope)
+            externalObserved.await()
             var seenExternal = false
             while (!seenExternal) {
-                val item = awaitItem()
+                val item = collector.awaitItem()
                 if (item is StoreResult.Data<String>) {
                     if (item.value == "external") {
                         assertEquals(Origin.SOT, item.origin)
@@ -111,7 +114,7 @@ class SourceOfTruthConformanceTest {
                     }
                 }
             }
-            cancelAndIgnoreRemainingEvents()
+            collector.cancelAndIgnoreRemainingEvents()
         }
         store.close()
     }
