@@ -58,6 +58,8 @@ internal sealed interface RawReaderEvent<out V : Any> {
         val successfulWriteSequenceAtObservation: Long,
         /** Exact commit whose SoT write was active when this adapter event was observed. */
         val activeWriteAttributionAtObservation: AttributionTag?,
+        /** True when this nonmatching event followed a matching row from that active write. */
+        val followedMatchingActiveWriteRow: Boolean,
     ) : RawReaderEvent<V>
 
     class Failure(

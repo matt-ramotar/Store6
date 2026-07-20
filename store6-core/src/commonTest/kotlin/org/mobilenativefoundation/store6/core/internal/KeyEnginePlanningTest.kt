@@ -2469,6 +2469,59 @@ class KeyEnginePlanningTest {
     }
 
     @Test
+    fun failedWrite_postMatchExternalRow_resumesAsSotAfterTerminalCleanup() = runTest {
+        val key = TestKey("failed-write-post-match-external")
+        val sourceOfTruth = FailingAfterPostMatchExternalSourceOfTruth()
+        val mappingGate = SequencedGate()
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = { FetcherResult.Success("fresh") },
+                sot = sourceOfTruth,
+                bookkeeper = InMemoryBookkeeper(),
+                validator = DefaultFreshnessValidator,
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+                beforeReaderRecordMappingTestGate = mappingGate::awaitIfQueued,
+            )
+
+        assertEquals("seed", engine.get(Freshness.LocalOnly))
+        app.cash.turbine.turbineScope {
+            val observer = engine.stream(Freshness.LocalOnly).testIn(backgroundScope)
+            assertEquals("seed", assertIs<StoreResult.Data<String>>(observer.awaitItem()).value)
+            sourceOfTruth.liveReaderStarted.await()
+            testScheduler.runCurrent()
+
+            val matchingRow = mappingGate.gateNext()
+            val postMatchExternalRow = mappingGate.gateNext()
+            val owner = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
+            assertEquals("seed", assertIs<StoreResult.Data<String>>(owner.awaitItem()).value)
+            matchingRow.entered.await()
+            val ticket = checkNotNull(engine.state.value.attribution).owner
+
+            sourceOfTruth.releaseExternal.complete(Unit)
+            sourceOfTruth.externalPublished.await()
+            matchingRow.release.complete(Unit)
+            postMatchExternalRow.entered.await()
+            postMatchExternalRow.release.complete(Unit)
+            testScheduler.runCurrent()
+
+            assertEquals("seed", engine.get(Freshness.LocalOnly))
+            observer.expectNoEvents()
+
+            sourceOfTruth.releaseFailure.complete(Unit)
+            ticket.disposition.first { it == FetchDisposition.Failed }
+            val external = assertIs<StoreResult.Data<String>>(observer.awaitItem())
+            assertEquals("external", external.value)
+            assertEquals(Origin.SOT, external.origin)
+            assertEquals("external", engine.get(Freshness.LocalOnly))
+            owner.cancelAndIgnoreRemainingEvents()
+            observer.cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun activeWriterCurrentRow_restoresProvenanceOnlyAfterDurableReturn() = runTest {
         val key = TestKey("active-writer-current-row")
         val sourceOfTruth = InterleavedWriteSourceOfTruth()
@@ -2934,6 +2987,45 @@ class KeyEnginePlanningTest {
         suspend fun publishExternal(value: String) {
             current = value
             liveRows.emit(value)
+        }
+    }
+
+    private class FailingAfterPostMatchExternalSourceOfTruth : SourceOfTruth<TestKey, String> {
+        private val liveRows = MutableSharedFlow<String?>()
+        private var readerCalls = 0
+        private var current: String? = "seed"
+        val liveReaderStarted = CompletableDeferred<Unit>()
+        val releaseExternal = CompletableDeferred<Unit>()
+        val externalPublished = CompletableDeferred<Unit>()
+        val releaseFailure = CompletableDeferred<Unit>()
+
+        override fun reader(key: TestKey): Flow<String?> {
+            readerCalls += 1
+            val isLiveReader = readerCalls >= 2
+            return flow {
+                if (isLiveReader) liveReaderStarted.complete(Unit)
+                emit(current)
+                if (isLiveReader) liveRows.collect { emit(it) }
+            }
+        }
+
+        override suspend fun write(
+            key: TestKey,
+            value: String,
+        ) {
+            current = value
+            liveRows.emit(value)
+            releaseExternal.await()
+            current = "external"
+            liveRows.emit(current)
+            externalPublished.complete(Unit)
+            releaseFailure.await()
+            throw IllegalStateException("write failed")
+        }
+
+        override suspend fun delete(key: TestKey) {
+            current = null
+            liveRows.emit(null)
         }
     }
 

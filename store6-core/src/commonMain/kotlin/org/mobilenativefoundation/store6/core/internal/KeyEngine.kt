@@ -209,6 +209,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     attributionAtObservation = current.observedAttribution,
                     successfulWriteSequenceAtObservation = current.successfulSequence,
                     activeWriteAttributionAtObservation = current.activeAttribution,
+                    followedMatchingActiveWriteRow = false,
                 )
             }
 
@@ -223,6 +224,11 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     successfulWriteSequenceAtObservation = current.successfulSequence,
                 )
             val matchingAttribution = observation.matchingWriterAttribution()
+            val followedMatchingActiveWriteRow =
+                current.activeAttribution != null &&
+                    matchingAttribution == null &&
+                    (current.activeRawPhase is ActiveRawPhase.Matching ||
+                        current.activeRawPhase is ActiveRawPhase.OtherAfterMatching)
             val nextPhase =
                 if (current.activeAttribution == null) {
                     current.activeRawPhase
@@ -263,6 +269,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         observation.successfulWriteSequenceAtObservation,
                     activeWriteAttributionAtObservation =
                         observation.activeWriteAttributionAtObservation,
+                    followedMatchingActiveWriteRow = followedMatchingActiveWriteRow,
                 )
             }
         }
@@ -361,13 +368,14 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     }
                 val activeAttribution = event.activeWriteAttributionAtObservation
                 val activeDisposition = activeAttribution?.owner?.disposition?.value
-                val postReturnProvisional =
+                val postReturnOrPostMatchProvisional =
                     matchingAttribution == null &&
                         activeDisposition is FetchDisposition.Committing &&
                         activeDisposition.attribution === activeAttribution &&
-                        event.successfulWriteSequenceAtObservation >
-                        activeDisposition.successfulWriteSequenceAtStart
-                if (postReturnProvisional) {
+                        (event.successfulWriteSequenceAtObservation >
+                            activeDisposition.successfulWriteSequenceAtStart ||
+                            event.followedMatchingActiveWriteRow)
+                if (postReturnOrPostMatchProvisional) {
                     prepared =
                         PreparedReaderRow(
                             consumedAttribution = tag,
@@ -435,12 +443,14 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
                 else -> current
             }
-        if (
-            disposition !is FetchDisposition.Committed ||
-            disposition.attribution !== ownerAttribution
-        ) {
+        val committed = disposition as? FetchDisposition.Committed
+        if (committed != null && committed.attribution !== ownerAttribution) {
             return null
         }
+        val writeDidNotCommit =
+            disposition === FetchDisposition.Failed ||
+                disposition === FetchDisposition.Cancelled
+        if (committed == null && (!writeDidNotCommit || matchingAttribution != null)) return null
 
         return stateLock.withLock {
             if (mutableState.value.readerGen != readerGen) return@withLock null
