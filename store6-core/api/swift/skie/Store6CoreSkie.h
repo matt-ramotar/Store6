@@ -833,6 +833,18 @@ __attribute__((swift_name("SourceOfTruth")))
  * Other uncaught Kotlin exceptions are fatal.
 */
 - (void)deleteKey:(id<SCSStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("delete(key:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)deleteAllWithCompletionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("deleteAll(completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)deleteNamespaceNamespace:(SCSStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("deleteNamespace(namespace:completionHandler:)")));
 - (id<SCSKotlinx_coroutines_coreFlow>)readerKey:(id<SCSStoreKey>)key __attribute__((swift_name("reader(key:)")));
 
 /**
@@ -852,9 +864,11 @@ __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("__SkieSuspendWrappersKt")))
 @interface SCS__SkieSuspendWrappersKt : SCSBase
 + (void)Skie_Suspend__0__clearDispatchReceiver:(id<SCSStore>)dispatchReceiver key:(id<SCSStoreKey>)key suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__0__clear(dispatchReceiver:key:suspendHandler:)")));
-+ (void)Skie_Suspend__10__writeDispatchReceiver:(id<SCSSourceOfTruth>)dispatchReceiver key:(id<SCSStoreKey>)key value:(id)value suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__10__write(dispatchReceiver:key:value:suspendHandler:)")));
-+ (void)Skie_Suspend__11__invokeDispatchReceiver:(id<SCSKotlinSuspendFunction1>)dispatchReceiver p1:(id _Nullable)p1 suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__11__invoke(dispatchReceiver:p1:suspendHandler:)")));
-+ (void)Skie_Suspend__12__hasNextDispatchReceiver:(SCSSkieColdFlowIterator<id> *)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__12__hasNext(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__10__deleteAllDispatchReceiver:(id<SCSSourceOfTruth>)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__10__deleteAll(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__11__deleteNamespaceDispatchReceiver:(id<SCSSourceOfTruth>)dispatchReceiver namespace:(SCSStoreNamespace *)namespace_ suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__11__deleteNamespace(dispatchReceiver:namespace:suspendHandler:)")));
++ (void)Skie_Suspend__12__writeDispatchReceiver:(id<SCSSourceOfTruth>)dispatchReceiver key:(id<SCSStoreKey>)key value:(id)value suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__12__write(dispatchReceiver:key:value:suspendHandler:)")));
++ (void)Skie_Suspend__13__invokeDispatchReceiver:(id<SCSKotlinSuspendFunction1>)dispatchReceiver p1:(id _Nullable)p1 suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__13__invoke(dispatchReceiver:p1:suspendHandler:)")));
++ (void)Skie_Suspend__14__hasNextDispatchReceiver:(SCSSkieColdFlowIterator<id> *)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__14__hasNext(dispatchReceiver:suspendHandler:)")));
 + (void)Skie_Suspend__1__clearAllDispatchReceiver:(id<SCSStore>)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__1__clearAll(dispatchReceiver:suspendHandler:)")));
 + (void)Skie_Suspend__2__clearNamespaceDispatchReceiver:(id<SCSStore>)dispatchReceiver namespace:(SCSStoreNamespace *)namespace_ suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__2__clearNamespace(dispatchReceiver:namespace:suspendHandler:)")));
 + (void)Skie_Suspend__3__getDispatchReceiver:(id<SCSStore>)dispatchReceiver key:(id<SCSStoreKey>)key freshness:(id<SCSFreshness>)freshness suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__3__get(dispatchReceiver:key:freshness:suspendHandler:)")));
