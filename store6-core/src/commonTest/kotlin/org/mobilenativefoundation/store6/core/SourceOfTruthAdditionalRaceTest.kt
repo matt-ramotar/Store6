@@ -10,8 +10,15 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
+import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
+import org.mobilenativefoundation.store6.core.internal.KeyEngine
+import org.mobilenativefoundation.store6.core.internal.KeyId
+import org.mobilenativefoundation.store6.core.internal.READER_PIPELINE_GRACE_MILLIS
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,29 +36,30 @@ class SourceOfTruthAdditionalRaceTest {
         val fetchStarted = CompletableDeferred<Unit>()
         val releaseFetch = CompletableDeferred<Unit>()
         var fetchCalls = 0
-        val store = store<TestKey, String> {
-            persistence(sourceOfTruth)
-            fetcher {
+        val engine =
+            newEngine(sourceOfTruth) {
                 fetchCalls += 1
                 fetchStarted.complete(Unit)
                 releaseFetch.await()
                 "fetched"
             }
-        }
 
         try {
             app.cash.turbine.turbineScope {
-                val first = store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
+                val first = engine.stream(Freshness.LocalOnly).testIn(backgroundScope)
                 assertIs<StoreError.Missing>(
                     assertIs<StoreResult.Error>(first.awaitItem()).error,
                 )
                 sourceOfTruth.liveReaderStarted.await()
                 runCurrent()
                 first.cancelAndIgnoreRemainingEvents()
+                advanceToLastReaderGraceMillisecond()
 
                 sourceOfTruth.gateNextLiveDelivery()
                 sourceOfTruth.write(key, "durable")
-                val second = store.stream(key, Freshness.CachedOrFetch).testIn(backgroundScope)
+                sourceOfTruth.liveDeliveryBlocked.await()
+
+                val second = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
                 val durable = assertIs<StoreResult.Data<String>>(second.awaitItem())
                 assertEquals("durable", durable.value)
                 assertEquals(Origin.SOT, durable.origin)
@@ -59,7 +67,7 @@ class SourceOfTruthAdditionalRaceTest {
                 assertTrue(durable.refreshing)
                 fetchStarted.await()
                 assertEquals(1, fetchCalls)
-                sourceOfTruth.liveDeliveryBlocked.await()
+                runCurrent()
 
                 sourceOfTruth.releaseLiveDelivery.complete(Unit)
                 runCurrent()
@@ -73,7 +81,6 @@ class SourceOfTruthAdditionalRaceTest {
         } finally {
             sourceOfTruth.releaseLiveDelivery.complete(Unit)
             releaseFetch.complete(Unit)
-            store.close()
         }
     }
 
@@ -83,32 +90,33 @@ class SourceOfTruthAdditionalRaceTest {
         val fetchStarted = CompletableDeferred<Unit>()
         val releaseFetch = CompletableDeferred<Unit>()
         var fetchCalls = 0
-        val store = store<TestKey, String> {
-            persistence(sourceOfTruth)
-            fetcher {
+        val engine =
+            newEngine(sourceOfTruth) {
                 fetchCalls += 1
                 fetchStarted.complete(Unit)
                 releaseFetch.await()
                 "fresh"
             }
-        }
 
         try {
             app.cash.turbine.turbineScope {
-                val first = store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
+                val first = engine.stream(Freshness.LocalOnly).testIn(backgroundScope)
                 assertEquals("seed", assertIs<StoreResult.Data<String>>(first.awaitItem()).value)
                 sourceOfTruth.liveReaderStarted.await()
                 runCurrent()
                 first.cancelAndIgnoreRemainingEvents()
+                advanceToLastReaderGraceMillisecond()
 
                 sourceOfTruth.gateNextLiveDelivery()
                 sourceOfTruth.delete(key)
-                val second = store.stream(key, Freshness.CachedOrFetch).testIn(backgroundScope)
+                sourceOfTruth.liveDeliveryBlocked.await()
+
+                val second = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
                 val memory = assertIs<StoreResult.Data<String>>(second.awaitItem())
                 assertEquals("seed", memory.value)
                 assertEquals(Origin.MEMORY, memory.origin)
                 fetchStarted.await()
-                sourceOfTruth.liveDeliveryBlocked.await()
+                runCurrent()
 
                 sourceOfTruth.releaseLiveDelivery.complete(Unit)
                 assertIs<StoreResult.Loading>(second.awaitItem())
@@ -123,35 +131,32 @@ class SourceOfTruthAdditionalRaceTest {
         } finally {
             sourceOfTruth.releaseLiveDelivery.complete(Unit)
             releaseFetch.complete(Unit)
-            store.close()
         }
     }
 
     @Test
     fun sameGenerationRowReplay_afterResidenceAdvances_neverRegresses() = runTest {
         val sourceOfTruth = GraceReplaySourceOfTruth(initial = "old")
-        val store = store<TestKey, String> {
-            persistence(sourceOfTruth)
-            fetcher { "fresh" }
-        }
+        val engine = newEngine(sourceOfTruth) { "fresh" }
 
         try {
             app.cash.turbine.turbineScope {
-                val first = store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
+                val first = engine.stream(Freshness.LocalOnly).testIn(backgroundScope)
                 assertEquals("old", assertIs<StoreResult.Data<String>>(first.awaitItem()).value)
                 sourceOfTruth.liveReaderStarted.await()
                 runCurrent()
                 first.cancelAndIgnoreRemainingEvents()
+                advanceToLastReaderGraceMillisecond()
 
                 sourceOfTruth.gateNextLiveDelivery()
                 val refresh =
                     backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
-                        store.get(key, Freshness.MustBeFresh)
+                        engine.get(Freshness.MustBeFresh)
                     }
                 sourceOfTruth.liveDeliveryBlocked.await()
                 assertEquals("fresh", refresh.await())
 
-                val second = store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
+                val second = engine.stream(Freshness.LocalOnly).testIn(backgroundScope)
                 assertEquals("fresh", assertIs<StoreResult.Data<String>>(second.awaitItem()).value)
                 runCurrent()
                 second.expectNoEvents()
@@ -166,37 +171,34 @@ class SourceOfTruthAdditionalRaceTest {
             }
         } finally {
             sourceOfTruth.releaseLiveDelivery.complete(Unit)
-            store.close()
         }
     }
 
     @Test
     fun sameGenerationAbsentReplay_afterResidenceAdvances_neverEmitsFalseLoading() = runTest {
         val sourceOfTruth = GraceReplaySourceOfTruth(initial = null)
-        val store = store<TestKey, String> {
-            persistence(sourceOfTruth)
-            fetcher { "fresh" }
-        }
+        val engine = newEngine(sourceOfTruth) { "fresh" }
 
         try {
             app.cash.turbine.turbineScope {
-                val first = store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
+                val first = engine.stream(Freshness.LocalOnly).testIn(backgroundScope)
                 assertIs<StoreError.Missing>(
                     assertIs<StoreResult.Error>(first.awaitItem()).error,
                 )
                 sourceOfTruth.liveReaderStarted.await()
                 runCurrent()
                 first.cancelAndIgnoreRemainingEvents()
+                advanceToLastReaderGraceMillisecond()
 
                 sourceOfTruth.gateNextLiveDelivery()
                 val refresh =
                     backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
-                        store.get(key, Freshness.MustBeFresh)
+                        engine.get(Freshness.MustBeFresh)
                     }
                 sourceOfTruth.liveDeliveryBlocked.await()
                 assertEquals("fresh", refresh.await())
 
-                val second = store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
+                val second = engine.stream(Freshness.LocalOnly).testIn(backgroundScope)
                 assertEquals("fresh", assertIs<StoreResult.Data<String>>(second.awaitItem()).value)
                 runCurrent()
                 second.expectNoEvents()
@@ -211,7 +213,6 @@ class SourceOfTruthAdditionalRaceTest {
             }
         } finally {
             sourceOfTruth.releaseLiveDelivery.complete(Unit)
-            store.close()
         }
     }
 
@@ -366,7 +367,6 @@ class SourceOfTruthAdditionalRaceTest {
     ) : SourceOfTruth<TestKey, String> {
         private val liveRows = MutableSharedFlow<String?>(extraBufferCapacity = 8)
         private var current: String? = initial
-        private var readerCalls = 0
         private var gateNextLive = false
 
         val liveReaderStarted = CompletableDeferred<Unit>()
@@ -376,22 +376,21 @@ class SourceOfTruthAdditionalRaceTest {
             private set
 
         fun gateNextLiveDelivery() {
-            check(readerCalls >= 2) { "the shared reader must be active before gating delivery" }
+            check(liveReaderStarted.isCompleted) {
+                "the shared reader must be active before gating delivery"
+            }
             check(!gateNextLive) { "a live delivery is already gated" }
             gateNextLive = true
             liveDeliveryBlocked = CompletableDeferred()
             releaseLiveDelivery = CompletableDeferred()
         }
 
-        override fun reader(key: TestKey): Flow<String?> {
-            val call = ++readerCalls
-            if (call != 2) {
-                val snapshot = current
-                return flow { emit(snapshot) }
-            }
-            return flow {
-                liveReaderStarted.complete(Unit)
+        override fun reader(key: TestKey): Flow<String?> =
+            flow {
+                // `first()` aborts during this emit, so only the long-lived pipeline reaches the
+                // live tail and marks itself ready. Every full collection still remains live.
                 emit(current)
+                liveReaderStarted.complete(Unit)
                 liveRows.collect { row ->
                     if (gateNextLive) {
                         gateNextLive = false
@@ -401,7 +400,6 @@ class SourceOfTruthAdditionalRaceTest {
                     emit(row)
                 }
             }
-        }
 
         override suspend fun write(
             key: TestKey,
@@ -420,6 +418,27 @@ class SourceOfTruthAdditionalRaceTest {
             current = value
             liveRows.emit(value)
         }
+    }
+
+    private fun TestScope.newEngine(
+        sourceOfTruth: SourceOfTruth<TestKey, String>,
+        fetcher: suspend () -> String,
+    ): KeyEngine<TestKey, String> =
+        KeyEngine(
+            key = key,
+            keyId = KeyId.from(key),
+            fetcher = { FetcherResult.Success(fetcher()) },
+            sot = sourceOfTruth,
+            bookkeeper = InMemoryBookkeeper(),
+            validator = DefaultFreshnessValidator,
+            wallClock = FakeWallClock(now = 0L),
+            engineScope = backgroundScope,
+        )
+
+    /** Arms the 100ms stop timer, then stays one virtual millisecond inside its grace window. */
+    private fun TestScope.advanceToLastReaderGraceMillisecond() {
+        runCurrent()
+        advanceTimeBy(READER_PIPELINE_GRACE_MILLIS - 1L)
     }
 
     private class QueuedAbsentThenWriterSourceOfTruth : SourceOfTruth<TestKey, String> {
