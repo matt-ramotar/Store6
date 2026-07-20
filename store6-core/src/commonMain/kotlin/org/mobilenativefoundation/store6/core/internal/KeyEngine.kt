@@ -1565,6 +1565,15 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         private val pendingFailureHandoffs = ArrayDeque<SettledTicketHandoff>()
         private var ticketLaunchBaseline: TicketLaunchBaselineEntry<V>? = null
 
+        /** Propagates cooperative fetch cancellation to the owning public stream. */
+        private suspend fun awaitTicketOutcome(ticket: FetchTicket): FetchOutcome =
+            try {
+                ticket.outcome.await()
+            } catch (cancellation: CancellationException) {
+                producer.cancel(cancellation)
+                throw cancellation
+            }
+
         /** Plans only from residence this collector is authorized to observe. */
         private fun collectorPlanFor(
             snapshot: ResidenceSnapshot<V>,
@@ -1733,8 +1742,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 val observedOuterOutcome =
                     when {
                         effectiveTicket == null -> null
-                        effectiveTicket.outcome.isCompleted -> effectiveTicket.outcome.await()
-                        pendingSettledTailAtRecapture -> effectiveTicket.outcome.await()
+                        effectiveTicket.outcome.isCompleted -> awaitTicketOutcome(effectiveTicket)
+                        pendingSettledTailAtRecapture -> awaitTicketOutcome(effectiveTicket)
                         else -> null
                     }
                 if (pendingSettledTailAtRecapture) {
@@ -2361,7 +2370,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             }
             producer.launch {
                 initialTicket?.let { ticket ->
-                    val outcome = ticket.outcome.await()
+                    val outcome = awaitTicketOutcome(ticket)
                     beforeTicketOutcomeDeliveryTestGate()
                     mutex.withLock {
                         deliverWatchedOutcomeLocked(ticket, outcome)
@@ -2423,8 +2432,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             val observedOutcome =
                 observedTicket
                     ?.takeIf { it.outcome.isCompleted }
-                    ?.outcome
-                    ?.await()
+                    ?.let { awaitTicketOutcome(it) }
             if (
                 observedTicket != null &&
                 row.envelope.directRevalidationOwner === observedTicket &&
@@ -2733,7 +2741,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             val ticket = watchedTicket ?: return
             if (handledCommittedTicket === ticket) return
             if (!ticket.outcome.isCompleted) return
-            val outcome = ticket.outcome.await()
+            val outcome = awaitTicketOutcome(ticket)
             if (outcome !is FetchOutcome.Committed) return
 
             installCommittedWaitLocked(ticket, outcome)
@@ -2862,8 +2870,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             val observedOutcome =
                 observedTicket
                     ?.takeIf { it.outcome.isCompleted }
-                    ?.outcome
-                    ?.await()
+                    ?.let { awaitTicketOutcome(it) }
             if (observedOutcome != null) {
                 if (observedOutcome is FetchOutcome.Committed) {
                     retainCommittedTicketLocked(checkNotNull(observedTicket), observedOutcome)
@@ -2972,7 +2979,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             servedStaleForWatchedTicket = publicServedStale
             observeCommittedDisposition(ticket)
             producer.launch {
-                val outcome = ticket.outcome.await()
+                val outcome = awaitTicketOutcome(ticket)
                 beforeTicketOutcomeDeliveryTestGate()
                 mutex.withLock {
                     deliverWatchedOutcomeLocked(ticket, outcome)

@@ -38,13 +38,29 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
     @Test
     fun getOnStaleResident_servesStaleThenRefetchesInBackground() = runTest {
         var calls = 0
-        val store = testStore<TestKey, String> { fetcher { calls++; "v$calls" } }
+        val secondFetchStarted = CompletableDeferred<Unit>()
+        val releaseSecondFetch = CompletableDeferred<Unit>()
+        val store = testStore<TestKey, String> {
+            fetcher {
+                when (++calls) {
+                    1 -> "v1"
+                    2 -> {
+                        secondFetchStarted.complete(Unit)
+                        releaseSecondFetch.await()
+                        "v2"
+                    }
+                    else -> "v$calls"
+                }
+            }
+        }
         assertEquals("v1", store.get(TestKey("1")))
 
         store.invalidate(TestKey("1"))
 
         assertEquals("v1", store.get(TestKey("1"))) // stale served immediately, not blocked
+        secondFetchStarted.await()
         store.stream(TestKey("1")).test {           // deterministically await the background commit
+            releaseSecondFetch.complete(Unit)
             while (true) {
                 val item = awaitItem()
                 if (item is StoreResult.Data<String> && item.value == "v2") break
@@ -185,9 +201,22 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
     fun invalidateNamespace_touchesOnlyMatchingNamespace() = runTest {
         var aCalls = 0
         var bCalls = 0
+        val a2Started = CompletableDeferred<Unit>()
+        val a2Gate = CompletableDeferred<Unit>()
         val store = testStore<NamespacedTestKey, String> {
             fetcher { key ->
-                if (key.namespace.value == "a") "a${++aCalls}" else "b${++bCalls}"
+                if (key.namespace.value == "a") {
+                    when (++aCalls) {
+                        2 -> {
+                            a2Started.complete(Unit)
+                            a2Gate.await()
+                            "a2"
+                        }
+                        else -> "a$aCalls"
+                    }
+                } else {
+                    "b${++bCalls}"
+                }
             }
         }
         assertEquals("a1", store.get(NamespacedTestKey("a", "1")))
@@ -198,7 +227,9 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
         assertEquals("b1", store.get(NamespacedTestKey("b", "1"))) // untouched, no refetch
         assertEquals(1, bCalls)
         assertEquals("a1", store.get(NamespacedTestKey("a", "1"))) // stale served, refetch fired
+        a2Started.await()
         store.stream(NamespacedTestKey("a", "1")).test {
+            a2Gate.complete(Unit)
             while (true) {
                 val item = awaitItem()
                 if (item is StoreResult.Data<String> && item.value == "a2") break

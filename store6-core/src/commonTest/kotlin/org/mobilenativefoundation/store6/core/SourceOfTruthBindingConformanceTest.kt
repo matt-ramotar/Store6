@@ -23,7 +23,12 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.internal.Bookkeeper
+import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
+import org.mobilenativefoundation.store6.core.internal.FetchDisposition
+import org.mobilenativefoundation.store6.core.internal.FetchOutcome
+import org.mobilenativefoundation.store6.core.internal.FetchSlot
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
+import org.mobilenativefoundation.store6.core.internal.KeyEngine
 import org.mobilenativefoundation.store6.core.internal.KeyId
 import org.mobilenativefoundation.store6.core.internal.KeyStatus
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
@@ -104,7 +109,6 @@ class SourceOfTruthBindingConformanceTest {
             bookkeeper.gateNextSuccess()
             app.cash.turbine.turbineScope {
                 val collector = store.stream(key).testIn(backgroundScope)
-                assertEquals("seed", assertIs<StoreResult.Data<String>>(collector.awaitItem()).value)
                 withContext(Dispatchers.Default) {
                     withTimeout(2_000L) { bookkeeper.successEntered.await() }
                 }
@@ -130,7 +134,7 @@ class SourceOfTruthBindingConformanceTest {
     }
 
     @Test
-    fun notModifiedWithStaleResidenceBaseline_replansInsteadOfRefreshingReplacement() = runTest {
+    fun notModified_externalReplacementObservedAfterLaunch_isObsoleteNotFreshened() = runTest {
         val sourceOfTruth = MutableSourceOfTruth()
         val secondStarted = CompletableDeferred<Unit>()
         val releaseSecond = CompletableDeferred<Unit>()
@@ -164,13 +168,32 @@ class SourceOfTruthBindingConformanceTest {
                 secondStarted.await()
 
                 sourceOfTruth.publishExternal("external")
+                var external: StoreResult.Data<String>? = null
                 while (true) {
                     val item = observer.awaitItem()
-                    if (item is StoreResult.Data && item.value == "external") break
+                    if (item is StoreResult.Data && item.value == "external") {
+                        external = item
+                        break
+                    }
                 }
+                assertExternalSotStale(assertNotNull(external))
                 releaseSecond.complete(Unit)
 
                 assertEquals("fresh", fresh.await())
+                var subsequentSuccess: StoreResult.Data<String>? = null
+                while (subsequentSuccess == null) {
+                    val item = observer.awaitItem()
+                    if (item is StoreResult.Data) {
+                        when (item.value) {
+                            "external" -> assertExternalSotStale(item)
+                            "fresh" -> subsequentSuccess = item
+                            else -> error("unexpected value after external replacement: ${item.value}")
+                        }
+                    }
+                }
+                val success = assertNotNull(subsequentSuccess)
+                assertEquals(Origin.FETCHER, success.origin)
+                assertFalse(success.isStale)
                 assertEquals(3, calls)
                 observer.cancelAndIgnoreRemainingEvents()
             }
@@ -221,18 +244,30 @@ class SourceOfTruthBindingConformanceTest {
                     expectNoEvents()
 
                     sourceOfTruth.publishExternal("external")
-                    awaitLocalValue(store, "external")
+                    var observerExternal: StoreResult.Data<String>? = null
+                    while (observerExternal == null) {
+                        val item = observer.awaitItem()
+                        if (item is StoreResult.Data && item.value == "external") {
+                            observerExternal = item
+                        }
+                    }
+                    assertExternalSotStale(assertNotNull(observerExternal))
                     bookkeeper.releaseSuccess.complete(Unit)
 
                     var sawFresh = false
                     while (!sawFresh) {
                         when (val item = awaitItem()) {
                             is StoreResult.Data -> {
+                                if (item.value == "external") assertExternalSotStale(item)
                                 assertFalse(
                                     item.value == "v1" && !item.isStale,
                                     "stale 304 revision must not directly re-emit v1 as fresh",
                                 )
-                                sawFresh = item.value == "fresh"
+                                if (item.value == "fresh") {
+                                    assertEquals(Origin.FETCHER, item.origin)
+                                    assertFalse(item.isStale)
+                                    sawFresh = true
+                                }
                             }
 
                             else -> Unit
@@ -529,36 +564,76 @@ class SourceOfTruthBindingConformanceTest {
     }
 
     @Test
-    fun serverDeletePersistenceFailure_isTypedAndLeavesResidenceIntact() = runTest {
-        val sourceOfTruth = MutableSourceOfTruth()
+    fun serverDeleteFailure_reportsTimestampedPersistence_withoutDestructiveMutation() = runTest {
+        val boom = IllegalStateException("delete rejected")
+        val sourceOfTruth = GatedFailingServerDeleteSourceOfTruth(failure = boom)
+        val bookkeeper = FailureTrackingBookkeeper()
+        val clock = FakeWallClock(now = 400L)
         var calls = 0
-        val store = store<TestKey, String> {
-            persistence(sourceOfTruth)
-            fetcherOfResult {
-                when (++calls) {
-                    1 -> FetcherResult.Success("v1")
-                    2 -> FetcherResult.Deleted
-                    else -> error("unexpected fetch call $calls")
-                }
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = {
+                    when (++calls) {
+                        1 -> FetcherResult.Success("v1", etag = "e1")
+                        2 -> FetcherResult.Deleted
+                        else -> error("unexpected fetch call $calls")
+                    }
+                },
+                sot = sourceOfTruth,
+                bookkeeper = bookkeeper,
+                validator = DefaultFreshnessValidator,
+                wallClock = clock,
+                engineScope = backgroundScope,
+            )
+
+        val seed =
+            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                engine.get(Freshness.CachedOrFetch)
             }
-        }
+        runCurrent()
+        assertEquals("v1", seed.await())
+        val stateBefore = engine.state.value
+        val statusBefore = assertNotNull(bookkeeper.status(KeyId.from(key)))
+        assertEquals("v1", sourceOfTruth.current)
 
-        try {
-            assertEquals("v1", store.get(key))
-            val boom = IllegalStateException("delete rejected")
-            sourceOfTruth.deleteFailure = boom
+        clock.now = 425L
+        val deleting =
+            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                runCatching { engine.get(Freshness.MustBeFresh) }
+            }
+        val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+        runCurrent()
+        sourceOfTruth.deleteStarted.await()
+        assertEquals(1, sourceOfTruth.deleteCalls)
+        sourceOfTruth.releaseDelete.complete(Unit)
 
-            val failure =
-                assertFailsWith<StoreException> {
-                    store.get(key, Freshness.MustBeFresh)
-                }
-            val persistence = assertIs<StoreError.Persistence>(failure.error)
-            assertTrue(persistence.cause === boom)
-            assertTrue(persistence.message.contains("server-side deletion failed"))
-            assertEquals("v1", store.get(key, Freshness.LocalOnly))
-        } finally {
-            store.close()
-        }
+        val failure = assertIs<StoreException>(deleting.await().exceptionOrNull())
+        val persistence = assertIs<StoreError.Persistence>(failure.error)
+        assertTrue(persistence.cause === boom)
+        assertTrue(persistence.message.contains("server-side deletion failed"))
+        val outcome = assertIs<FetchOutcome.Failed>(ticket.outcome.await())
+        assertEquals(425L, outcome.atEpochMillis)
+        assertFalse(outcome.bookkeepingRecorded)
+        assertIs<StoreError.Persistence>(outcome.exception.error)
+        assertEquals(FetchDisposition.Failed, ticket.disposition.value)
+
+        val stateAfter = engine.state.value
+        assertEquals(stateBefore.staleEpoch, stateAfter.staleEpoch)
+        assertEquals(stateBefore.clearEpoch, stateAfter.clearEpoch)
+        assertEquals(stateBefore.readerGen, stateAfter.readerGen)
+        assertTrue(stateAfter.attribution === stateBefore.attribution)
+        assertEquals(FetchSlot.Idle, stateAfter.fetch)
+        assertEquals("v1", sourceOfTruth.current)
+        assertEquals("v1", engine.get(Freshness.LocalOnly))
+        assertEquals(listOf(425L), bookkeeper.failureTimes)
+        assertEquals(0, bookkeeper.forgetCalls)
+        val statusAfter = assertNotNull(bookkeeper.status(KeyId.from(key)))
+        assertTrue(statusAfter.meta === statusBefore.meta)
+        assertEquals(statusBefore.lastSuccessSequence, statusAfter.lastSuccessSequence)
+        assertEquals(425L, statusAfter.lastFailureAtEpochMillis)
+        assertEquals(1, statusAfter.consecutiveFailures)
     }
 
     @Test
@@ -1252,6 +1327,69 @@ class SourceOfTruthBindingConformanceTest {
                     result is StoreResult.Data && result.value == expected
                 }
             }
+        }
+    }
+
+    private fun assertExternalSotStale(data: StoreResult.Data<String>) {
+        assertEquals("external", data.value)
+        assertEquals(Origin.SOT, data.origin)
+        assertTrue(data.isStale)
+    }
+
+    private class GatedFailingServerDeleteSourceOfTruth(
+        private val failure: Throwable,
+    ) : SourceOfTruth<TestKey, String> {
+        private val rows = MutableStateFlow<String?>(null)
+        val deleteStarted = CompletableDeferred<Unit>()
+        val releaseDelete = CompletableDeferred<Unit>()
+        var deleteCalls: Int = 0
+            private set
+        val current: String?
+            get() = rows.value
+
+        override fun reader(key: TestKey): Flow<String?> = rows
+
+        override suspend fun write(
+            key: TestKey,
+            value: String,
+        ) {
+            rows.value = value
+        }
+
+        override suspend fun delete(key: TestKey) {
+            deleteCalls += 1
+            deleteStarted.complete(Unit)
+            releaseDelete.await()
+            throw failure
+        }
+    }
+
+    private class FailureTrackingBookkeeper : Bookkeeper {
+        private val delegate = InMemoryBookkeeper()
+        val failureTimes = mutableListOf<Long>()
+        var forgetCalls: Int = 0
+            private set
+
+        override suspend fun recordSuccess(
+            key: KeyId,
+            meta: StoreMeta,
+        ) {
+            delegate.recordSuccess(key, meta)
+        }
+
+        override suspend fun recordFailure(
+            key: KeyId,
+            atEpochMillis: Long,
+        ) {
+            failureTimes += atEpochMillis
+            delegate.recordFailure(key, atEpochMillis)
+        }
+
+        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+
+        override suspend fun forget(key: KeyId) {
+            forgetCalls += 1
+            delegate.forget(key)
         }
     }
 

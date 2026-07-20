@@ -13,18 +13,27 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.mobilenativefoundation.store6.core.internal.Bookkeeper
+import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
+import org.mobilenativefoundation.store6.core.internal.FetchDisposition
+import org.mobilenativefoundation.store6.core.internal.FetchOutcome
+import org.mobilenativefoundation.store6.core.internal.FetchSlot
 import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
+import org.mobilenativefoundation.store6.core.internal.KeyEngine
 import org.mobilenativefoundation.store6.core.internal.KeyId
+import org.mobilenativefoundation.store6.core.internal.KeyStatus
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -181,88 +190,178 @@ class KeyEngineSourceOfTruthRaceTest {
     }
 
     @Test
-    fun fetchedWriteFailure_isTypedPersistenceAndDoesNotInstallTheFetchedValue() = runTest {
+    fun persistenceWriteFailure_revokesTag_reportsTypedFailure_andLaterRowIsSot() = runTest {
         val boom = IllegalStateException("write rejected")
-        val sourceOfTruth = AdapterFailureSourceOfTruth(writeFailure = boom)
+        val sourceOfTruth = GatedFailingWriteSourceOfTruth(failure = boom)
+        val bookkeeper = RecordingBookkeeper()
+        val clock = FakeWallClock(now = 100L)
         val key = TestKey("key")
-        val store = store<TestKey, String> {
-            persistence(sourceOfTruth)
-            fetcher { "fetched" }
-        }
+        val engine =
+            engine(
+                key = key,
+                sourceOfTruth = sourceOfTruth,
+                bookkeeper = bookkeeper,
+                clock = clock,
+            ) { FetcherResult.Success("fetched") }
 
-        try {
-            val failure = assertFailsWith<StoreException> { store.get(key) }
-            val persistence = assertIs<StoreError.Persistence>(failure.error)
-            assertTrue(persistence.cause === boom)
-            assertTrue(persistence.message.contains("source of truth rejected the write"))
-
-            val missing =
-                assertFailsWith<StoreException> {
-                    store.get(key, Freshness.LocalOnly)
-                }
-            assertIs<StoreError.Missing>(missing.error)
-        } finally {
-            store.close()
-        }
-    }
-
-    @Test
-    fun writeFailureWithQueuedClear_leavesBookkeepingForgotten() = runTest {
-        val sourceOfTruth = GatedFailingWriteSourceOfTruth()
-        val bookkeeper = InMemoryBookkeeper()
-        val key = TestKey("key")
-        val store = storeWith<TestKey, String>(bookkeeper = bookkeeper) {
-            persistence(sourceOfTruth)
-            fetcher { "fetched" }
-        }
-
-        try {
-            val read =
-                backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
-                    runCatching { store.get(key) }
-                }
-            withContext(Dispatchers.Default) {
-                withTimeout(2_000L) { sourceOfTruth.writeStarted.await() }
+        val read =
+            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                runCatching { engine.get(Freshness.CachedOrFetch) }
             }
-            val clear =
-                backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
-                    store.clear(key)
-                }
-            runCurrent()
+        val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+        runCurrent()
+        sourceOfTruth.writeStarted.await()
+        assertNotNull(engine.state.value.attribution)
 
-            sourceOfTruth.releaseWrite.complete(Unit)
-            val failure = assertIs<StoreException>(read.await().exceptionOrNull())
-            assertIs<StoreError.Persistence>(failure.error)
-            clear.await()
-            assertNull(bookkeeper.status(KeyId.from(key)))
-        } finally {
-            sourceOfTruth.releaseWrite.complete(Unit)
-            store.close()
+        clock.now = 125L
+        sourceOfTruth.releaseWrite.complete(Unit)
+        val failure = assertIs<StoreException>(read.await().exceptionOrNull())
+        val persistence = assertIs<StoreError.Persistence>(failure.error)
+        assertTrue(persistence.cause === boom)
+        assertTrue(persistence.message.contains("source of truth rejected the write"))
+
+        assertNull(engine.state.value.attribution)
+        assertEquals(FetchDisposition.Failed, ticket.disposition.value)
+        val outcome = assertIs<FetchOutcome.Failed>(ticket.outcome.await())
+        assertEquals(125L, outcome.atEpochMillis)
+        assertTrue(outcome.bookkeepingRecorded)
+        assertIs<StoreError.Persistence>(outcome.exception.error)
+        assertEquals(
+            listOf<BookkeepingEvent>(
+                BookkeepingEvent.Failure(KeyId.from(key), atEpochMillis = 125L),
+            ),
+            bookkeeper.events,
+        )
+        val status = assertNotNull(bookkeeper.status(KeyId.from(key)))
+        assertEquals(125L, status.lastFailureAtEpochMillis)
+        assertEquals(1, status.consecutiveFailures)
+        assertNull(status.meta)
+
+        engine.stream(Freshness.LocalOnly).test {
+            sourceOfTruth.publishExternal("external")
+            var external: StoreResult.Data<String>? = null
+            while (external == null) {
+                when (val item = awaitItem()) {
+                    is StoreResult.Data -> external = item
+                    is StoreResult.Error -> assertIs<StoreError.Missing>(item.error)
+                    is StoreResult.Loading -> Unit
+                    is StoreResult.Revalidated -> error("LocalOnly must not revalidate")
+                }
+            }
+            assertEquals("external", external.value)
+            assertEquals(Origin.SOT, external.origin)
+            assertTrue(external.isStale)
+            cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
-    fun clearDeleteFailure_isTypedAndLeavesTheResidentValueIntact() = runTest {
+    fun persistenceWriteFailure_queuedClear_forgetWinsAndNoFailureResurfaces() = runTest {
+        val boom = IllegalStateException("write rejected")
+        val sourceOfTruth = GatedFailingWriteSourceOfTruth(failure = boom)
+        val bookkeeper = RecordingBookkeeper()
+        val clock = FakeWallClock(now = 200L)
+        val key = TestKey("key")
+        val engine =
+            engine(
+                key = key,
+                sourceOfTruth = sourceOfTruth,
+                bookkeeper = bookkeeper,
+                clock = clock,
+            ) { FetcherResult.Success("fetched") }
+
+        val read =
+            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                runCatching { engine.get(Freshness.CachedOrFetch) }
+            }
+        val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+        runCurrent()
+        sourceOfTruth.writeStarted.await()
+        assertNotNull(engine.state.value.attribution)
+        val clear =
+            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                engine.clear()
+            }
+        runCurrent()
+        assertEquals(0, sourceOfTruth.deleteCalls)
+
+        clock.now = 225L
+        sourceOfTruth.releaseWrite.complete(Unit)
+        val failure = assertIs<StoreException>(read.await().exceptionOrNull())
+        val persistence = assertIs<StoreError.Persistence>(failure.error)
+        assertTrue(persistence.cause === boom)
+        clear.await()
+        runCurrent()
+
+        val outcome = assertIs<FetchOutcome.Failed>(ticket.outcome.await())
+        assertEquals(225L, outcome.atEpochMillis)
+        assertTrue(outcome.bookkeepingRecorded)
+        assertEquals(FetchDisposition.Failed, ticket.disposition.value)
+        assertEquals(
+            listOf(
+                BookkeepingEvent.Failure(KeyId.from(key), atEpochMillis = 225L),
+                BookkeepingEvent.Forget(KeyId.from(key)),
+            ),
+            bookkeeper.events,
+        )
+        assertNull(bookkeeper.status(KeyId.from(key)))
+        assertEquals(1, sourceOfTruth.deleteCalls)
+        assertNull(sourceOfTruth.current)
+        val state = engine.state.value
+        assertEquals(1L, state.staleEpoch)
+        assertEquals(1L, state.clearEpoch)
+        assertEquals(1L, state.readerGen)
+        assertNull(state.attribution)
+        assertEquals(FetchSlot.Idle, state.fetch)
+
+        val missing =
+            assertFailsWith<StoreException> {
+                engine.get(Freshness.LocalOnly)
+            }
+        assertIs<StoreError.Missing>(missing.error)
+        runCurrent()
+        assertEquals(2, bookkeeper.events.size)
+    }
+
+    @Test
+    fun clearDeleteFailure_preservesResidenceEpochsAndBookkeeping() = runTest {
         val boom = IllegalStateException("delete rejected")
         val sourceOfTruth = AdapterFailureSourceOfTruth()
+        val bookkeeper = RecordingBookkeeper()
+        val clock = FakeWallClock(now = 300L)
         val key = TestKey("key")
-        val store = store<TestKey, String> {
-            persistence(sourceOfTruth)
-            fetcher { "seed" }
-        }
+        val engine =
+            engine(
+                key = key,
+                sourceOfTruth = sourceOfTruth,
+                bookkeeper = bookkeeper,
+                clock = clock,
+            ) { FetcherResult.Success("seed", etag = "seed-etag") }
 
-        try {
-            assertEquals("seed", store.get(key))
-            sourceOfTruth.deleteFailure = boom
+        assertEquals("seed", engine.get(Freshness.CachedOrFetch))
+        engine.invalidate()
+        val stateBefore = engine.state.value
+        val statusBefore = assertNotNull(bookkeeper.status(KeyId.from(key)))
+        val eventsBefore = bookkeeper.events.toList()
+        assertEquals("seed", sourceOfTruth.current)
+        sourceOfTruth.deleteFailure = boom
 
-            val failure = assertFailsWith<StoreException> { store.clear(key) }
-            val persistence = assertIs<StoreError.Persistence>(failure.error)
-            assertTrue(persistence.cause === boom)
-            assertTrue(persistence.message.contains("retry clear()"))
-            assertEquals("seed", store.get(key, Freshness.LocalOnly))
-        } finally {
-            store.close()
-        }
+        val failure = assertFailsWith<StoreException> { engine.clear() }
+        val persistence = assertIs<StoreError.Persistence>(failure.error)
+        assertTrue(persistence.cause === boom)
+        assertTrue(persistence.message.contains("retry clear()"))
+
+        val stateAfter = engine.state.value
+        assertEquals(stateBefore.staleEpoch, stateAfter.staleEpoch)
+        assertEquals(stateBefore.clearEpoch, stateAfter.clearEpoch)
+        assertEquals(stateBefore.readerGen, stateAfter.readerGen)
+        assertEquals(stateBefore.fetch, stateAfter.fetch)
+        assertTrue(stateAfter.attribution === stateBefore.attribution)
+        assertTrue(bookkeeper.status(KeyId.from(key)) === statusBefore)
+        assertEquals(eventsBefore, bookkeeper.events)
+        assertEquals(1, sourceOfTruth.deleteCalls)
+        assertEquals("seed", sourceOfTruth.current)
+        assertEquals("seed", engine.get(Freshness.LocalOnly))
     }
 
     @Test
@@ -298,6 +397,68 @@ class KeyEngineSourceOfTruthRaceTest {
         } finally {
             sourceOfTruth.releaseWrite.complete(Unit)
             store.close()
+        }
+    }
+
+    private fun TestScope.engine(
+        key: TestKey,
+        sourceOfTruth: SourceOfTruth<TestKey, String>,
+        bookkeeper: Bookkeeper,
+        clock: FakeWallClock,
+        fetcher: suspend (TestKey) -> FetcherResult<String>,
+    ): KeyEngine<TestKey, String> =
+        KeyEngine(
+            key = key,
+            keyId = KeyId.from(key),
+            fetcher = fetcher,
+            sot = sourceOfTruth,
+            bookkeeper = bookkeeper,
+            validator = DefaultFreshnessValidator,
+            wallClock = clock,
+            engineScope = backgroundScope,
+        )
+
+    private sealed interface BookkeepingEvent {
+        data class Success(
+            val key: KeyId,
+            val atEpochMillis: Long,
+        ) : BookkeepingEvent
+
+        data class Failure(
+            val key: KeyId,
+            val atEpochMillis: Long,
+        ) : BookkeepingEvent
+
+        data class Forget(
+            val key: KeyId,
+        ) : BookkeepingEvent
+    }
+
+    private class RecordingBookkeeper : Bookkeeper {
+        private val delegate = InMemoryBookkeeper()
+        val events = mutableListOf<BookkeepingEvent>()
+
+        override suspend fun recordSuccess(
+            key: KeyId,
+            meta: StoreMeta,
+        ) {
+            events += BookkeepingEvent.Success(key, meta.writtenAtEpochMillis)
+            delegate.recordSuccess(key, meta)
+        }
+
+        override suspend fun recordFailure(
+            key: KeyId,
+            atEpochMillis: Long,
+        ) {
+            events += BookkeepingEvent.Failure(key, atEpochMillis)
+            delegate.recordFailure(key, atEpochMillis)
+        }
+
+        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+
+        override suspend fun forget(key: KeyId) {
+            events += BookkeepingEvent.Forget(key)
+            delegate.forget(key)
         }
     }
 
@@ -397,10 +558,16 @@ class KeyEngineSourceOfTruthRaceTest {
         }
     }
 
-    private class GatedFailingWriteSourceOfTruth : SourceOfTruth<TestKey, String> {
+    private class GatedFailingWriteSourceOfTruth(
+        private val failure: Throwable,
+    ) : SourceOfTruth<TestKey, String> {
         private val rows = MutableStateFlow<String?>(null)
         val writeStarted = CompletableDeferred<Unit>()
         val releaseWrite = CompletableDeferred<Unit>()
+        var deleteCalls: Int = 0
+            private set
+        val current: String?
+            get() = rows.value
 
         override fun reader(key: TestKey): Flow<String?> = rows
 
@@ -410,11 +577,16 @@ class KeyEngineSourceOfTruthRaceTest {
         ) {
             writeStarted.complete(Unit)
             releaseWrite.await()
-            throw IllegalStateException("write rejected")
+            throw failure
         }
 
         override suspend fun delete(key: TestKey) {
+            deleteCalls += 1
             rows.value = null
+        }
+
+        fun publishExternal(value: String) {
+            rows.value = value
         }
     }
 
@@ -424,6 +596,10 @@ class KeyEngineSourceOfTruthRaceTest {
         var deleteFailure: Throwable? = null,
     ) : SourceOfTruth<TestKey, String> {
         private val rows = MutableStateFlow<String?>(null)
+        var deleteCalls: Int = 0
+            private set
+        val current: String?
+            get() = rows.value
 
         override fun reader(key: TestKey): Flow<String?> {
             readerFailure?.let { throw it }
@@ -439,6 +615,7 @@ class KeyEngineSourceOfTruthRaceTest {
         }
 
         override suspend fun delete(key: TestKey) {
+            deleteCalls += 1
             deleteFailure?.let { throw it }
             rows.value = null
         }
