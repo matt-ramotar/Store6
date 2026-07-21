@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
@@ -177,6 +178,12 @@ public class CoordinatedTransactionalSourceOfTruth<K : StoreKey, V : Any>(
     public suspend fun signalRetired(key: K) {
         val gate = gateFor(key)
         if (gate.requestRetirementSignal()) retirementSignals.emit(key)
+    }
+
+    /** Probe-only causal enrollment hook; retirement delivery never depends on this observation. */
+    internal suspend fun awaitRetirementSignalSubscribers(expected: Int) {
+        require(expected > 0) { "expected must be positive" }
+        retirementSignals.subscriptionCount.first { count -> count >= expected }
     }
 
     private suspend fun gateFor(key: K): PerKeyGate<V> {

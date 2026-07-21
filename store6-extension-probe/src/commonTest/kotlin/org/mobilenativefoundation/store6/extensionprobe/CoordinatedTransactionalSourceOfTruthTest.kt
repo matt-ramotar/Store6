@@ -380,7 +380,7 @@ class CoordinatedTransactionalSourceOfTruthTest {
         val signalReader = backgroundScope.launch {
             coordinated.overlay.changes.collect(signals::send)
         }
-        testScheduler.runCurrent()
+        coordinated.awaitRetirementSignalSubscribers(expected = 1)
         val confirmReached = CompletableDeferred<Unit>()
         val holdConfirm = CompletableDeferred<Unit>()
         val acknowledgement = backgroundScope.launch {
@@ -450,7 +450,7 @@ class CoordinatedTransactionalSourceOfTruthTest {
         val signalReader = backgroundScope.launch {
             coordinated.overlay.changes.collect(signals::send)
         }
-        testScheduler.runCurrent()
+        coordinated.awaitRetirementSignalSubscribers(expected = 1)
         val acknowledgement = backgroundScope.launch {
             coordinated.acknowledge(
                 key = key,
@@ -707,13 +707,14 @@ class CoordinatedTransactionalSourceOfTruthTest {
                 chronology.clear()
 
                 val signalDeliveries = Channel<StoreKey>(Channel.UNLIMITED)
+                coordinated.awaitRetirementSignalSubscribers(expected = 1)
                 val signalJob = backgroundScope.launch {
                     coordinated.overlay.changes.collect { signaledKey ->
                         chronology += "signal"
                         signalDeliveries.send(signaledKey)
                     }
                 }
-                testScheduler.runCurrent()
+                coordinated.awaitRetirementSignalSubscribers(expected = 2)
                 val observingHandle =
                     object : StoreWriteHandle<CoordinatorKey, String> {
                         override suspend fun apply(
@@ -836,10 +837,11 @@ class CoordinatedTransactionalSourceOfTruthTest {
             assertEquals("base", rowDeliveries.receive())
 
             val signalDeliveries = Channel<StoreKey>(Channel.UNLIMITED)
+            coordinated.awaitRetirementSignalSubscribers(expected = 1)
             val signalJob = backgroundScope.launch {
                 coordinated.overlay.changes.collect(signalDeliveries::send)
             }
-            testScheduler.runCurrent()
+            coordinated.awaitRetirementSignalSubscribers(expected = 2)
 
             store.stream(key, Freshness.CachedOrFetch).test {
                 assertEquals("base+pending", awaitData().value)
@@ -939,7 +941,7 @@ class CoordinatedTransactionalSourceOfTruthTest {
         val signalReader = backgroundScope.launch {
             coordinated.overlay.changes.collect(signals::send)
         }
-        testScheduler.runCurrent()
+        coordinated.awaitRetirementSignalSubscribers(expected = 1)
         val handle =
             object : StoreWriteHandle<CoordinatorKey, String> {
                 override suspend fun apply(
