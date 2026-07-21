@@ -10,13 +10,14 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 
 /** Reusable SharedFlow-backed source-of-truth fake exercised by the full contract kit. */
-@OptIn(ExperimentalStoreApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 internal class SharedFlowSourceOfTruth<K : StoreKey, V : Any>(
     private val beforeBulkEmission: suspend () -> Unit = {},
 ) : SourceOfTruth<K, V> {

@@ -9,17 +9,21 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
@@ -29,6 +33,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.shareIn
@@ -38,7 +43,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
-import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreError
@@ -46,7 +50,21 @@ import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.StoreResult
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.FetchPlan
+import org.mobilenativefoundation.store6.core.seam.Fetcher
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
+import org.mobilenativefoundation.store6.core.seam.FreshnessContext
+import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
+import org.mobilenativefoundation.store6.core.seam.KeyEvents
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
+import org.mobilenativefoundation.store6.core.seam.Overlay
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.StoreTelemetry
+import org.mobilenativefoundation.store6.core.seam.WallClock
+import kotlin.time.Duration
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 
 /** Emits every stale epoch that advanced beyond the snapshot used to plan a stream startup. */
 internal fun Flow<KeyState>.staleEpochsAfter(planningEpoch: Long): Flow<Long> =
@@ -63,9 +81,9 @@ internal fun Flow<KeyState>.staleEpochsAfter(planningEpoch: Long): Flow<Long> =
  */
 @OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 internal class KeyEngine<K : StoreKey, V : Any>(
-    private val key: K,
+    internal val key: K,
     private val keyId: KeyId,
-    private val fetcher: suspend (K) -> FetcherResult<V>,
+    private val fetcher: Fetcher<K, V>,
     private val sot: SourceOfTruth<K, V>,
     private val bookkeeper: Bookkeeper,
     private val validator: FreshnessValidator,
@@ -77,6 +95,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private val afterInitialPlanningSnapshotTestGate: suspend () -> Unit = {},
     /** Optional deterministic gate used only by direct engine tests after raw reader observation. */
     private val beforeReaderRecordMappingTestGate: suspend () -> Unit = {},
+    /** Optional direct-test gate after mapping but before serialized reader delivery. */
+    private val beforeReaderDeliveryLockTestGate: suspend (ReaderRecord<V>) -> Unit = {},
     /** Optional deterministic gate used only by direct engine tests inside serialized delivery. */
     private val beforeReaderDeliveryTestGate: suspend () -> Unit = {},
     /** Optional deterministic gate used only by direct engine tests before outcome delivery. */
@@ -85,6 +105,29 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private val beforeReplacementDispositionClassificationTestGate: suspend () -> Unit = {},
     /** Store-local fence shared by RealStore; direct tests receive an isolated coordinator. */
     private val maintenanceCoordinator: MaintenanceCoordinator = MaintenanceCoordinator(),
+    /** Null keeps every telemetry hook and fetch-duration allocation off the unconfigured path. */
+    private val telemetry: StoreTelemetry? = null,
+    /** Store-level advisory bus; direct engine tests receive an isolated equivalent by default. */
+    private val events: MutableSharedFlow<KeyEvents> =
+        MutableSharedFlow(
+            replay = 0,
+            extraBufferCapacity = 64,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        ),
+    /** Null preserves the landed direct-residence path without projection allocations. */
+    private val overlay: Overlay<K, V>? = null,
+    /** Deterministic direct-test gate after Pending and before invoking Overlay.apply. */
+    private val beforeProjectionApplyTestGate: suspend (V?) -> Unit = {},
+    /** Deterministic direct-test gate after Overlay.apply and before the commit recheck. */
+    private val afterProjectionApplyTestGate: suspend (V?) -> Unit = {},
+    /** Deterministic direct-test gate before serialized projection snapshot delivery. */
+    private val beforeProjectionDeliveryLockTestGate: suspend () -> Unit = {},
+    /** Deterministic direct-test gate inside serialized projection snapshot delivery. */
+    private val beforeProjectionDeliveryTestGate: suspend () -> Unit = {},
+    /** Deterministic direct-test gate after serialized projection snapshot delivery. */
+    private val afterProjectionDeliveryTestGate: suspend () -> Unit = {},
+    /** Deterministic direct-test gate before a readiness waiter suspends on both state flows. */
+    private val beforeProjectionReadinessWaitTestGate: suspend () -> Unit = {},
 ) {
     private val stateLock = Mutex()
     private val writeLock = Mutex()
@@ -98,6 +141,26 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
     /** Changed only by [replaceResidenceLocked] while stateLock is held. */
     private var residenceRevision: Long = 0L
+
+    /** Exists only for configured engines and immediately obsoletes revision-bound waiters. */
+    private val projectionResidence: MutableStateFlow<ProjectionResidence<V>>? =
+        overlay?.let {
+            MutableStateFlow(
+                ProjectionResidence(
+                    ProjectionBase(
+                        envelope = null,
+                        revision = residenceRevision,
+                    ),
+                ),
+            )
+        }
+
+    /** Latest single-writer state; null is the allocation-free unconfigured path. */
+    private val projectionSnapshot: MutableStateFlow<ProjectionSnapshot<V>>? =
+        overlay?.let { MutableStateFlow(ProjectionSnapshot.Uninitialized) }
+
+    /** Advanced only by the projection writer while publishing Pending or Terminal. */
+    private var projectionGeneration: Long = 0L
 
     /** Lock-serialized source-order boundary for raw observations and active SoT writes. */
     private val writeObservationBoundary =
@@ -182,11 +245,96 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 replay = 1,
             )
 
+    init {
+        overlay?.let { configured ->
+            engineScope.launch { runProjectionWriter(configured) }
+        }
+    }
+
     /** Assigns residence and advances its revision for every accepted observation or mutation. */
     private fun replaceResidenceLocked(envelope: ValueEnvelope<V>?): Long {
         residence.value = envelope
         residenceRevision += 1L
+        projectionResidence?.value =
+            ProjectionResidence(
+                ProjectionBase(
+                    envelope = envelope,
+                    revision = residenceRevision,
+                ),
+            )
         return residenceRevision
+    }
+
+    /** Serially accepts residence and overlay triggers and computes outside every Store lock. */
+    private suspend fun runProjectionWriter(configured: Overlay<K, V>) {
+        val residenceTriggers = checkNotNull(projectionResidence).map { Unit }
+        val overlayTriggers =
+            configured.changes
+                .filter { changed -> KeyId.from(changed) == keyId }
+                .map { Unit }
+                .catch { failure ->
+                    // Downstream/parent cancellation stays transparent, preserving an apply failure.
+                    if (failure is CancellationException && engineJob.isActive) {
+                        throw ProjectionChangesFailure(failure)
+                    }
+                    throw failure
+                }
+        try {
+            merge(residenceTriggers, overlayTriggers).collect {
+                val pending =
+                    stateLock.withLock {
+                        val base = checkNotNull(projectionResidence).value.base
+                        projectionGeneration += 1L
+                        ProjectionSnapshot.Pending(
+                            base = base,
+                            generation = projectionGeneration,
+                        ).also { projection ->
+                            checkNotNull(projectionSnapshot).value = projection
+                        }
+                    }
+                val baseValue = pending.base.envelope?.value
+                beforeProjectionApplyTestGate(baseValue)
+                val output = configured.apply(key, baseValue)
+                afterProjectionApplyTestGate(baseValue)
+                val projection =
+                    when {
+                        pending.base.envelope != null &&
+                            output == pending.base.envelope.value ->
+                            Projection.Value(pending.base.envelope)
+
+                        output == null -> Projection.Absent
+                        else -> Projection.Overlaid(output)
+                    }
+                stateLock.withLock {
+                    val currentResidence = checkNotNull(projectionResidence).value.base
+                    val currentSnapshot = checkNotNull(projectionSnapshot).value
+                    if (
+                        currentResidence.matches(pending.base) &&
+                        currentSnapshot is ProjectionSnapshot.Pending &&
+                        currentSnapshot.generation == pending.generation
+                    ) {
+                        projectionSnapshot.value =
+                            ProjectionSnapshot.Ready(
+                                base = pending.base,
+                                generation = pending.generation,
+                                projection = projection,
+                            )
+                    }
+                }
+            }
+        } catch (failure: Throwable) {
+            if (failure is CancellationException && !engineJob.isActive) throw failure
+            val terminalFailure =
+                (failure as? ProjectionChangesFailure)?.projectionCause ?: failure
+            stateLock.withLock {
+                projectionGeneration += 1L
+                checkNotNull(projectionSnapshot).value =
+                    ProjectionSnapshot.Terminal(
+                        generation = projectionGeneration,
+                        failure = terminalFailure,
+                    )
+            }
+        }
     }
 
     /** Captures source order and active-write provenance under [stateLock] before conflation. */
@@ -650,7 +798,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     /** Waits out destructive mutation tails, then resolves a queued record against live state. */
     private suspend fun resolveCurrentRecord(record: ReaderRecord<V>): ReaderResolution<V>? {
         while (true) {
-            val status = bookkeeper.status(keyId)
+            val status = bookkeeper.status(key)
             var barrier: CompletableDeferred<Unit>? = null
             val resolved =
                 stateLock.withLock {
@@ -735,6 +883,28 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private fun staleServingTolerated(freshness: Freshness): Boolean =
         freshness == Freshness.CachedOrFetch || freshness == Freshness.StaleIfError
 
+    /** Recognizes both fetched envelopes and the exact envelope installed by a writer boundary. */
+    private fun isEngineConfirmedEnvelope(envelope: ValueEnvelope<V>): Boolean =
+        envelope.origin == Origin.FETCHER || rawCommitResolution?.envelope === envelope
+
+    /** Keeps synthetic-writer SOT provenance instead of re-stamping that exact envelope MEMORY. */
+    private fun canRestampEngineMemoryOrigin(
+        memoryEnvelope: ValueEnvelope<V>?,
+        memoryRevision: Long,
+        currentEnvelope: ValueEnvelope<V>?,
+        currentRevision: Long,
+    ): Boolean =
+        canRestampMemoryOrigin(
+            memoryEnvelope = memoryEnvelope,
+            memoryRevision = memoryRevision,
+            currentEnvelope = currentEnvelope,
+            currentRevision = currentRevision,
+        ) &&
+            !(
+                memoryEnvelope?.origin == Origin.SOT &&
+                    rawCommitResolution?.envelope === memoryEnvelope
+            )
+
     private fun revalidatedSatisfiesDemand(
         freshness: Freshness,
         snapshot: ResidenceSnapshot<V>,
@@ -743,7 +913,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         when (freshness) {
             Freshness.MustBeFresh ->
                 snapshot.envelope?.let { envelope ->
-                    envelope.origin == Origin.FETCHER &&
+                    isEngineConfirmedEnvelope(envelope) &&
                         envelope.meta != null &&
                         envelope.staleEpochAtCommit >= snapshot.state.staleEpoch &&
                         snapshot.status?.durablyStale != true
@@ -760,10 +930,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private suspend fun reserveFetch(
         freshness: Freshness,
         collectorEligibleResidence: ValueEnvelope<V>? = null,
+        collectorEligibleRevision: Long? = null,
         enforceCollectorEligibility: Boolean = false,
     ): FetchReservation<V>? {
         while (true) {
-            val status = bookkeeper.status(keyId)
+            val statusResidenceRevision = stateLock.withLock { residenceRevision }
+            val status = bookkeeper.status(key)
+            var retryStaleStatus = false
             var pendingRevalidationOwner: FetchTicket? = null
             val planned =
                 stateLock.withLock {
@@ -771,6 +944,10 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     val now = wallClock.nowEpochMillis()
                     val snapshot = mutableState.value
                     val currentResidence = residence.value
+                    if (residenceRevision != statusResidenceRevision) {
+                        retryStaleStatus = true
+                        return@withLock null
+                    }
                     val directOwner = currentResidence?.directRevalidationOwner
                     val directDisposition =
                         directOwner?.disposition?.value as? FetchDisposition.Revalidated
@@ -792,6 +969,14 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         } else {
                             currentResidence
                         }
+                    val planningRevision =
+                        if (planningResidence === currentResidence) {
+                            residenceRevision
+                        } else {
+                            checkNotNull(collectorEligibleRevision) {
+                                "A collector-owned historical residence requires its exact revision."
+                            }
+                        }
                     val plan = planFor(freshness, snapshot, planningResidence, now, status)
                     if (plan is FetchPlan.Skip) {
                         return@withLock null
@@ -812,9 +997,12 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     PlannedFetchEffect(
                         effect = result.effect,
                         collectorEligibleResidence = planningResidence,
+                        collectorEligibleRevision = planningRevision,
                         plan = plan,
                     )
                 }
+
+            if (retryStaleStatus) continue
 
             val owner = pendingRevalidationOwner
             if (owner != null) {
@@ -825,13 +1013,20 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             val reservation = planned ?: return null
             val ticket =
                 when (val effect = reservation.effect) {
-                    is KeyEffect.Launch -> effect.ticket.also(::launchFetch)
+                    is KeyEffect.Launch ->
+                        effect.ticket.also { ticket ->
+                            launchFetch(
+                                ticket,
+                                (reservation.plan as? FetchPlan.Conditional)?.etag,
+                            )
+                        }
                     is KeyEffect.Join -> effect.ticket
                     else -> error("Ensure-fetch transition produced an invalid effect: $effect")
                 }
             return FetchReservation(
                 ticket = ticket,
                 collectorEligibleResidence = reservation.collectorEligibleResidence,
+                collectorEligibleRevision = reservation.collectorEligibleRevision,
                 plan = reservation.plan,
             )
         }
@@ -842,14 +1037,19 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         reserveFetch(freshness)?.ticket
 
     /** Runs the owned fetch independently of any individual waiter. */
-    private fun launchFetch(ticket: FetchTicket) {
+    private fun launchFetch(
+        ticket: FetchTicket,
+        etag: String?,
+    ) {
         val fetchJob =
             engineScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                val mark = if (telemetry == null) null else TimeSource.Monotonic.markNow()
+                telemetry?.onFetchStarted(key)
                 val outcome =
                     try {
                         currentCoroutineContext().ensureActive()
                         yield()
-                        val result = fetcher(key)
+                        val result = fetcher.fetch(key, etag)
                         currentCoroutineContext().ensureActive()
                         when (result) {
                             is FetcherResult.Success ->
@@ -879,7 +1079,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         )
                     }
 
-                finishFetch(ticket, outcome)
+                finishFetch(ticket, outcome, mark)
             }
 
         fetchJob.invokeOnCompletion { failure ->
@@ -964,7 +1164,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             )
                         }
                     }
-                    bookkeeper.recordFailure(keyId, atEpochMillis)
+                    bookkeeper.recordFailure(key, atEpochMillis)
                     return@withLock FetchOutcome.Failed(
                         exception = exception,
                         atEpochMillis = atEpochMillis,
@@ -995,7 +1195,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                 )
                             committed.successfulWriteSequence
                         }
-                    bookkeeper.recordSuccess(keyId, meta)
+                    bookkeeper.recordSuccess(key, meta)
                     sequence
                 }
                 val disposition =
@@ -1011,6 +1211,130 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 )
             }
         }
+
+    /**
+     * Commits an acknowledged source-of-truth value without fetching or recording success.
+     *
+     * A synthetic ticket participates only in the attribution/disposition handshake; it never
+     * enters the fetch slot and never launches work.
+     */
+    internal suspend fun applyWrite(value: V) {
+        ensureOpen()
+        val meta = EngineStoreMeta(wallClock.nowEpochMillis(), etag = null)
+        val ticket = FetchTicket(CompletableDeferred())
+        maintenanceCoordinator.withCommit(keyId.namespace) {
+            writeLock.withLock {
+                val stamped =
+                    stateLock.withLock {
+                        val result =
+                            transition(
+                                mutableState.value,
+                                KeyEvent.ApplyWrite(
+                                    ticket = ticket,
+                                    value = value,
+                                    meta = meta,
+                                ),
+                            )
+                        check(result.effect == KeyEffect.CommitWrite) {
+                            "Apply-write transition produced an invalid effect: ${result.effect}"
+                        }
+                        mutableState.value = result.state
+                        val attribution = checkNotNull(result.state.attribution)
+                        ticket.disposition.value =
+                            FetchDisposition.Committing(
+                                attribution = attribution,
+                                successfulWriteSequenceAtStart =
+                                    writeObservationBoundary.value.successfulSequence,
+                            )
+                        updateWriteObservationBoundary { current ->
+                            current.copy(
+                                readerGen = result.state.readerGen,
+                                observedAttribution = attribution,
+                                activeAttribution = attribution,
+                                activeRawPhase = ActiveRawPhase.Unobserved,
+                            )
+                        }
+                        attribution
+                    }
+
+                try {
+                    sot.write(key, value)
+                } catch (cancellation: CancellationException) {
+                    withContext(NonCancellable) {
+                        stateLock.withLock {
+                            terminalizeFailedWriteLocked(
+                                stamped = stamped,
+                                ticket = ticket,
+                                disposition = FetchDisposition.Cancelled,
+                            )
+                        }
+                    }
+                    throw cancellation
+                } catch (failure: Throwable) {
+                    withContext(NonCancellable) {
+                        stateLock.withLock {
+                            terminalizeFailedWriteLocked(
+                                stamped = stamped,
+                                ticket = ticket,
+                                disposition = FetchDisposition.Failed,
+                            )
+                        }
+                    }
+                    throw writeHandleException(failure)
+                }
+
+                // This CAS must remain the first non-suspending instruction after normal return.
+                val closedWriteBoundary = closeSuccessfulWriteBoundary()
+                withContext(NonCancellable) {
+                    stateLock.withLock {
+                        val committed =
+                            convergeSuccessfulWriteLocked(
+                                stamped = stamped,
+                                value = value,
+                                closed = closedWriteBoundary,
+                            )
+                        ticket.disposition.value =
+                            FetchDisposition.Committed(
+                                successfulWriteSequence = committed.successfulWriteSequence,
+                                attribution = stamped,
+                                rawReaderGen = committed.readerGen,
+                                rawCommitCutoff = committed.rawCommitCutoff,
+                                authoritativeRawSequence =
+                                    committed.authoritativeRawSequence,
+                            )
+                    }
+                }
+            }
+        }
+        events.tryEmit(KeyEvents.Written(key, Origin.SOT))
+    }
+
+    /** Refreshes resident metadata and durable success without a fetch. */
+    internal suspend fun confirmFresh(etag: String?) {
+        ensureOpen()
+        val meta = EngineStoreMeta(wallClock.nowEpochMillis(), etag)
+        maintenanceCoordinator.withCommit(keyId.namespace) {
+            writeLock.withLock {
+                var replaced = false
+                stateLock.withLock state@{
+                    val current = residence.value ?: return@state
+                    replaceResidenceLocked(
+                        ValueEnvelope(
+                            value = current.value,
+                            origin = current.origin,
+                            meta = meta,
+                            staleEpochAtCommit = mutableState.value.staleEpoch,
+                        ),
+                    )
+                    syncObservedAttributionLocked(mutableState.value)
+                    replaced = true
+                }
+                if (replaced) {
+                    withContext(NonCancellable) { bookkeeper.recordSuccess(key, meta) }
+                }
+            }
+        }
+    }
 
     /** Closes raw source order and converges its durable winner before bookkeeping. */
     private fun convergeSuccessfulWriteLocked(
@@ -1177,14 +1501,24 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         classified
                     }
                 refreshedMeta?.let { meta ->
-                    withContext(NonCancellable) { bookkeeper.recordSuccess(keyId, meta) }
+                    withContext(NonCancellable) { bookkeeper.recordSuccess(key, meta) }
                 }
                 outcome
             }
         }
 
     /** Applies a server deletion only after its ticket is still proven current. */
-    private suspend fun commitDeleted(ticket: FetchTicket): FetchOutcome =
+    private suspend fun commitDeleted(ticket: FetchTicket): FetchOutcome {
+        val outcome = commitDeletedUnderFence(ticket)
+        if (outcome is FetchOutcome.Deleted) {
+            telemetry?.onCleared(key)
+            events.tryEmit(KeyEvents.Deleted(key))
+        }
+        return outcome
+    }
+
+    /** Runs the destructive server-deletion transaction without invoking extension code. */
+    private suspend fun commitDeletedUnderFence(ticket: FetchTicket): FetchOutcome =
         maintenanceCoordinator.withCommit(keyId.namespace) {
             writeLock.withLock {
                 val superseded =
@@ -1213,7 +1547,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             }
                         if (deleteFailure != null) return@withContext deleteFailure
 
-                        stateLock.withLock {
+                        val absenceRevision = stateLock.withLock {
                             val result =
                                 transition(mutableState.value, KeyEvent.CommitDeleted(ticket))
                             check(result.effect == KeyEffect.CommitDelete) {
@@ -1225,7 +1559,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             replaceResidenceLocked(null)
                         }
                         try {
-                            bookkeeper.forget(keyId)
+                            bookkeeper.forget(key)
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (failure: Throwable) {
@@ -1238,7 +1572,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                 atEpochMillis = wallClock.nowEpochMillis(),
                             )
                         }
-                        FetchOutcome.Deleted
+                        FetchOutcome.Deleted(absenceRevision)
                     } finally {
                         finishDestructiveMutation(barrier)
                     }
@@ -1258,46 +1592,81 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private suspend fun finishFetch(
         ticket: FetchTicket,
         outcome: FetchOutcome,
+        mark: TimeMark?,
     ) {
-        when {
-            outcome is FetchOutcome.Failed && outcome.bookkeepingRecorded ->
-                withContext(NonCancellable) {
-                    stateLock.withLock {
-                        completeTicket(ticket, outcome)
+        if (outcome is FetchOutcome.Failed && !outcome.bookkeepingRecorded) {
+            // Failure bookkeeping remains cancellable so engine cancellation releases the ordered
+            // write/fence admission. Only the post-release publication tail is non-cancellable.
+            val classified = finishFailedFetch(ticket, outcome)
+            withContext(NonCancellable) {
+                notifyFetchTerminal(classified, mark)
+                notifyFetchEvent(classified)
+                completeTicket(ticket, classified)
+            }
+        } else {
+            withContext(NonCancellable) {
+                val classified =
+                    if (outcome is FetchOutcome.Failed) {
+                        outcome
+                    } else {
+                        stateLock.withLock { classifySettledOutcome(ticket, outcome) }
                     }
-                }
-
-            outcome is FetchOutcome.Failed -> finishFailedFetch(ticket, outcome)
-
-            else ->
-                withContext(NonCancellable) {
-                    stateLock.withLock {
-                        val classified = classifySettledOutcome(ticket, outcome)
-                        completeTicket(ticket, classified)
-                    }
-                }
+                notifyFetchTerminal(classified, mark)
+                notifyFetchEvent(classified)
+                completeTicket(ticket, classified)
+            }
         }
     }
 
+    /** Runs the failed-fetch persistence tail and returns only after every engine lock is released. */
     private suspend fun finishFailedFetch(
         ticket: FetchTicket,
         outcome: FetchOutcome.Failed,
-    ) {
+    ): FetchOutcome =
         try {
             maintenanceCoordinator.withCommit(keyId.namespace) {
                 writeLock.withLock {
                     val classified =
-                        stateLock.withLock { classifySettledOutcome(ticket, outcome) }
+                        stateLock.withLock {
+                            classifySettledOutcome(ticket, outcome)
+                        }
                     if (classified is FetchOutcome.Failed) {
-                        bookkeeper.recordFailure(keyId, classified.atEpochMillis)
+                        bookkeeper.recordFailure(key, classified.atEpochMillis)
                     }
-                    completeTicket(ticket, classified)
+                    classified
                 }
             }
         } catch (cancellation: CancellationException) {
             ticket.outcome.cancel(cancellation)
             settleFetch(ticket)
             throw cancellation
+        }
+
+    /** Fires terminal telemetry after settlement and before any waiter observes ticket completion. */
+    private fun notifyFetchTerminal(
+        outcome: FetchOutcome,
+        mark: TimeMark?,
+    ) {
+        val sink = telemetry ?: return
+        when (outcome) {
+            is FetchOutcome.Committed,
+            is FetchOutcome.Revalidated,
+            -> sink.onFetchSucceeded(key, checkNotNull(mark).elapsedNow())
+
+            is FetchOutcome.Failed ->
+                sink.onFetchFailed(key, outcome.exception.error, checkNotNull(mark).elapsedNow())
+
+            is FetchOutcome.Deleted,
+            FetchOutcome.ObsoleteRevalidation,
+            FetchOutcome.Superseded,
+            -> Unit
+        }
+    }
+
+    /** Publishes successful fetch writes after classification and before ticket completion. */
+    private fun notifyFetchEvent(outcome: FetchOutcome) {
+        if (outcome is FetchOutcome.Committed) {
+            events.tryEmit(KeyEvents.Written(key, Origin.FETCHER))
         }
     }
 
@@ -1323,7 +1692,6 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         ticket: FetchTicket,
         outcome: FetchOutcome,
     ) {
-        markDisposition(ticket, outcome)
         if (engineJob.isActive) {
             ticket.outcome.complete(outcome)
         } else {
@@ -1346,7 +1714,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         authoritativeRawSequence = outcome.authoritativeRawSequence,
                     )
                 is FetchOutcome.Revalidated -> FetchDisposition.Revalidated(outcome.envelope)
-                FetchOutcome.Deleted -> FetchDisposition.Deleted
+                is FetchOutcome.Deleted -> FetchDisposition.Deleted
                 is FetchOutcome.Failed -> FetchDisposition.Failed
                 FetchOutcome.ObsoleteRevalidation -> FetchDisposition.ObsoleteRevalidation
                 FetchOutcome.Superseded -> FetchDisposition.Superseded
@@ -1357,7 +1725,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         maintenanceCoordinator.withCommit(keyId.namespace) {
             writeLock.withLock {
                 try {
-                    bookkeeper.markStale(keyId)
+                    bookkeeper.markStale(key)
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (failure: Throwable) {
@@ -1366,17 +1734,21 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 applyEvent(KeyEvent.Invalidate)
             }
         }
+        telemetry?.onInvalidated(key)
+        events.tryEmit(KeyEvents.Invalidated(key))
     }
 
     /** Signals resident demand only while the previously advanced watermark still covers it. */
     internal suspend fun invalidateResident() {
         maintenanceCoordinator.withCommit(keyId.namespace) {
             writeLock.withLock {
-                if (bookkeeper.status(keyId)?.durablyStale == true) {
+                if (bookkeeper.status(key)?.durablyStale == true) {
                     applyEvent(KeyEvent.Invalidate)
                 }
             }
         }
+        telemetry?.onInvalidated(key)
+        events.tryEmit(KeyEvents.Invalidated(key))
     }
 
     /** Deletes persistence first, then performs the irreversible state/bookkeeping tail. */
@@ -1396,7 +1768,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
                         stateLock.withLock { applyClearTransitionLocked() }
                         try {
-                            bookkeeper.forget(keyId)
+                            bookkeeper.forget(key)
                         } catch (cancellation: CancellationException) {
                             throw cancellation
                         } catch (failure: Throwable) {
@@ -1408,6 +1780,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 }
             }
         }
+        telemetry?.onCleared(key)
+        events.tryEmit(KeyEvents.Deleted(key))
     }
 
     /** Applies only the resident clear atom; store-scoped maintenance owns the durable fence. */
@@ -1424,6 +1798,12 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         }
     }
 
+    /** Reports one completed store-scoped clear after its maintenance fence has been released. */
+    internal fun notifyBulkClearCompleted() {
+        telemetry?.onCleared(key)
+        events.tryEmit(KeyEvents.Deleted(key))
+    }
+
     /** Applies the landed clear transition while [stateLock] is held. */
     private fun applyClearTransitionLocked() {
         val result = transition(mutableState.value, KeyEvent.Clear)
@@ -1438,7 +1818,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     /** Direct one-shot hydration used by get and memory-miss stream startup. */
     private suspend fun hydrateFromSot(): ResidenceSnapshot<V> =
         writeLock.withLock {
-            val status = bookkeeper.status(keyId)
+            val status = bookkeeper.status(key)
             val capturedRevision = stateLock.withLock { residenceRevision }
             val row =
                 try {
@@ -1488,7 +1868,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
     /** Coherent state/residence snapshot used at public delivery boundaries. */
     private suspend fun residenceSnapshot(): ResidenceSnapshot<V> {
-        val status = bookkeeper.status(keyId)
+        val status = bookkeeper.status(key)
         return stateLock.withLock {
             ResidenceSnapshot(
                 state = mutableState.value,
@@ -1545,6 +1925,12 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     } else {
                         planning.envelope
                     }
+                var planningEligibleRevision =
+                    if (planningEligibleEnvelope === memory.envelope) {
+                        memory.revision
+                    } else {
+                        planning.revision
+                    }
                 var plan =
                     planFor(
                         freshness = freshness,
@@ -1558,6 +1944,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         reserveFetch(
                             freshness = freshness,
                             collectorEligibleResidence = planningEligibleEnvelope,
+                            collectorEligibleRevision = planningEligibleRevision,
                             enforceCollectorEligibility =
                                 planning.envelope?.directRevalidationOwner != null &&
                                     planning.envelope !== planningEligibleEnvelope,
@@ -1565,6 +1952,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     }
                 val reservedCollectorEnvelope =
                     initialReservation?.collectorEligibleResidence ?: planningEligibleEnvelope
+                val reservedCollectorRevision =
+                    initialReservation?.collectorEligibleRevision ?: planningEligibleRevision
                 val reservedPlan = initialReservation?.plan ?: plan
                 var initialTicket = initialReservation?.ticket
                 planning = residenceSnapshot()
@@ -1576,6 +1965,12 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         memory.envelope
                     } else {
                         planning.envelope
+                    }
+                planningEligibleRevision =
+                    if (planningEligibleEnvelope === memory.envelope) {
+                        memory.revision
+                    } else {
+                        planning.revision
                     }
                 plan =
                     planFor(
@@ -1595,6 +1990,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     memoryEnvelope = memory.envelope,
                     memoryRevision = memory.revision,
                     reservedCollectorEnvelope = reservedCollectorEnvelope,
+                    reservedCollectorRevision = reservedCollectorRevision,
                     reservedPlan = reservedPlan,
                     ticket = initialTicket,
                 )
@@ -1603,6 +1999,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 initialTicket = initialDelivery.ticket
 
                 if (freshness == Freshness.MustBeFresh && initialTicket != null) {
+                    delivery.startProjectionObserver()
                     while (true) {
                         val ticket = initialTicket ?: break
                         val outcome = ticket.outcome.await()
@@ -1635,14 +2032,14 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
                             is FetchOutcome.Failed -> {
                                 delivery.clearInitialTicket(ticket)
-                                delivery.deliverTerminalError(outcome.exception)
+                                delivery.deliverTerminalOutcome(outcome)
                                 close()
                                 return@channelFlow
                             }
 
-                            FetchOutcome.Deleted -> {
+                            is FetchOutcome.Deleted -> {
                                 delivery.clearInitialTicket(ticket)
-                                delivery.deliverTerminalError(serverDeletedException())
+                                delivery.deliverTerminalOutcome(outcome)
                                 close()
                                 return@channelFlow
                             }
@@ -1702,6 +2099,9 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         private var suppressMissingUntilReaderRecovery = startupReaderFailure != null
         private var serverDeletionObserved = false
         private var lastDataFingerprint: DataFingerprint<V>? = null
+        private var lastConfirmedRevision: Long? = null
+        private var projectionAuthorization: ProjectionAuthorization<V>? = null
+        private var projectionObserverStarted = false
         private val pendingFailureHandoffs = ArrayDeque<SettledTicketHandoff>()
         private var ticketLaunchBaseline: TicketLaunchBaselineEntry<V>? = null
 
@@ -1718,13 +2118,22 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         private fun collectorPlanFor(
             snapshot: ResidenceSnapshot<V>,
             eligibleBaseline: ValueEnvelope<V>? = lastDataFingerprint?.envelope,
+            eligibleBaselineRevision: Long? =
+                projectionAuthorization?.base?.revision ?: lastConfirmedRevision,
         ): CollectorFetchPlan<V> {
             val current = snapshot.envelope
             val currentIsForeignOwner =
                 current?.directRevalidationOwner != null && current !== eligibleBaseline
             val eligibleEnvelope = if (currentIsForeignOwner) eligibleBaseline else current
+            val eligibleRevision =
+                if (currentIsForeignOwner) {
+                    eligibleBaselineRevision ?: snapshot.revision
+                } else {
+                    snapshot.revision
+                }
             return CollectorFetchPlan(
                 eligibleEnvelope = eligibleEnvelope,
+                eligibleRevision = eligibleRevision,
                 plan =
                     planFor(
                         freshness = freshness,
@@ -1735,6 +2144,16 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             )
         }
 
+        private fun collectorPlanFor(
+            snapshot: ResidenceSnapshot<V>,
+            eligibleBaseline: EligibleBaseline<V>,
+        ): CollectorFetchPlan<V> =
+            collectorPlanFor(
+                snapshot = snapshot,
+                eligibleBaseline = eligibleBaseline.envelope,
+                eligibleBaselineRevision = eligibleBaseline.revision,
+            )
+
         /** Rechecks collector demand under stateLock without changing the ticket's live baseline. */
         private suspend fun ensureFetchForCollector(
             collectorPlan: CollectorFetchPlan<V>,
@@ -1742,12 +2161,14 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             val reservation = reserveFetch(
                 freshness = freshness,
                 collectorEligibleResidence = collectorPlan.eligibleEnvelope,
+                collectorEligibleRevision = collectorPlan.eligibleRevision,
                 enforceCollectorEligibility = collectorPlan.currentIsForeignOwner,
             ) ?: return null
             rememberTicketLaunchBaseline(
                 reservation.ticket,
                 TicketLaunchBaseline(
                     reservation.collectorEligibleResidence,
+                    reservation.collectorEligibleRevision,
                     reservation.plan,
                 ),
             )
@@ -1765,18 +2186,31 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         private fun readerEligibleBaseline(
             notification: ReaderRecord<V>,
             current: ValueEnvelope<V>?,
-        ): ValueEnvelope<V>? {
+        ): EligibleBaseline<V> {
             val visible = lastDataFingerprint?.envelope
-            if (current != null && current === visible) return current
-            val mapped = (notification as? ReaderRecord.Row<V>)?.envelope
+            val row = notification as? ReaderRecord.Row<V>
+            if (current != null && current === visible) {
+                return EligibleBaseline(current, row?.residenceRevision ?: checkNotNull(lastConfirmedRevision))
+            }
+            val mapped = row?.envelope
+            val sameValue =
+                mapped != null &&
+                    if (overlay == null) {
+                        mapped.value == current?.value
+                    } else {
+                        mapped.value === current?.value
+                    }
             return if (
                 current?.directRevalidationOwner != null &&
-                mapped?.directRevalidationOwner == null &&
-                mapped?.value == current.value
+                    mapped?.directRevalidationOwner == null &&
+                    sameValue
             ) {
-                mapped
+                EligibleBaseline(mapped, row.residenceRevision)
             } else {
-                visible
+                EligibleBaseline(
+                    envelope = visible,
+                    revision = projectionAuthorization?.base?.revision ?: lastConfirmedRevision ?: 0L,
+                )
             }
         }
 
@@ -1792,6 +2226,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     val envelope = ticket.residenceEnvelopeAtLaunch as? ValueEnvelope<V>
                     TicketLaunchBaseline(
                         envelope = envelope,
+                        revision = ticket.requestRevision,
                         plan =
                             validator.plan(
                                 FreshnessContext(
@@ -1816,6 +2251,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 )
             return TicketLaunchBaseline(
                 envelope = launchBaseline.envelope,
+                revision = launchBaseline.revision,
                 plan =
                     if (launchBaseline.plan.servesResident) {
                         currentPlan
@@ -1829,6 +2265,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             memoryEnvelope: ValueEnvelope<V>?,
             memoryRevision: Long,
             reservedCollectorEnvelope: ValueEnvelope<V>?,
+            reservedCollectorRevision: Long,
             reservedPlan: FetchPlan,
             ticket: FetchTicket?,
         ): InitialDelivery<V> =
@@ -1836,17 +2273,29 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 if (ticket != null) {
                     rememberTicketLaunchBaseline(
                         ticket,
-                        TicketLaunchBaseline(reservedCollectorEnvelope, reservedPlan),
+                        TicketLaunchBaseline(
+                            reservedCollectorEnvelope,
+                            reservedCollectorRevision,
+                            reservedPlan,
+                        ),
                     )
                 }
+                if (
+                    overlay != null &&
+                    reservedCollectorEnvelope == null &&
+                    reservedPlan !is FetchPlan.Skip &&
+                    startupReaderFailure == null
+                ) {
+                    emitLoadingLocked()
+                }
                 var snapshot = residenceSnapshot()
-                var collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                var collectorPlan = collectorPlanFor(snapshot, memoryEnvelope, memoryRevision)
                 var plan = collectorPlan.plan
                 var effectiveTicket = ticket
                 if (plan !is FetchPlan.Skip && effectiveTicket == null) {
                     effectiveTicket = ensureFetchForCollector(collectorPlan)
                     snapshot = residenceSnapshot()
-                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope, memoryRevision)
                     plan = collectorPlan.plan
                 }
                 afterInitialPlanningSnapshotTestGate()
@@ -1867,6 +2316,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     ) {
                         deliverDataLocked(
                             reservedCollectorEnvelope,
+                            revision = reservedCollectorRevision,
                             authority = DataDeliveryAuthority.CollectorBaseline,
                         )
                     } else {
@@ -1887,7 +2337,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     }
                 if (pendingSettledTailAtRecapture) {
                     snapshot = residenceSnapshot()
-                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope, memoryRevision)
                     plan = collectorPlan.plan
                 }
                 val completedOuterOutcome =
@@ -1927,7 +2377,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             RevalidatedDelivery.Delivered -> null
                             RevalidatedDelivery.Obsolete -> {
                                 snapshot = residenceSnapshot()
-                                collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                                collectorPlan =
+                                    collectorPlanFor(snapshot, memoryEnvelope, memoryRevision)
                                 plan = collectorPlan.plan
                                 if (plan is FetchPlan.Skip) {
                                     null
@@ -1937,7 +2388,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             }
                         }
                     snapshot = residenceSnapshot()
-                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope, memoryRevision)
                     plan = collectorPlan.plan
                 }
                 if (completedOuterOutcome is FetchOutcome.Committed) {
@@ -1974,7 +2425,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         effectiveTicket = replacement
                     }
                     snapshot = residenceSnapshot()
-                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope, memoryRevision)
                     plan = collectorPlan.plan
                 }
                 var initialPublicDeliveryCompleted =
@@ -1996,7 +2447,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     val candidate = effectiveTicket ?: break
                     if (candidate === ticket && observedOuterOutcome != null) break
                     snapshot = residenceSnapshot()
-                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope, memoryRevision)
                     plan = collectorPlan.plan
                     val disposition = candidate.disposition.value
                     if (disposition is FetchDisposition.InFlight) break
@@ -2010,9 +2461,10 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         if (originalServableBaseline) {
                             deliverDataLocked(
                                 envelope = checkNotNull(reservedCollectorEnvelope),
+                                revision = reservedCollectorRevision,
                                 originOverride =
                                     if (
-                                        canRestampMemoryOrigin(
+                                        canRestampEngineMemoryOrigin(
                                             memoryEnvelope = memoryEnvelope,
                                             memoryRevision = memoryRevision,
                                             currentEnvelope = snapshot.envelope,
@@ -2074,13 +2526,19 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                     )
                                 val currentSatisfiesDemand =
                                     revalidatedSatisfiesDemand(snapshot, currentPlan)
+                                // Revalidated publishes before its bookkeeping/outcome tail. The
+                                // old durable status cannot supersede an owner covering this epoch.
+                                val exactOwnerCoversCurrentEpoch =
+                                    disposition.envelope.staleEpochAtCommit >=
+                                        snapshot.state.staleEpoch
                                 val replacement =
-                                    if (currentSatisfiesDemand) {
+                                    if (currentSatisfiesDemand || exactOwnerCoversCurrentEpoch) {
                                         null
                                     } else {
                                         ensureFetchForCollector(
                                             CollectorFetchPlan(
                                                 eligibleEnvelope = baseline.envelope,
+                                                eligibleRevision = baseline.revision,
                                                 plan = baseline.plan,
                                                 currentIsForeignOwner =
                                                     snapshot.envelope
@@ -2090,13 +2548,18 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                         )
                                     }
                                 revalidationReplacementReservedBeforeTail = replacement
-                                if (currentSatisfiesDemand || replacement != null) {
+                                if (
+                                    currentSatisfiesDemand ||
+                                    exactOwnerCoversCurrentEpoch ||
+                                    replacement != null
+                                ) {
                                     if (
                                         baseline.envelope != null &&
                                         baseline.plan.servesResident
                                     ) {
                                         deliverDataLocked(
                                             baseline.envelope,
+                                            revision = baseline.revision,
                                             authority = DataDeliveryAuthority.CollectorBaseline,
                                         )
                                     } else {
@@ -2123,7 +2586,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
                     val outcome = candidate.outcome.await()
                     snapshot = residenceSnapshot()
-                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope, memoryRevision)
                     plan = collectorPlan.plan
                     when (outcome) {
                         is FetchOutcome.Committed -> {
@@ -2160,7 +2623,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
                                 RevalidatedDelivery.Obsolete -> {
                                     snapshot = residenceSnapshot()
-                                    collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                                    collectorPlan =
+                                        collectorPlanFor(snapshot, memoryEnvelope, memoryRevision)
                                     plan = collectorPlan.plan
                                     effectiveTicket =
                                         if (plan is FetchPlan.Skip) {
@@ -2198,7 +2662,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             break@replacementClassification
                         }
 
-                        FetchOutcome.Deleted -> {
+                        is FetchOutcome.Deleted -> {
                             handleOutcomeLocked(candidate, outcome, false)
                             effectiveTicket = null
                             initialPublicDeliveryCompleted = true
@@ -2217,7 +2681,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     }
                 }
                 snapshot = residenceSnapshot()
-                collectorPlan = collectorPlanFor(snapshot, memoryEnvelope)
+                collectorPlan = collectorPlanFor(snapshot, memoryEnvelope, memoryRevision)
                 plan = collectorPlan.plan
                 // A commit can land after the earlier outcome snapshot. Recognize only this
                 // ticket's exact writer envelope before generic residence delivery so an absent
@@ -2249,7 +2713,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         envelope = reservedCollectorEnvelope,
                     )
                 val memoryOverride =
-                    canRestampMemoryOrigin(
+                    canRestampEngineMemoryOrigin(
                         memoryEnvelope = memoryEnvelope,
                         memoryRevision = memoryRevision,
                         currentEnvelope = snapshot.envelope,
@@ -2289,13 +2753,14 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         revalidatedSatisfiesDemand(snapshot, currentResidencePlan) ->
                         deliverDataLocked(
                             envelope = reservedCollectorEnvelope,
+                            revision = reservedCollectorRevision,
                             originOverride =
                                 if (
-                                    canRestampMemoryOrigin(
+                                    canRestampEngineMemoryOrigin(
                                         memoryEnvelope = memoryEnvelope,
                                         memoryRevision = memoryRevision,
                                         currentEnvelope = reservedCollectorEnvelope,
-                                        currentRevision = checkNotNull(ticket).requestRevision,
+                                        currentRevision = reservedCollectorRevision,
                                     )
                                 ) {
                                     Origin.MEMORY
@@ -2317,6 +2782,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         plan.servesResident ->
                         deliverDataLocked(
                             envelope = collectorPlan.eligibleEnvelope,
+                            revision = collectorPlan.eligibleRevision,
                             originOverride =
                                 if (collectorPlan.eligibleEnvelope === memoryEnvelope) {
                                     Origin.MEMORY
@@ -2329,12 +2795,21 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     collectorPlan.currentIsForeignOwner -> emitLoadingLocked()
 
                     freshness == Freshness.LocalOnly && collectorPlan.eligibleEnvelope == null -> {
-                        if (startupReaderFailure == null) emitLocalOnlyMissingLocked()
+                        if (startupReaderFailure == null) {
+                            if (snapshot.envelope == null) {
+                                deliverAbsenceLocked(snapshot.revision) {
+                                    emitLocalOnlyMissingLocked()
+                                }
+                            } else {
+                                emitLocalOnlyMissingLocked()
+                            }
+                        }
                     }
 
                     collectorPlan.eligibleEnvelope != null && plan.servesResident ->
                         deliverDataLocked(
                             envelope = collectorPlan.eligibleEnvelope,
+                            revision = collectorPlan.eligibleRevision,
                             originOverride = if (memoryOverride) Origin.MEMORY else null,
                             authority =
                                 if (
@@ -2347,7 +2822,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                 },
                         )
 
-                    else -> emitLoadingLocked()
+                    else -> {
+                        if (snapshot.envelope == null && startupReaderFailure == null) {
+                            deliverAbsenceLocked(snapshot.revision) { emitLoadingLocked() }
+                        } else {
+                            emitLoadingLocked()
+                        }
+                    }
                 }
                 startupReaderFailure?.let { emitErrorLocked(it) }
                 if (
@@ -2390,6 +2871,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     ensureFetchForCollector(
                         CollectorFetchPlan(
                             eligibleEnvelope = snapshot.envelope,
+                            eligibleRevision = snapshot.revision,
                             plan = plan,
                             currentIsForeignOwner = false,
                         ),
@@ -2434,11 +2916,15 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             serverDeletionObserved = false
             val envelope = checkNotNull(snapshot.envelope)
             when {
-                demandSatisfied -> emitRevalidatedLocked(outcome, envelope)
+                demandSatisfied ->
+                    if (!emitRevalidatedLocked(outcome, envelope)) {
+                        return RevalidatedDelivery.Obsolete
+                    }
 
                 plan.servesResident ->
                     deliverDataLocked(
                         envelope,
+                        revision = outcome.residenceRevision,
                         authority = DataDeliveryAuthority.OwnerOutcome,
                     )
                 else -> emitLoadingLocked()
@@ -2456,16 +2942,80 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         private suspend fun emitRevalidatedLocked(
             outcome: FetchOutcome.Revalidated,
             envelope: ValueEnvelope<V>,
-        ) {
-            producer.send(StoreResult.Revalidated(outcome.age))
-            lastDataFingerprint = DataFingerprint(envelope)
-            publicHasValue = true
-            loadingVisible = false
-            localOnlyMissingEmitted = false
-            publicServedStale = false
-            servedStaleForWatchedTicket = false
+        ): Boolean {
+            if (overlay == null) {
+                producer.send(StoreResult.Revalidated(outcome.age))
+                telemetry?.onServe(key, envelope.origin)
+                lastDataFingerprint = DataFingerprint(envelope)
+                lastConfirmedRevision = outcome.residenceRevision
+                publicHasValue = true
+                loadingVisible = false
+                localOnlyMissingEmitted = false
+                publicServedStale = false
+                servedStaleForWatchedTicket = false
+                terminalFailedDemand = null
+                lastRevalidationRequestedRevision = outcome.residenceRevision
+                return true
+            }
+
+            val authorization =
+                projectionAuthorization(
+                    base = ProjectionBase(envelope, outcome.residenceRevision),
+                    originOverride = null,
+                    authority = DataDeliveryAuthority.OwnerOutcome,
+                )
+            val previousAuthorization = projectionAuthorization
+            projectionAuthorization = authorization
+            val readiness = awaitProjectionReadiness(authorization)
+            if (readiness is ProjectionReadiness.Obsolete) {
+                revokeObsoleteProjectionAuthorization(authorization, previousAuthorization)
+                return false
+            }
+            val projection = (readiness as ProjectionReadiness.Ready).projection
+            val revalidatedOrigin =
+                when (projection) {
+                    is Projection.Value -> {
+                        val previousValue =
+                            lastDataFingerprint?.let { fingerprint ->
+                                if (fingerprint.isOverlaid) {
+                                    fingerprint.overlaidValue
+                                } else {
+                                    fingerprint.envelope?.value
+                                }
+                            }
+                        if (!publicHasValue || previousValue != envelope.value) {
+                            deliverConfirmedDataLocked(
+                                envelope = envelope,
+                                revision = outcome.residenceRevision,
+                                authority = DataDeliveryAuthority.OwnerOutcome,
+                            )
+                        } else {
+                            lastDataFingerprint = DataFingerprint(envelope)
+                            lastConfirmedRevision = outcome.residenceRevision
+                            publicHasValue = true
+                            loadingVisible = false
+                            localOnlyMissingEmitted = false
+                            publicServedStale = false
+                            servedStaleForWatchedTicket = false
+                        }
+                        envelope.origin
+                    }
+
+                    is Projection.Overlaid -> {
+                        renderOverlaidLocked(authorization, projection.value)
+                        Origin.OVERLAY
+                    }
+
+                    Projection.Absent -> {
+                        emitLoadingLocked(preserveProjectionAuthorization = true)
+                        null
+                    }
+                }
+            revalidatedOrigin?.let { telemetry?.onServe(key, it) }
             terminalFailedDemand = null
             lastRevalidationRequestedRevision = outcome.residenceRevision
+            producer.send(StoreResult.Revalidated(outcome.age))
+            return true
         }
 
         private fun revalidatedSatisfiesDemand(
@@ -2514,6 +3064,32 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             mutex.withLock { emitErrorLocked(exception, servedStaleOverride = false) }
         }
 
+        suspend fun deliverTerminalOutcome(outcome: FetchOutcome) {
+            mutex.withLock { surfaceTerminalOutcomeLocked(outcome, servedStaleForTicket = false) }
+        }
+
+        /** Starts the configured projection observer once, including before a MustBeFresh wait. */
+        fun startProjectionObserver() {
+            val snapshots = projectionSnapshot ?: return
+            if (projectionObserverStarted) return
+            projectionObserverStarted = true
+            producer.launch {
+                snapshots.collect { snapshot ->
+                    if (
+                        snapshot is ProjectionSnapshot.Ready ||
+                        snapshot is ProjectionSnapshot.Terminal
+                    ) {
+                        beforeProjectionDeliveryLockTestGate()
+                        mutex.withLock {
+                            beforeProjectionDeliveryTestGate()
+                            deliverProjectionSnapshotLocked(snapshot)
+                            afterProjectionDeliveryTestGate()
+                        }
+                    }
+                }
+            }
+        }
+
         fun start(
             planningEpoch: Long,
             initialTicket: FetchTicket?,
@@ -2530,6 +3106,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             producer.launch {
                 readerRecords.collect { record -> deliverRecord(record) }
             }
+            startProjectionObserver()
             producer.launch {
                 initialTicket?.let { ticket ->
                     val outcome = awaitTicketOutcome(ticket)
@@ -2551,6 +3128,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         }
 
         private suspend fun deliverRecord(record: ReaderRecord<V>) {
+            beforeReaderDeliveryLockTestGate(record)
             mutex.withLock {
                 beforeReaderDeliveryTestGate()
                 if (record !is ReaderRecord.Failure) latestReaderRecord = record
@@ -2765,6 +3343,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 demandSatisfied && eligibleEnvelope != null ->
                     deliverDataLocked(
                         eligibleEnvelope,
+                        revision = collectorPlan.eligibleRevision,
                         authority =
                             if (eligibleEnvelope.directRevalidationOwner != null) {
                                 DataDeliveryAuthority.CollectorBaseline
@@ -2776,6 +3355,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 rowPlan.servesResident && eligibleEnvelope != null ->
                     deliverDataLocked(
                         eligibleEnvelope,
+                        revision = collectorPlan.eligibleRevision,
                         authority =
                             if (eligibleEnvelope.directRevalidationOwner != null) {
                                 DataDeliveryAuthority.CollectorBaseline
@@ -2788,9 +3368,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             flushPendingFailureHandoffsLocked()
         }
 
-        /** Suppresses only an already-mapped pre-outcome absence while its writer echo catches up. */
+        /** Defers an absence already owned by an in-flight commit or authoritative delete outcome. */
         private suspend fun deliverAbsentLocked(notification: ReaderRecord.Absent) {
             val pendingTicket = watchedTicket
+            // The authoritative Deleted outcome owns exact-absence projection and its terminal
+            // Missing error. A restarted reader can observe the committed null first; letting that
+            // record replan here would insert Loading between the optimistic projection and error.
+            if (pendingTicket?.disposition?.value == FetchDisposition.Deleted) return
             if (pendingTicket != null && !pendingTicket.outcome.isCompleted) {
                 val committing =
                     pendingTicket.disposition.value as? FetchDisposition.Committing
@@ -2808,7 +3392,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             if (committedWait != null) clearCommittedWaitLocked(committedWait)
             suppressMissingUntilReaderRecovery = false
             if (publicHasValue || freshness != Freshness.LocalOnly) {
-                emitLoadingLocked()
+                deliverAbsenceLocked(notification.residenceRevision) { emitLoadingLocked() }
             }
             if (pendingFailureHandoffs.isNotEmpty()) {
                 flushPendingFailureHandoffsLocked()
@@ -2832,21 +3416,31 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         }
 
         private suspend fun deliverCurrentPlanStateLocked() {
-            val snapshot = residenceSnapshot()
-            val collectorPlan = collectorPlanFor(snapshot)
-            val eligibleEnvelope = collectorPlan.eligibleEnvelope
-            if (eligibleEnvelope != null && collectorPlan.plan.servesResident) {
-                deliverDataLocked(
-                    eligibleEnvelope,
-                    authority =
-                        if (eligibleEnvelope.directRevalidationOwner != null) {
-                            DataDeliveryAuthority.CollectorBaseline
-                        } else {
-                            DataDeliveryAuthority.Generic
-                        },
-                )
-            } else {
-                emitLoadingLocked()
+            while (true) {
+                val snapshot = residenceSnapshot()
+                val collectorPlan = collectorPlanFor(snapshot)
+                val eligibleEnvelope = collectorPlan.eligibleEnvelope
+                val decision =
+                    if (eligibleEnvelope != null && collectorPlan.plan.servesResident) {
+                        deliverDataLocked(
+                            eligibleEnvelope,
+                            revision = collectorPlan.eligibleRevision,
+                            authority =
+                                if (eligibleEnvelope.directRevalidationOwner != null) {
+                                    DataDeliveryAuthority.CollectorBaseline
+                                } else {
+                                    DataDeliveryAuthority.Generic
+                                },
+                        )
+                    } else if (snapshot.envelope == null && startupReaderFailure == null) {
+                        deliverAbsenceLocked(snapshot.revision) { emitLoadingLocked() }
+                    } else {
+                        emitLoadingLocked()
+                        return
+                    }
+                if (decision != DataDeliveryDecision.ObsoleteProjection) {
+                    return
+                }
             }
         }
 
@@ -2861,7 +3455,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 Freshness.StaleIfError,
                 Freshness.MustBeFresh,
                 ->
-                    envelope.origin == Origin.FETCHER &&
+                    isEngineConfirmedEnvelope(envelope) &&
                         envelope.meta != null &&
                         envelope.staleEpochAtCommit >= state.staleEpoch
 
@@ -3050,6 +3644,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 if (envelope != null) {
                     deliverDataLocked(
                         envelope,
+                        revision = collectorPlan.eligibleRevision,
                         authority =
                             if (envelope.directRevalidationOwner != null) {
                                 DataDeliveryAuthority.CollectorBaseline
@@ -3058,8 +3653,15 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             },
                     )
                 } else if (!suppressMissingUntilReaderRecovery) {
-                    if (publicHasValue) emitLoadingLocked()
-                    emitLocalOnlyMissingLocked()
+                    if (overlay != null && snapshot.envelope == null) {
+                        deliverAbsenceLocked(snapshot.revision) {
+                            if (publicHasValue) emitLoadingLocked()
+                            emitLocalOnlyMissingLocked()
+                        }
+                    } else {
+                        if (publicHasValue) emitLoadingLocked()
+                        emitLocalOnlyMissingLocked()
+                    }
                 }
                 return
             }
@@ -3087,6 +3689,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     if (!suppressResidentIfVisible || !sameResidenceAlreadyVisible) {
                         deliverDataLocked(
                             eligibleEnvelope,
+                            revision = collectorPlan.eligibleRevision,
                             authority =
                                 if (eligibleEnvelope.directRevalidationOwner != null) {
                                     DataDeliveryAuthority.CollectorBaseline
@@ -3102,6 +3705,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 eligibleEnvelope != null && plan is FetchPlan.Skip ->
                     deliverDataLocked(
                         eligibleEnvelope,
+                        revision = collectorPlan.eligibleRevision,
                         authority =
                             if (eligibleEnvelope.directRevalidationOwner != null) {
                                 DataDeliveryAuthority.CollectorBaseline
@@ -3250,7 +3854,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     }
                 }
 
-                FetchOutcome.Deleted -> {
+                is FetchOutcome.Deleted -> {
                     serverDeletionObserved = true
                     surfaceTerminalOutcomeLocked(outcome, servedStaleForTicket)
                 }
@@ -3264,14 +3868,29 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             servedStaleForTicket: Boolean,
         ) {
             when (outcome) {
-                is FetchOutcome.Failed ->
+                is FetchOutcome.Failed -> {
+                    if (overlay != null) {
+                        deliverCurrentPlanStateLocked()
+                    }
                     emitErrorLocked(
                         outcome.exception,
-                        servedStaleOverride = servedStaleForTicket,
+                        servedStaleOverride =
+                            if (overlay == null) servedStaleForTicket else publicServedStale,
                     )
+                }
 
-                FetchOutcome.Deleted -> {
-                    emitLoadingLocked()
+                is FetchOutcome.Deleted -> {
+                    if (overlay == null) {
+                        emitLoadingLocked()
+                    } else {
+                        val rendered =
+                            deliverAbsenceLocked(outcome.residenceRevision) {
+                                emitLoadingLocked()
+                            }
+                        if (rendered == DataDeliveryDecision.ObsoleteProjection) {
+                            deliverCurrentPlanStateLocked()
+                        }
+                    }
                     emitErrorLocked(serverDeletedException(), servedStaleOverride = false)
                 }
 
@@ -3281,6 +3900,58 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
         private suspend fun deliverDataLocked(
             envelope: ValueEnvelope<V>,
+            revision: Long,
+            originOverride: Origin? = null,
+            authority: DataDeliveryAuthority = DataDeliveryAuthority.Generic,
+        ): DataDeliveryDecision {
+            if (overlay == null) {
+                return deliverConfirmedDataLocked(
+                    envelope = envelope,
+                    revision = revision,
+                    originOverride = originOverride,
+                    authority = authority,
+                )
+            }
+            val existingAuthorization = projectionAuthorization
+            if (
+                envelope.directRevalidationOwner != null &&
+                authority == DataDeliveryAuthority.Generic &&
+                !(
+                    publicHasValue &&
+                        existingAuthorization?.base?.envelope === envelope &&
+                        existingAuthorization.base.revision == revision
+                )
+            ) {
+                refreshVisibleStaleOwnershipLocked()
+                return DataDeliveryDecision.ForeignDirectRevalidation
+            }
+
+            val authorization =
+                projectionAuthorization(
+                    base = ProjectionBase(envelope, revision),
+                    originOverride = originOverride,
+                    authority = authority,
+                )
+            val previousAuthorization = projectionAuthorization
+            projectionAuthorization = authorization
+            return when (val readiness = awaitProjectionReadiness(authorization)) {
+                is ProjectionReadiness.Ready ->
+                    renderProjectionLocked(
+                        authorization = authorization,
+                        projection = readiness.projection,
+                    )
+
+                ProjectionReadiness.Obsolete -> {
+                    revokeObsoleteProjectionAuthorization(authorization, previousAuthorization)
+                    DataDeliveryDecision.ObsoleteProjection
+                }
+            }
+        }
+
+        /** Landed confirmed-value renderer, also used by pass-through projection intent. */
+        private suspend fun deliverConfirmedDataLocked(
+            envelope: ValueEnvelope<V>,
+            revision: Long,
             originOverride: Origin? = null,
             authority: DataDeliveryAuthority = DataDeliveryAuthority.Generic,
         ): DataDeliveryDecision {
@@ -3306,6 +3977,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     refreshingOverride = refreshing,
                 )
             if (lastDataFingerprint == fingerprint && publicHasValue) {
+                lastConfirmedRevision = revision
                 publicServedStale = data.isStale && staleServingTolerated(freshness)
                 if (watchedTicket != null) {
                     servedStaleForWatchedTicket = publicServedStale
@@ -3313,7 +3985,9 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 return DataDeliveryDecision.AlreadyVisible
             }
             producer.send(data)
+            telemetry?.onServe(key, data.origin)
             lastDataFingerprint = fingerprint
+            lastConfirmedRevision = revision
             publicHasValue = true
             loadingVisible = false
             localOnlyMissingEmitted = false
@@ -3322,6 +3996,218 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 servedStaleForWatchedTicket = publicServedStale
             }
             return DataDeliveryDecision.Delivered
+        }
+
+        /** Authorizes exact confirmed absence and renders only its matching ready projection. */
+        private suspend fun deliverAbsenceLocked(
+            revision: Long,
+            absent: suspend () -> Unit,
+        ): DataDeliveryDecision {
+            if (overlay == null) {
+                absent()
+                return DataDeliveryDecision.Absent
+            }
+            val authorization =
+                projectionAuthorization(
+                    base = ProjectionBase(envelope = null, revision = revision),
+                    originOverride = null,
+                    authority = DataDeliveryAuthority.Generic,
+                )
+            val previousAuthorization = projectionAuthorization
+            projectionAuthorization = authorization
+            return when (val readiness = awaitProjectionReadiness(authorization)) {
+                is ProjectionReadiness.Ready ->
+                    renderProjectionLocked(
+                        authorization = authorization,
+                        projection = readiness.projection,
+                    )
+
+                ProjectionReadiness.Obsolete -> {
+                    revokeObsoleteProjectionAuthorization(authorization, previousAuthorization)
+                    DataDeliveryDecision.ObsoleteProjection
+                }
+            }
+        }
+
+        /** Builds an exact authorization and targets any already-accepted matching generation. */
+        private fun projectionAuthorization(
+            base: ProjectionBase<V>,
+            originOverride: Origin?,
+            authority: DataDeliveryAuthority,
+        ): ProjectionAuthorization<V> {
+            val snapshot = checkNotNull(projectionSnapshot).value
+            val targetGeneration =
+                when (snapshot) {
+                    is ProjectionSnapshot.Pending ->
+                        snapshot.generation.takeIf { snapshot.base.matches(base) }
+
+                    is ProjectionSnapshot.Ready ->
+                        snapshot.generation.takeIf { snapshot.base.matches(base) }
+
+                    is ProjectionSnapshot.Terminal -> snapshot.generation
+                    ProjectionSnapshot.Uninitialized -> null
+                } ?: 0L
+            return ProjectionAuthorization(
+                base = base,
+                originOverride = originOverride,
+                authority = authority,
+                targetGeneration = targetGeneration,
+            )
+        }
+
+        /** Waits on snapshot and residence flows only; no engine lock is reacquired. */
+        private suspend fun awaitProjectionReadiness(
+            authorization: ProjectionAuthorization<V>,
+        ): ProjectionReadiness<V> {
+            val snapshots = checkNotNull(projectionSnapshot)
+            val residences = checkNotNull(projectionResidence)
+            while (true) {
+                val residence = residences.value
+                if (!residence.base.matches(authorization.base)) {
+                    return ProjectionReadiness.Obsolete
+                }
+                val snapshot = snapshots.value
+                when (snapshot) {
+                    is ProjectionSnapshot.Terminal ->
+                        throw OverlayProjectionException(snapshot.failure)
+
+                    is ProjectionSnapshot.Pending ->
+                        if (snapshot.base.matches(authorization.base)) {
+                            authorization.targetGeneration =
+                                maxOf(authorization.targetGeneration, snapshot.generation)
+                        }
+
+                    is ProjectionSnapshot.Ready ->
+                        if (
+                            snapshot.base.matches(authorization.base) &&
+                            snapshot.generation >= authorization.targetGeneration
+                        ) {
+                            authorization.targetGeneration =
+                                maxOf(authorization.targetGeneration, snapshot.generation)
+                            return ProjectionReadiness.Ready(snapshot.projection)
+                        }
+
+                    ProjectionSnapshot.Uninitialized -> Unit
+                }
+
+                val observedSnapshot = snapshot
+                val observedResidence = residence
+                beforeProjectionReadinessWaitTestGate()
+                combine(snapshots, residences) { nextSnapshot, nextResidence ->
+                    nextSnapshot to nextResidence
+                }.first { (nextSnapshot, nextResidence) ->
+                    nextSnapshot !== observedSnapshot || nextResidence !== observedResidence
+                }
+            }
+        }
+
+        /** Applies one projection through the collector's retained policy/render context. */
+        private suspend fun renderProjectionLocked(
+            authorization: ProjectionAuthorization<V>,
+            projection: Projection<V>,
+        ): DataDeliveryDecision =
+            when (projection) {
+                is Projection.Value ->
+                    deliverConfirmedDataLocked(
+                        envelope = checkNotNull(authorization.base.envelope),
+                        revision = authorization.base.revision,
+                        originOverride = authorization.originOverride,
+                        authority = authorization.authority,
+                    )
+
+                is Projection.Overlaid -> renderOverlaidLocked(authorization, projection.value)
+                Projection.Absent -> {
+                    emitLoadingLocked(preserveProjectionAuthorization = true)
+                    DataDeliveryDecision.Absent
+                }
+            }
+
+        /** Renders overlay-created data and derives stale-error posture from the authorized base. */
+        private suspend fun renderOverlaidLocked(
+            authorization: ProjectionAuthorization<V>,
+            value: V,
+        ): DataDeliveryDecision {
+            val fingerprint =
+                DataFingerprint(
+                    envelope = authorization.base.envelope,
+                    overlaidValue = value,
+                    isOverlaid = true,
+                )
+            val baseServedStale =
+                authorization.base.envelope?.let { envelope ->
+                    toData(
+                        envelope = envelope,
+                        freshness = freshness,
+                        originOverride = authorization.originOverride,
+                    ).isStale && staleServingTolerated(freshness)
+                } == true
+            val samePublicProjection =
+                publicHasValue &&
+                    lastDataFingerprint?.isOverlaid == true &&
+                    lastDataFingerprint?.overlaidValue == value
+            if (samePublicProjection) {
+                lastDataFingerprint = fingerprint
+                lastConfirmedRevision = authorization.base.revision
+                publicServedStale = baseServedStale
+                if (watchedTicket != null) servedStaleForWatchedTicket = publicServedStale
+                return DataDeliveryDecision.AlreadyVisible
+            }
+            val data =
+                StoreResult.Data(
+                    value = value,
+                    origin = Origin.OVERLAY,
+                    age = Duration.ZERO,
+                    isStale = false,
+                    refreshing = state.value.fetch is FetchSlot.InFlight,
+                )
+            producer.send(data)
+            telemetry?.onServe(key, Origin.OVERLAY)
+            lastDataFingerprint = fingerprint
+            lastConfirmedRevision = authorization.base.revision
+            publicHasValue = true
+            loadingVisible = false
+            localOnlyMissingEmitted = false
+            publicServedStale = baseServedStale
+            if (watchedTicket != null) servedStaleForWatchedTicket = publicServedStale
+            return DataDeliveryDecision.Delivered
+        }
+
+        /** Reprojects an active authorization or applies the referential foreign-owner exception. */
+        private suspend fun deliverProjectionSnapshotLocked(snapshot: ProjectionSnapshot<V>) {
+            if (checkNotNull(projectionSnapshot).value !== snapshot) return
+            if (snapshot is ProjectionSnapshot.Terminal) {
+                throw OverlayProjectionException(snapshot.failure)
+            }
+            val ready = snapshot as? ProjectionSnapshot.Ready<V> ?: return
+            val authorization = projectionAuthorization ?: return
+            val currentBase = checkNotNull(projectionResidence).value.base
+            if (!ready.base.matches(currentBase)) return
+            if (ready.generation < authorization.targetGeneration) return
+            when {
+                ready.base.matches(authorization.base) ->
+                    renderProjectionLocked(authorization, ready.projection)
+
+                publicHasValue &&
+                    ready.base.envelope?.directRevalidationOwner != null &&
+                    authorization.base.envelope != null &&
+                    ready.base.envelope.value === authorization.base.envelope.value ->
+                    renderProjectionLocked(authorization, ready.projection)
+            }
+        }
+
+        private fun revokeObsoleteProjectionAuthorization(
+            authorization: ProjectionAuthorization<V>,
+            previousAuthorization: ProjectionAuthorization<V>?,
+        ) {
+            if (projectionAuthorization !== authorization) return
+            val current = checkNotNull(projectionResidence).value.base.envelope
+            projectionAuthorization =
+                previousAuthorization?.takeIf { previous ->
+                    current?.directRevalidationOwner != null &&
+                        publicHasValue &&
+                        lastDataFingerprint?.envelope === previous.base.envelope &&
+                        lastConfirmedRevision == previous.base.revision
+                }
         }
 
         private fun refreshVisibleStaleOwnershipLocked() {
@@ -3339,7 +4225,10 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             }
         }
 
-        private suspend fun emitLoadingLocked() {
+        private suspend fun emitLoadingLocked(
+            preserveProjectionAuthorization: Boolean = false,
+        ) {
+            if (!preserveProjectionAuthorization) projectionAuthorization = null
             if (loadingVisible) return
             producer.send(StoreResult.Loading())
             loadingVisible = true
@@ -3388,7 +4277,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             val plan = planFor(freshness, snapshot)
 
             if (plan is FetchPlan.Skip) {
-                return envelope?.value ?: throw localOnlyMissingException()
+                return envelope?.let { serve(it.value, it.origin) }
+                    ?: throw localOnlyMissingException()
             }
 
             if (
@@ -3397,14 +4287,15 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 freshness != Freshness.StaleIfError
             ) {
                 ensureFetch(freshness)
-                return envelope.value
+                return serve(envelope.value, envelope.origin)
             }
 
             val ticket = ensureFetch(freshness) ?: continue
             val outcome = ticket.outcome.await()
             beforeTicketOutcomeDeliveryTestGate()
             when (outcome) {
-                is FetchOutcome.Committed -> return committedValue(outcome)
+                is FetchOutcome.Committed ->
+                    return serve(committedValue(outcome), outcome.attribution.origin)
 
                 is FetchOutcome.Revalidated -> {
                     val snapshot = residenceSnapshot()
@@ -3415,7 +4306,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                 snapshot = snapshot,
                             )
                         if (revalidatedSatisfiesDemand(freshness, snapshot, plan)) {
-                            snapshot.envelope?.let { return it.value }
+                            snapshot.envelope?.let { return serve(it.value, it.origin) }
                         }
                     }
                 }
@@ -3424,19 +4315,28 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
                 is FetchOutcome.Failed ->
                     if (freshness == Freshness.StaleIfError && envelope != null) {
-                        return envelope.value
+                        return serve(envelope.value, envelope.origin)
                     } else {
                         throw outcome.exception
                     }
 
                 FetchOutcome.Superseded -> throw supersededException()
-                FetchOutcome.Deleted -> throw serverDeletedException()
+                is FetchOutcome.Deleted -> throw serverDeletedException()
             }
         }
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun committedValue(outcome: FetchOutcome.Committed): V = outcome.value as V
+
+    /** Reports one successful caller-context serve without altering the returned value. */
+    private fun serve(
+        value: V,
+        origin: Origin,
+    ): V {
+        telemetry?.onServe(key, origin)
+        return value
+    }
 
     /** Renders nullable metadata conservatively while retaining saturating landed age behavior. */
     private fun toData(
@@ -3489,6 +4389,17 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 "The fetch succeeded but the source of truth rejected the write; inspect the " +
                 "cause and retry the read."
         return StoreException(StoreError.Persistence(message, failure), failure)
+    }
+
+    private fun writeHandleException(failure: Throwable): StoreException {
+        val message =
+            "Write-handle apply failed for key '${keyId.namespace}/${keyId.canonicalId}': " +
+                "${failure.message}. The source of truth rejected the write; state is unchanged. " +
+                "Inspect the cause and retry."
+        return StoreException(
+            error = StoreError.Persistence(message = message, cause = failure),
+            cause = failure,
+        )
     }
 
     private fun clearPersistenceException(failure: Throwable): StoreException {
@@ -3572,12 +4483,14 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private data class PlannedFetchEffect<V : Any>(
         val effect: KeyEffect,
         val collectorEligibleResidence: ValueEnvelope<V>?,
+        val collectorEligibleRevision: Long,
         val plan: FetchPlan,
     )
 
     private data class FetchReservation<V : Any>(
         val ticket: FetchTicket,
         val collectorEligibleResidence: ValueEnvelope<V>?,
+        val collectorEligibleRevision: Long,
         val plan: FetchPlan,
     )
 
@@ -3585,6 +4498,11 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private class RawObservationFailure(
         val engineFailure: Throwable,
     ) : RuntimeException(engineFailure)
+
+    /** Converts self-originated flow cancellation into a terminal no-failure-contract breach. */
+    private class ProjectionChangesFailure(
+        val projectionCause: CancellationException,
+    ) : RuntimeException(projectionCause)
 
     /** Raw observations made while one exact SoT write is active. */
     private sealed interface ActiveRawPhase {
@@ -3689,13 +4607,27 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
     private data class CollectorFetchPlan<V : Any>(
         val eligibleEnvelope: ValueEnvelope<V>?,
+        val eligibleRevision: Long,
         val plan: FetchPlan,
         val currentIsForeignOwner: Boolean,
     )
 
     private data class TicketLaunchBaseline<V : Any>(
         val envelope: ValueEnvelope<V>?,
+        val revision: Long,
         val plan: FetchPlan,
+    )
+
+    private data class EligibleBaseline<V : Any>(
+        val envelope: ValueEnvelope<V>?,
+        val revision: Long,
+    )
+
+    private class ProjectionAuthorization<V : Any>(
+        val base: ProjectionBase<V>,
+        val originOverride: Origin?,
+        val authority: DataDeliveryAuthority,
+        var targetGeneration: Long,
     )
 
     private data class TicketLaunchBaselineEntry<V : Any>(
@@ -3713,6 +4645,16 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         Delivered,
         AlreadyVisible,
         ForeignDirectRevalidation,
+        Absent,
+        ObsoleteProjection,
+    }
+
+    private sealed interface ProjectionReadiness<out V : Any> {
+        class Ready<V : Any>(
+            val projection: Projection<V>,
+        ) : ProjectionReadiness<V>
+
+        data object Obsolete : ProjectionReadiness<Nothing>
     }
 
     private sealed interface RevalidatedDelivery {
@@ -3742,8 +4684,45 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     )
 
     private data class DataFingerprint<V : Any>(
-        val envelope: ValueEnvelope<V>,
+        val envelope: ValueEnvelope<V>?,
+        val overlaidValue: V? = null,
+        val isOverlaid: Boolean = false,
     )
+}
+
+/** Exact residence identity and revision used by one projection attempt. */
+private class ProjectionBase<V : Any>(
+    val envelope: ValueEnvelope<V>?,
+    val revision: Long,
+) {
+    fun matches(other: ProjectionBase<V>): Boolean =
+        envelope === other.envelope && revision == other.revision
+}
+
+/** Immediate latest-residence signal used to obsolete readiness waits without an engine lock. */
+private class ProjectionResidence<V : Any>(
+    val base: ProjectionBase<V>,
+)
+
+/** Latest state of the one engine-owned projection writer. */
+private sealed interface ProjectionSnapshot<out V : Any> {
+    data object Uninitialized : ProjectionSnapshot<Nothing>
+
+    class Pending<V : Any>(
+        val base: ProjectionBase<V>,
+        val generation: Long,
+    ) : ProjectionSnapshot<V>
+
+    class Ready<V : Any>(
+        val base: ProjectionBase<V>,
+        val generation: Long,
+        val projection: Projection<V>,
+    ) : ProjectionSnapshot<V>
+
+    class Terminal(
+        val generation: Long,
+        val failure: Throwable,
+    ) : ProjectionSnapshot<Nothing>
 }
 
 /** MEMORY is honest only while the exact envelope and its monotone revision remain current. */

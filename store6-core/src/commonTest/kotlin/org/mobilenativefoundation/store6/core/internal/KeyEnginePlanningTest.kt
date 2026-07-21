@@ -15,15 +15,23 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.FakeWallClock
-import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreError
+import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreMeta
+import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.TestKey
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.FetchPlan
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
+import org.mobilenativefoundation.store6.core.seam.FreshnessContext
+import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import org.mobilenativefoundation.store6.core.SingleRowTestSourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
@@ -37,7 +45,7 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
-@OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class KeyEnginePlanningTest {
     @Test
     fun hydration_reusesWrittenAtButStripsOldEtagAfterExternalReplacement() = runTest {
@@ -49,7 +57,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                { FetcherResult.Success("engine", etag = "old-etag") },
+                ResultFetcher { FetcherResult.Success("engine", etag = "old-etag") },
                 durableSot,
                 durableBookkeeper,
                 DefaultFreshnessValidator,
@@ -60,15 +68,18 @@ class KeyEnginePlanningTest {
         durableSot.write(key, "external")
 
         var observed: FreshnessContext? = null
-        val capturingValidator = FreshnessValidator { context ->
-            observed = context
-            FetchPlan.Skip
-        }
+        val capturingValidator =
+            object : FreshnessValidator {
+                override fun plan(context: FreshnessContext): FetchPlan {
+                    observed = context
+                    return FetchPlan.Skip
+                }
+            }
         val restarted =
             KeyEngine(
                 key,
                 KeyId.from(key),
-                { error("LocalOnly hydration must not fetch") },
+                ResultFetcher { error("LocalOnly hydration must not fetch") },
                 durableSot,
                 durableBookkeeper,
                 capturingValidator,
@@ -90,7 +101,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                { FetcherResult.Success("v1", etag = "e1") },
+                ResultFetcher { FetcherResult.Success("v1", etag = "e1") },
                 durableSot,
                 durableBookkeeper,
                 DefaultFreshnessValidator,
@@ -98,17 +109,22 @@ class KeyEnginePlanningTest {
                 backgroundScope,
             )
         assertEquals("v1", first.get(Freshness.MustBeFresh))
-        durableBookkeeper.markStale(KeyId.from(key))
+        durableBookkeeper.markStale(key)
 
         var observed: FreshnessContext? = null
         val restarted =
             KeyEngine(
                 key,
                 KeyId.from(key),
-                { error("LocalOnly hydration must not fetch") },
+                ResultFetcher { error("LocalOnly hydration must not fetch") },
                 durableSot,
                 durableBookkeeper,
-                FreshnessValidator { context -> observed = context; FetchPlan.Skip },
+                object : FreshnessValidator {
+                    override fun plan(context: FreshnessContext): FetchPlan {
+                        observed = context
+                        return FetchPlan.Skip
+                    }
+                },
                 FakeWallClock(now = 20L),
                 backgroundScope,
             )
@@ -135,7 +151,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 keyId,
-                {
+                ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> {
@@ -169,7 +185,7 @@ class KeyEnginePlanningTest {
                 releaseSecondFetch.complete(Unit)
                 withTimeout(1_000) { durableBookkeeper.successEntered.await() }
                 val early = assertIs<FetchDisposition.Revalidated>(ticket.disposition.value)
-                assertEquals(true, durableBookkeeper.status(keyId)?.durablyStale)
+                assertEquals(true, durableBookkeeper.status(key)?.durablyStale)
                 assertEquals(2, calls, "pre-success stale status must not manufacture a third fetch")
 
                 durableBookkeeper.releaseSuccess.complete(Unit)
@@ -199,6 +215,66 @@ class KeyEnginePlanningTest {
     }
 
     @Test
+    fun completedExactOwnerNotModified_rejectsStaleStatusSnapshotWithoutThirdFetch() = runTest {
+        val key = TestKey("owner-revalidated-stale-status")
+        val bookkeeper = PostDelegateStatusGateBookkeeper()
+        val secondFetchEntered = CompletableDeferred<Unit>()
+        val releaseSecondFetch = CompletableDeferred<Unit>()
+        val thirdFetchEntered = CompletableDeferred<Unit>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher =
+                    ResultFetcher {
+                        when (++calls) {
+                            1 -> FetcherResult.Success("v1", etag = "e1")
+                            2 -> {
+                                secondFetchEntered.complete(Unit)
+                                releaseSecondFetch.await()
+                                FetcherResult.NotModified("e1")
+                            }
+                            3 -> {
+                                thirdFetchEntered.complete(Unit)
+                                FetcherResult.Success("v2", etag = "e2")
+                            }
+                            else -> error("unexpected fetch call $calls")
+                        }
+                    },
+                sot = InMemorySourceOfTruth(),
+                bookkeeper = bookkeeper,
+                validator = DefaultFreshnessValidator,
+                wallClock = FakeWallClock(now = 100L),
+                engineScope = backgroundScope,
+            )
+
+        assertEquals("v1", engine.get(Freshness.MustBeFresh))
+        engine.invalidate()
+        val owner = async { engine.get(Freshness.MustBeFresh) }
+        secondFetchEntered.await()
+        val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+
+        bookkeeper.gateStatusCall(number = 2)
+        val staleWaiter = async { engine.get(Freshness.CachedOrFetch) }
+        bookkeeper.statusEntered.await()
+
+        releaseSecondFetch.complete(Unit)
+        assertIs<FetchOutcome.Revalidated>(ticket.outcome.await())
+        bookkeeper.releaseStatus.complete(Unit)
+
+        assertEquals("v1", owner.await())
+        assertEquals("v1", staleWaiter.await())
+        testScheduler.runCurrent()
+        assertFalse(thirdFetchEntered.isCompleted)
+        assertEquals(2, calls)
+        assertIs<FetchSlot.Idle>(engine.state.value.fetch)
+        assertEquals("v2", engine.get(Freshness.MustBeFresh))
+        assertTrue(thirdFetchEntered.isCompleted)
+        assertEquals(3, calls, "a later MustBeFresh demand must not reuse the old 304 owner")
+    }
+
+    @Test
     fun exactOwnerNotModified_backwardClockEmitsZeroAge() = runTest {
         val key = TestKey("owner-revalidated-backward-clock")
         val clock = FakeWallClock(now = 100L)
@@ -207,7 +283,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                {
+                ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         else -> FetcherResult.NotModified("e1")
@@ -238,7 +314,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                { FetcherResult.NotModified("e1") },
+                ResultFetcher { FetcherResult.NotModified("e1") },
                 sourceOfTruth,
                 InMemoryBookkeeper(),
                 DefaultFreshnessValidator,
@@ -263,7 +339,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key,
                 KeyId.from(key),
-                {
+                ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         else -> FetcherResult.NotModified("e1")
@@ -309,7 +385,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> {
                             firstStarted.complete(Unit)
@@ -359,7 +435,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -406,7 +482,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -458,7 +534,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -510,7 +586,7 @@ class KeyEnginePlanningTest {
                 KeyEngine(
                     key = key,
                     keyId = KeyId.from(key),
-                    fetcher = {
+                    fetcher = ResultFetcher {
                         when (++calls) {
                             1 -> FetcherResult.Success("v1")
                             2 -> FetcherResult.Success("v2")
@@ -572,7 +648,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -618,7 +694,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> {
@@ -704,7 +780,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -750,7 +826,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -801,7 +877,7 @@ class KeyEnginePlanningTest {
                 KeyEngine(
                     key = key,
                     keyId = KeyId.from(key),
-                    fetcher = {
+                    fetcher = ResultFetcher {
                         when (++calls) {
                             1 -> {
                                 fetchStarted.complete(Unit)
@@ -864,7 +940,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -909,7 +985,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.Error(IllegalStateException("offline"))
@@ -959,7 +1035,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -1003,7 +1079,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -1069,7 +1145,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -1118,7 +1194,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     FetcherResult.NotModified(etag = "e$calls")
                 },
@@ -1163,7 +1239,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> FetcherResult.Error(IllegalStateException("offline"))
@@ -1227,7 +1303,7 @@ class KeyEnginePlanningTest {
                         KeyEngine(
                             key = key,
                             keyId = KeyId.from(key),
-                            fetcher = {
+                            fetcher = ResultFetcher {
                                 when (++calls) {
                                     1 -> FetcherResult.Success("v1")
                                     2 -> {
@@ -1296,7 +1372,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> {
                             firstStarted.complete(Unit)
@@ -1350,7 +1426,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
                     FetcherResult.Success("fresh")
@@ -1389,7 +1465,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
                     FetcherResult.Success("fresh")
@@ -1440,7 +1516,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
                     FetcherResult.Success("fresh")
@@ -1488,7 +1564,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
                     FetcherResult.NotModified(etag = "e1")
@@ -1523,6 +1599,76 @@ class KeyEnginePlanningTest {
     }
 
     @Test
+    fun outerTicketRevalidatedBeforeOutcomeTail_doesNotReserveReplacement() = runTest {
+        val key = TestKey("outer-ticket-revalidated-pending-tail")
+        val sourceOfTruth = StartupRaceSourceOfTruth()
+        val bookkeeper = PreDelegateSuccessGateBookkeeper().also { it.gateNextSuccess() }
+        val classificationGate = InitialDeliveryGate().also { it.arm() }
+        val fetchStarted = CompletableDeferred<Unit>()
+        val releaseFetch = CompletableDeferred<Unit>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = ResultFetcher {
+                    when (++calls) {
+                        1 -> {
+                            fetchStarted.complete(Unit)
+                            releaseFetch.await()
+                            FetcherResult.NotModified(etag = "e1")
+                        }
+
+                        else -> error("unexpected fetch call $calls")
+                    }
+                },
+                sot = sourceOfTruth,
+                bookkeeper = bookkeeper,
+                validator = DefaultFreshnessValidator,
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+                beforeReplacementDispositionClassificationTestGate =
+                    classificationGate::awaitIfArmed,
+            )
+
+        assertEquals("seed", engine.get(Freshness.LocalOnly))
+        engine.invalidate()
+        app.cash.turbine.turbineScope {
+            val collector = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
+            try {
+                classificationGate.entered.await()
+                fetchStarted.await()
+                val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+                releaseFetch.complete(Unit)
+                bookkeeper.successEntered.await()
+                assertIs<FetchDisposition.Revalidated>(ticket.disposition.value)
+                assertFalse(ticket.outcome.isCompleted)
+
+                classificationGate.release()
+                val baseline = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                assertEquals("seed", baseline.value)
+                assertTrue(baseline.isStale)
+                assertFalse(baseline.refreshing)
+                assertEquals(1, calls)
+
+                bookkeeper.releaseSuccess.complete(Unit)
+                assertIs<FetchOutcome.Revalidated>(ticket.outcome.await())
+                assertEquals(
+                    Duration.ZERO,
+                    assertIs<StoreResult.Revalidated>(collector.awaitItem()).age,
+                )
+                assertEquals(1, calls)
+                collector.expectNoEvents()
+                collector.cancelAndIgnoreRemainingEvents()
+            } finally {
+                classificationGate.release()
+                releaseFetch.complete(Unit)
+                bookkeeper.releaseSuccess.complete(Unit)
+            }
+        }
+    }
+
+    @Test
     fun cachedFastNotModified_emitsBaselineThenWatcherRefresh() = runTest {
         val key = TestKey("cached-fast-304")
         val sourceOfTruth = StartupRaceSourceOfTruth()
@@ -1534,7 +1680,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -1588,7 +1734,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> {
                             revalidationStarted.complete(Unit)
@@ -1648,7 +1794,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -1715,7 +1861,7 @@ class KeyEnginePlanningTest {
                 KeyEngine(
                     key = key,
                     keyId = KeyId.from(key),
-                    fetcher = {
+                    fetcher = ResultFetcher {
                         when (++calls) {
                             1 -> FetcherResult.Success("v1", etag = "e1")
                             2 -> FetcherResult.NotModified(etag = "e2")
@@ -1767,7 +1913,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { error("fetch must not run") },
+                fetcher = ResultFetcher { error("fetch must not run") },
                 sot = sourceOfTruth,
                 bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,
@@ -1813,7 +1959,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Error(IllegalStateException("offline"))
                         2 -> {
@@ -1873,7 +2019,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Error(IllegalStateException("old failure"))
                         2 -> FetcherResult.Success("replacement")
@@ -1954,7 +2100,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Error(IllegalStateException("old failure"))
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -2024,7 +2170,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("candidate")
                         2 -> {
@@ -2092,7 +2238,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> {
@@ -2172,7 +2318,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> {
@@ -2237,7 +2383,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> {
@@ -2308,7 +2454,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> {
@@ -2385,7 +2531,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1")
                         2 -> FetcherResult.Error(IllegalStateException("offline"))
@@ -2449,7 +2595,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
@@ -2508,7 +2654,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("fresh")
                         2 -> FetcherResult.NotModified(etag = "e2")
@@ -2559,7 +2705,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     releaseFetch.await()
                     FetcherResult.Success("fresh")
                 },
@@ -2618,7 +2764,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     calls += 1
                     FetcherResult.Success("fresh")
                 },
@@ -2675,7 +2821,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { FetcherResult.Success("fresh") },
+                fetcher = ResultFetcher { FetcherResult.Success("fresh") },
                 sot = sourceOfTruth,
                 bookkeeper = bookkeeper,
                 validator = DefaultFreshnessValidator,
@@ -2720,7 +2866,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { FetcherResult.Success("unused") },
+                fetcher = ResultFetcher { FetcherResult.Success("unused") },
                 sot = sourceOfTruth,
                 bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,
@@ -2766,7 +2912,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { FetcherResult.Success("fresh") },
+                fetcher = ResultFetcher { FetcherResult.Success("fresh") },
                 sot = sourceOfTruth,
                 bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,
@@ -2811,7 +2957,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { FetcherResult.Success("fresh") },
+                fetcher = ResultFetcher { FetcherResult.Success("fresh") },
                 sot = sourceOfTruth,
                 bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,
@@ -2867,7 +3013,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> {
                             fetchStarted.complete(Unit)
@@ -2953,7 +3099,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     fetchStarted.complete(Unit)
                     releaseFetch.await()
                     FetcherResult.Success("fresh")
@@ -3014,7 +3160,7 @@ class KeyEnginePlanningTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = { FetcherResult.Success("fresh") },
+                fetcher = ResultFetcher { FetcherResult.Success("fresh") },
                 sot = sourceOfTruth,
                 bookkeeper = InMemoryBookkeeper(),
                 validator = DefaultFreshnessValidator,
@@ -3442,35 +3588,35 @@ class KeyEnginePlanningTest {
         val failureRecorded = CompletableDeferred<Unit>()
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             delegate.recordSuccess(key, meta)
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             delegate.recordFailure(key, atEpochMillis)
             failureRecorded.complete(Unit)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             delegate.forget(key)
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()
@@ -3488,7 +3634,7 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             delegate.recordSuccess(key, meta)
@@ -3500,28 +3646,28 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             delegate.recordFailure(key, atEpochMillis)
             failureRecorded.complete(Unit)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             delegate.forget(key)
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()
@@ -3539,7 +3685,7 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             if (gateNext) {
@@ -3551,23 +3697,78 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) = delegate.recordFailure(key, atEpochMillis)
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) = delegate.forget(key)
+        override suspend fun forget(key: StoreKey) = delegate.forget(key)
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
+    }
+
+    /** Pauses one selected status call after it has captured the delegate's immutable snapshot. */
+    private class PostDelegateStatusGateBookkeeper : Bookkeeper {
+        private val delegate = InMemoryBookkeeper()
+        private val statusCallsUntilGate = MutableStateFlow(0)
+        val statusEntered = CompletableDeferred<Unit>()
+        val releaseStatus = CompletableDeferred<Unit>()
+
+        fun gateStatusCall(number: Int) {
+            require(number > 0) { "number must be positive" }
+            check(statusCallsUntilGate.compareAndSet(expect = 0, update = number)) {
+                "a status gate is already armed"
+            }
+        }
+
+        override suspend fun recordSuccess(
+            key: StoreKey,
+            meta: StoreMeta,
+        ) = delegate.recordSuccess(key, meta)
+
+        override suspend fun recordFailure(
+            key: StoreKey,
+            atEpochMillis: Long,
+        ) = delegate.recordFailure(key, atEpochMillis)
+
+        override suspend fun status(key: StoreKey): KeyStatus? {
+            val captured = delegate.status(key)
+            while (true) {
+                val remaining = statusCallsUntilGate.value
+                if (remaining == 0) return captured
+                if (statusCallsUntilGate.compareAndSet(remaining, remaining - 1)) {
+                    if (remaining == 1) {
+                        statusEntered.complete(Unit)
+                        releaseStatus.await()
+                    }
+                    return captured
+                }
+            }
+        }
+
+        override suspend fun forget(key: StoreKey) = delegate.forget(key)
+
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()
@@ -3584,14 +3785,14 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             delegate.recordSuccess(key, meta)
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             delegate.recordFailure(key, atEpochMillis)
@@ -3602,21 +3803,21 @@ class KeyEnginePlanningTest {
             }
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             delegate.forget(key)
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()
@@ -3633,22 +3834,22 @@ class KeyEnginePlanningTest {
         }
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             delegate.recordSuccess(key, meta)
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             delegate.recordFailure(key, atEpochMillis)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             delegate.forget(key)
             if (gateNext) {
                 gateNext = false
@@ -3657,15 +3858,15 @@ class KeyEnginePlanningTest {
             }
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()

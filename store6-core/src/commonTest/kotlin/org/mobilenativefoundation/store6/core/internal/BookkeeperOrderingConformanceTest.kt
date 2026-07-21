@@ -12,22 +12,31 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.FakeWallClock
-import org.mobilenativefoundation.store6.core.FetcherResult
 import org.mobilenativefoundation.store6.core.Freshness
+import org.mobilenativefoundation.store6.core.StoreError
+import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreMeta
+import org.mobilenativefoundation.store6.core.StoreKey
+import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.TestKey
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.SingleRowTestSourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-@OptIn(ExperimentalStoreApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 class BookkeeperOrderingConformanceTest {
     private val key = TestKey("1")
     private val keyId = KeyId.from(key)
@@ -56,7 +65,74 @@ class BookkeeperOrderingConformanceTest {
         read.await()
         clear.await()
 
-        assertNull(bookkeeper.status(keyId))
+        assertNull(bookkeeper.status(key))
+    }
+
+    @Test
+    fun confirmFresh_successTailBlocksSameKeyClearUntilBookkeepingCompletes() = runTest {
+        val bookkeeper = OrderedConfirmFreshBookkeeper()
+        val engine = engine(bookkeeper) { FetcherResult.Success("v1", etag = "e1") }
+
+        assertEquals("v1", engine.get(Freshness.MustBeFresh))
+        assertEquals(1, bookkeeper.successCalls)
+        assertEquals(listOf("success1:start", "success1:end"), bookkeeper.events)
+
+        val confirmation =
+            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                engine.confirmFresh(etag = "confirmed")
+            }
+        testScheduler.runCurrent()
+
+        var clearPassedWhileSuccessBlocked = false
+        var eventsWhileSuccessBlocked: List<String> = emptyList()
+        val clear =
+            try {
+                withTimeout(1_000L) { bookkeeper.secondSuccessStarted.await() }
+                assertEquals(2, bookkeeper.successCalls)
+                assertEquals(0, bookkeeper.forgetCalls)
+
+                val pending =
+                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                        engine.clear()
+                    }
+                testScheduler.runCurrent()
+                clearPassedWhileSuccessBlocked = pending.isCompleted
+                eventsWhileSuccessBlocked = bookkeeper.events.toList()
+                pending
+            } finally {
+                bookkeeper.releaseSecondSuccess.complete(Unit)
+            }
+
+        confirmation.await()
+        clear.await()
+
+        assertFalse(
+            clearPassedWhileSuccessBlocked,
+            "same-key clear passed the blocked confirmFresh tail: $eventsWhileSuccessBlocked",
+        )
+        assertEquals(
+            listOf("success1:start", "success1:end", "success2:start"),
+            eventsWhileSuccessBlocked,
+        )
+        assertEquals(
+            listOf(
+                "success1:start",
+                "success1:end",
+                "success2:start",
+                "success2:end",
+                "forget:start",
+                "forget:end",
+            ),
+            bookkeeper.events,
+        )
+        assertEquals(2, bookkeeper.successCalls)
+        assertEquals(1, bookkeeper.forgetCalls)
+        assertNull(bookkeeper.status(key))
+        val missing =
+            assertFailsWith<StoreException> {
+                engine.get(Freshness.LocalOnly)
+            }
+        assertIs<StoreError.Missing>(missing.error)
     }
 
     @Test
@@ -98,7 +174,7 @@ class BookkeeperOrderingConformanceTest {
         testScheduler.runCurrent()
         deletion.await()
         assertEquals("v2", replacement.await())
-        assertEquals("e2", bookkeeper.status(keyId)?.meta?.etag)
+        assertEquals("e2", bookkeeper.status(key)?.meta?.etag)
     }
 
     @Test
@@ -131,7 +207,7 @@ class BookkeeperOrderingConformanceTest {
         testScheduler.runCurrent()
         read.await()
 
-        assertNull(bookkeeper.status(keyId))
+        assertNull(bookkeeper.status(key))
     }
 
     @Test
@@ -178,7 +254,7 @@ class BookkeeperOrderingConformanceTest {
             markGate.release()
         }
 
-        assertEquals(10L, bookkeeper.status(keyId)?.lastFailureAtEpochMillis)
+        assertEquals(10L, bookkeeper.status(key)?.lastFailureAtEpochMillis)
         assertEquals(1, calls)
     }
 
@@ -316,7 +392,7 @@ class BookkeeperOrderingConformanceTest {
         KeyEngine(
             key = key,
             keyId = keyId,
-            fetcher = fetcher,
+            fetcher = ResultFetcher(fetcher),
             sot = sot,
             bookkeeper = bookkeeper,
             validator = DefaultFreshnessValidator,
@@ -353,7 +429,7 @@ class BookkeeperOrderingConformanceTest {
         }
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             successGate?.also { successGate = null }?.pause()
@@ -362,33 +438,85 @@ class BookkeeperOrderingConformanceTest {
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             failureGate?.pause()
             delegate.recordFailure(key, atEpochMillis)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             forgetGate?.pause()
             delegate.forget(key)
         }
 
-        override suspend fun markStale(key: KeyId) {
+        override suspend fun markStale(key: StoreKey) {
             markGate?.pause()
             events?.add("markStale")
             delegate.markStale(key)
         }
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
+    }
+
+    private class OrderedConfirmFreshBookkeeper : Bookkeeper {
+        private val delegate = InMemoryBookkeeper()
+        val secondSuccessStarted = CompletableDeferred<Unit>()
+        val releaseSecondSuccess = CompletableDeferred<Unit>()
+        val events = mutableListOf<String>()
+        var successCalls = 0
+            private set
+        var forgetCalls = 0
+            private set
+
+        override suspend fun recordSuccess(
+            key: StoreKey,
+            meta: StoreMeta,
+        ) {
+            val call = ++successCalls
+            events += "success$call:start"
+            if (call == 2) {
+                secondSuccessStarted.complete(Unit)
+                releaseSecondSuccess.await()
+            }
+            delegate.recordSuccess(key, meta)
+            events += "success$call:end"
+        }
+
+        override suspend fun recordFailure(
+            key: StoreKey,
+            atEpochMillis: Long,
+        ) = delegate.recordFailure(key, atEpochMillis)
+
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
+
+        override suspend fun forget(key: StoreKey) {
+            forgetCalls += 1
+            events += "forget:start"
+            delegate.forget(key)
+            events += "forget:end"
+        }
+
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()

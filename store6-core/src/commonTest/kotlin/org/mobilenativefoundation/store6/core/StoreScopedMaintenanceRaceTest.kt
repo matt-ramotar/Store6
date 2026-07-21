@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -25,7 +26,7 @@ class StoreScopedMaintenanceRaceTest {
         var calls = 0
         val store = store<NamespacedTestKey, String> {
             fetcherOfResult { FetcherResult.Success("v${++calls}", etag = "e$calls") }
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
         val key = NamespacedTestKey("a", "1")
         assertEquals("v1", store.get(key))
@@ -70,7 +71,7 @@ class StoreScopedMaintenanceRaceTest {
         var calls = 0
         val store = store<TestKey, String> {
             fetcherOfResult { FetcherResult.Success("v${++calls}", etag = "e$calls") }
-            bookkeeper = durableBookkeeper
+            bookkeeper(durableBookkeeper)
         }
         val key = TestKey("1")
         assertEquals("v1", store.get(key))

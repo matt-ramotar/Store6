@@ -51,6 +51,8 @@ public interface Store<K : StoreKey, out V : Any> {
      * fetch. [Freshness.StaleIfError] blocks after invalidation and returns the resident value only
      * when the refresh fails. [Freshness.LocalOnly] never fetches.
      *
+     * This read is never projected by a configured overlay; overlays apply only to [stream].
+     *
      * @param key the key whose value is requested
      * @param freshness the freshness policy applied to this read
      * @return the resolved value

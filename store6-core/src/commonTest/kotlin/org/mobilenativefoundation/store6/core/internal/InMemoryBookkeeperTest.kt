@@ -1,6 +1,9 @@
+@file:OptIn(org.mobilenativefoundation.store6.core.ExperimentalStoreApi::class)
+
 package org.mobilenativefoundation.store6.core.internal
 
 import kotlinx.coroutines.test.runTest
+import org.mobilenativefoundation.store6.core.NamespacedTestKey
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -11,9 +14,9 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class InMemoryBookkeeperTest {
-    private val keyA = KeyId(namespace = "test", canonicalId = "a")
-    private val keyB = KeyId(namespace = "test", canonicalId = "b")
-    private val keyOtherNamespace = KeyId(namespace = "other", canonicalId = "a")
+    private val keyA = NamespacedTestKey(ns = "test", id = "a")
+    private val keyB = NamespacedTestKey(ns = "test", id = "b")
+    private val keyOtherNamespace = NamespacedTestKey(ns = "other", id = "a")
 
     @Test
     fun successSequence_isMonotoneAcrossKeys() = runTest {
@@ -160,7 +163,7 @@ class InMemoryBookkeeperTest {
         val bookkeeper = InMemoryBookkeeper()
         val matchingMeta = EngineStoreMeta(writtenAtEpochMillis = 1L, etag = "matching")
         val otherMeta = EngineStoreMeta(writtenAtEpochMillis = 2L, etag = "other")
-        val neverSeen = KeyId(namespace = "never-seen", canonicalId = "key")
+        val neverSeen = NamespacedTestKey(ns = "never-seen", id = "key")
         bookkeeper.recordSuccess(keyA, matchingMeta)
         bookkeeper.recordSuccess(keyOtherNamespace, otherMeta)
         bookkeeper.advanceStaleWatermark(keyA.namespace)

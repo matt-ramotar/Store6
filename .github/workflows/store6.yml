@@ -53,6 +53,62 @@ jobs:
       - name: Run Store6 quickstart
         run: ./gradlew :store6-quickstart:run --stacktrace
 
+      - name: Build Store6 extension probe (seam-only consumer)
+        run: >
+          ./gradlew :store6-extension-probe:build
+          -Pkotlin.native.enableKlibsCrossCompilation=true
+          -Pkotlin.apple.xcodeCompatibility.nowarn=true
+          --stacktrace
+
+      - name: Reject core-internal access from extension modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          for module in store6-extension-probe; do
+            source_dir="${module}/src"
+            if [[ ! -d "${source_dir}" ]]; then
+              echo "ERROR: expected extension source directory is missing: ${source_dir}" >&2
+              status=1
+              continue
+            fi
+            if grep -rnE 'InternalStoreApi|org[.]mobilenativefoundation[.]store6[.]core[.]internal' "${source_dir}"; then
+              echo "ERROR: ${module} accesses store6-core internals" >&2
+              status=1
+            else
+              grep_status=$?
+              if [[ "${grep_status}" -ne 1 ]]; then
+                echo "ERROR: grep failed for ${source_dir} with status ${grep_status}" >&2
+                status=1
+              fi
+            fi
+          done
+          exit "${status}"
+
+      - name: Verify seam package matches the TD-13 freeze list
+        shell: bash
+        run: |
+          set -euo pipefail
+          seam_dir="store6-core/src/commonMain/kotlin/org/mobilenativefoundation/store6/core/seam"
+          expected=(
+            Bookkeeper.kt
+            Fetcher.kt
+            FetcherResult.kt
+            FreshnessValidator.kt
+            KeyEvents.kt
+            Overlay.kt
+            SourceOfTruth.kt
+            StoreResults.kt
+            StoreRuntime.kt
+            StoreTelemetry.kt
+            StoreWriteHandle.kt
+            TransactionalSourceOfTruth.kt
+            WallClock.kt
+          )
+          diff -u \
+            <(printf '%s\n' "${expected[@]}" | LC_ALL=C sort) \
+            <(LC_ALL=C ls -1A "${seam_dir}" | LC_ALL=C sort)
+
   apple-tests:
     runs-on: macos-latest
     timeout-minutes: 40
@@ -104,6 +160,8 @@ jobs:
           ./gradlew \
             :store6-core:iosSimulatorArm64Test \
             :store6-core:macosArm64Test \
+            :store6-extension-probe:iosSimulatorArm64Test \
+            :store6-extension-probe:macosArm64Test \
             "-Pstore6.iosSimulatorDevice=${STORE6_IOS_SIMULATOR_DEVICE}" \
             --stacktrace
 

@@ -1,9 +1,9 @@
 package org.mobilenativefoundation.store6.core
 
 import kotlinx.coroutines.test.runTest
-import org.mobilenativefoundation.store6.core.internal.Bookkeeper
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals

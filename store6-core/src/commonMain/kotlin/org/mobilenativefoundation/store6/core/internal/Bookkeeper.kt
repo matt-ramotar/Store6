@@ -2,7 +2,13 @@ package org.mobilenativefoundation.store6.core.internal
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
+import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreMeta
+import org.mobilenativefoundation.store6.core.StoreNamespace
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
 
 /**
  * Engine-owned metadata with deliberate identity equality.
@@ -14,73 +20,6 @@ internal class EngineStoreMeta(
     override val writtenAtEpochMillis: Long,
     override val etag: String?,
 ) : StoreMeta
-
-/**
- * Tracks successful metadata and consecutive fetch failures for each canonical key.
- *
- * This interface is a freeze candidate for issue 008; durable implementations arrive in issue
- * 006. A bookkeeper is a leaf-level lock owner, and its lock must never be co-held with an
- * engine's `stateLock`.
- *
- * Fetch-path [recordSuccess] and [recordFailure], plus operational per-key [forget], are
- * operationally infallible: implementations absorb or report their own storage failures and do
- * not throw them through this interface. Cooperative cancellation may still propagate as
- * `CancellationException`; implementations must not suppress it.
- *
- * The maintenance methods [markStale], [advanceStaleWatermark], [advanceGlobalStaleWatermark],
- * [forgetNamespace], and [forgetAll] may report storage failures by throwing. Each is
- * exception-atomic for every [Throwable], including `CancellationException`: normal return means
- * the full operation was applied, while throwing means it had no effect.
- */
-internal interface Bookkeeper {
-    suspend fun recordSuccess(
-        key: KeyId,
-        meta: StoreMeta,
-    )
-
-    suspend fun recordFailure(
-        key: KeyId,
-        atEpochMillis: Long,
-    )
-
-    suspend fun status(key: KeyId): KeyStatus?
-
-    suspend fun forget(key: KeyId)
-
-    /** Marks [key] durably stale as one exception-atomic, fallible maintenance operation. */
-    suspend fun markStale(key: KeyId)
-
-    /**
-     * Advances durable stale coverage for every key in [namespace] as one exception-atomic,
-     * fallible maintenance operation.
-     */
-    suspend fun advanceStaleWatermark(namespace: String)
-
-    /** Advances global durable stale coverage as one exception-atomic, fallible operation. */
-    suspend fun advanceGlobalStaleWatermark()
-
-    /**
-     * Forgets key records in [namespace] without resetting watermarks as one exception-atomic,
-     * fallible maintenance operation.
-     */
-    suspend fun forgetNamespace(namespace: String)
-
-    /**
-     * Forgets all key records without resetting watermarks as one exception-atomic, fallible
-     * maintenance operation.
-     */
-    suspend fun forgetAll()
-}
-
-/** Immutable bookkeeping state for one canonical key. */
-internal class KeyStatus(
-    val meta: StoreMeta?,
-    val lastSuccessSequence: Long?,
-    val lastFailureAtEpochMillis: Long?,
-    val consecutiveFailures: Int,
-    /** Whether a key, namespace, or global stale sequence outranks this key's latest success. */
-    val durablyStale: Boolean,
-)
 
 /**
  * Volatile in-memory [Bookkeeper] with one store-local sequence for successes, marks, and
@@ -95,6 +34,7 @@ internal class KeyStatus(
  * fails before mutation instead of wrapping; exhaustion is a practical-lifetime invariant
  * failure, not a recoverable storage failure.
  */
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 internal class InMemoryBookkeeper(
     private val beforeMaintenancePublishTestGate: () -> Unit = {},
     initialSequence: Long = 0L,
@@ -127,11 +67,12 @@ internal class InMemoryBookkeeper(
         )
 
     override suspend fun recordSuccess(
-        key: KeyId,
+        key: StoreKey,
         meta: StoreMeta,
     ) {
+        val keyId = KeyId.from(key)
         lock.withLock {
-            val previous = records[key]
+            val previous = records[keyId]
             val nextSequence = nextSequenceOrThrow()
             val nextRecord =
                 Record(
@@ -141,18 +82,19 @@ internal class InMemoryBookkeeper(
                     consecutiveFailures = 0,
                     staleSequence = previous?.staleSequence,
                 )
-            records[key] = nextRecord
+            records[keyId] = nextRecord
             sequence = nextSequence
         }
     }
 
     override suspend fun recordFailure(
-        key: KeyId,
+        key: StoreKey,
         atEpochMillis: Long,
     ) {
+        val keyId = KeyId.from(key)
         lock.withLock {
-            val previous = records[key]
-            records[key] =
+            val previous = records[keyId]
+            records[keyId] =
                 Record(
                     meta = previous?.meta,
                     lastSuccessSequence = previous?.lastSuccessSequence,
@@ -163,13 +105,14 @@ internal class InMemoryBookkeeper(
         }
     }
 
-    override suspend fun status(key: KeyId): KeyStatus? =
-        lock.withLock {
-            val record = records[key]
+    override suspend fun status(key: StoreKey): KeyStatus? {
+        val keyId = KeyId.from(key)
+        return lock.withLock {
+            val record = records[keyId]
             val coveringStaleSequence =
                 maxOf(
                     record?.staleSequence ?: 0L,
-                    namespaceStaleWatermarks[key.namespace] ?: 0L,
+                    namespaceStaleWatermarks[keyId.namespace] ?: 0L,
                     globalStaleWatermark,
                 )
             if (record == null && coveringStaleSequence == 0L) {
@@ -192,19 +135,22 @@ internal class InMemoryBookkeeper(
                     }
             }
         }
+    }
 
-    override suspend fun forget(key: KeyId) {
+    override suspend fun forget(key: StoreKey) {
+        val keyId = KeyId.from(key)
         lock.withLock {
-            records.remove(key)
+            records.remove(keyId)
         }
     }
 
-    override suspend fun markStale(key: KeyId) {
+    override suspend fun markStale(key: StoreKey) {
+        val keyId = KeyId.from(key)
         lock.withLock {
-            val previous = records[key]
+            val previous = records[keyId]
             val nextSequence = nextSequenceOrThrow()
             val stagedRecords = copyRecords()
-            stagedRecords[key] =
+            stagedRecords[keyId] =
                 Record(
                     meta = previous?.meta,
                     lastSuccessSequence = previous?.lastSuccessSequence,
@@ -218,13 +164,13 @@ internal class InMemoryBookkeeper(
         }
     }
 
-    override suspend fun advanceStaleWatermark(namespace: String) {
+    override suspend fun advanceStaleWatermark(namespace: StoreNamespace) {
         lock.withLock {
             val nextSequence = nextSequenceOrThrow()
             val stagedWatermarks =
                 HashMap<String, Long>(namespaceStaleWatermarks.size).also { staged ->
                     staged.putAll(namespaceStaleWatermarks)
-                    staged[namespace] = nextSequence
+                    staged[namespace.value] = nextSequence
                 }
             beforeMaintenancePublishTestGate()
             namespaceStaleWatermarks = stagedWatermarks
@@ -241,11 +187,11 @@ internal class InMemoryBookkeeper(
         }
     }
 
-    override suspend fun forgetNamespace(namespace: String) {
+    override suspend fun forgetNamespace(namespace: StoreNamespace) {
         lock.withLock {
             val stagedRecords = HashMap<KeyId, Record>(records.size)
             records.forEach { (key, record) ->
-                if (key.namespace != namespace) {
+                if (key.namespace != namespace.value) {
                     stagedRecords[key] = record
                 }
             }

@@ -1,7 +1,12 @@
+@file:OptIn(
+    org.mobilenativefoundation.store6.core.DelicateStoreApi::class,
+    org.mobilenativefoundation.store6.core.ExperimentalStoreApi::class,
+)
+
 package org.mobilenativefoundation.store6.core
 
-import org.mobilenativefoundation.store6.core.internal.Bookkeeper
-import org.mobilenativefoundation.store6.core.internal.WallClock
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.WallClock
 
 /** Installs an alternate source of truth without changing public Store conformance scenarios. */
 abstract class SourceOfTruthSubstitutionTest {

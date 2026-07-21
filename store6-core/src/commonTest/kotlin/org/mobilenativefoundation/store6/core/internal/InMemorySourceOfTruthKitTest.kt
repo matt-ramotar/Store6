@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.mobilenativefoundation.store6.contracttests.SourceOfTruthContractKit
+import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.NamespacedTestKey
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
@@ -16,7 +17,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
-@OptIn(ExperimentalStoreApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 class InMemorySourceOfTruthKitTest : SourceOfTruthContractKit<NamespacedTestKey, String>() {
     override fun createSourceOfTruth(): SourceOfTruth<NamespacedTestKey, String> =
         InMemorySourceOfTruth()
@@ -29,7 +30,7 @@ class InMemorySourceOfTruthKitTest : SourceOfTruthContractKit<NamespacedTestKey,
     override fun value(index: Int): String = "value-$index"
 }
 
-@OptIn(ExperimentalStoreApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
 class SharedFlowSourceOfTruthKitTest : SourceOfTruthContractKit<NamespacedTestKey, String>() {
     override fun createSourceOfTruth(): SourceOfTruth<NamespacedTestKey, String> =
         SharedFlowSourceOfTruth()
@@ -42,7 +43,11 @@ class SharedFlowSourceOfTruthKitTest : SourceOfTruthContractKit<NamespacedTestKe
     override fun value(index: Int): String = "value-$index"
 }
 
-@OptIn(ExperimentalStoreApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+@OptIn(
+    DelicateStoreApi::class,
+    ExperimentalStoreApi::class,
+    kotlinx.coroutines.ExperimentalCoroutinesApi::class,
+)
 class SharedFlowSourceOfTruthLinearizationTest {
     @Test
     fun namespaceDeleteSerializesWriteAfterBulkReturn(): TestResult = runTest {

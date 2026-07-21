@@ -17,7 +17,6 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import org.mobilenativefoundation.store6.core.internal.Bookkeeper
 import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
 import org.mobilenativefoundation.store6.core.internal.EngineStoreMeta
 import org.mobilenativefoundation.store6.core.internal.FetchDisposition
@@ -25,8 +24,11 @@ import org.mobilenativefoundation.store6.core.internal.FetchSlot
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.KeyEngine
 import org.mobilenativefoundation.store6.core.internal.KeyId
+import org.mobilenativefoundation.store6.core.internal.ResultFetcher
 import org.mobilenativefoundation.store6.core.internal.KeyState
-import org.mobilenativefoundation.store6.core.internal.KeyStatus
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -35,13 +37,12 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-@OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class SourceOfTruthCancellationConformanceTest {
 
     @Test
     fun writeCancellation_revokesTag_cancelsTicket_andMutatesNothing() = runTest {
         val key = TestKey("write-cancellation")
-        val keyId = KeyId.from(key)
         val sot = ThrowingWriteSourceOfTruth()
         val bookkeeper = InMemoryBookkeeper()
         val engine = engine(key, sot, bookkeeper, backgroundScope) { FetcherResult.Success("value") }
@@ -63,7 +64,7 @@ class SourceOfTruthCancellationConformanceTest {
         assertEquals(FetchDisposition.Cancelled, ticket.disposition.value)
         assertEquals(KeyState.Initial, engine.state.value)
         assertNull(sot.current)
-        assertNull(bookkeeper.status(keyId))
+        assertNull(bookkeeper.status(key))
 
         sot.publishExternal("value")
         engine.stream(Freshness.LocalOnly).test {
@@ -77,7 +78,6 @@ class SourceOfTruthCancellationConformanceTest {
     @Test
     fun writeCancellation_terminatesOwningStream_andEngineRemainsReusable() = runTest {
         val key = TestKey("write-cancellation-stream")
-        val keyId = KeyId.from(key)
         val sot = ThrowingWriteSourceOfTruth()
         val bookkeeper = InMemoryBookkeeper()
         val engine = engine(key, sot, bookkeeper, backgroundScope) { FetcherResult.Success("value") }
@@ -100,7 +100,7 @@ class SourceOfTruthCancellationConformanceTest {
         assertEquals(FetchDisposition.Cancelled, ticket.disposition.value)
         assertEquals(KeyState.Initial, engine.state.value)
         assertNull(sot.current)
-        assertNull(bookkeeper.status(keyId))
+        assertNull(bookkeeper.status(key))
 
         sot.publishExternal("external")
         engine.stream(Freshness.LocalOnly).test {
@@ -114,17 +114,16 @@ class SourceOfTruthCancellationConformanceTest {
     @Test
     fun clearDeleteCancellation_preservesState() = runTest {
         val key = TestKey("clear-delete-cancellation")
-        val keyId = KeyId.from(key)
         val sot = ThrowingDeleteSourceOfTruth(initial = "seed")
         val bookkeeper = InMemoryBookkeeper()
         val meta = EngineStoreMeta(writtenAtEpochMillis = 10L, etag = "seed")
-        bookkeeper.recordSuccess(keyId, meta)
+        bookkeeper.recordSuccess(key, meta)
         val engine = engine(key, sot, bookkeeper, backgroundScope) { error("fetch must not run") }
 
         assertEquals("seed", engine.get(Freshness.LocalOnly))
         engine.invalidate()
         val stateBefore = engine.state.value
-        val statusBefore = assertNotNull(bookkeeper.status(keyId))
+        val statusBefore = assertNotNull(bookkeeper.status(key))
         val clear =
             backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
                 runCatching { engine.clear() }
@@ -138,24 +137,23 @@ class SourceOfTruthCancellationConformanceTest {
         assertEquals(stateBefore, engine.state.value)
         assertEquals("seed", sot.current)
         assertEquals("seed", engine.get(Freshness.LocalOnly))
-        assertTrue(bookkeeper.status(keyId) === statusBefore)
+        assertTrue(bookkeeper.status(key) === statusBefore)
         assertEquals(1, sot.deleteCalls)
     }
 
     @Test
     fun serverDeleteCancellation_preservesStateAndCancelsTicket() = runTest {
         val key = TestKey("server-delete-cancellation")
-        val keyId = KeyId.from(key)
         val sot = ThrowingDeleteSourceOfTruth(initial = "seed")
         val bookkeeper = InMemoryBookkeeper()
         val meta = EngineStoreMeta(writtenAtEpochMillis = 20L, etag = "seed")
-        bookkeeper.recordSuccess(keyId, meta)
+        bookkeeper.recordSuccess(key, meta)
         val engine = engine(key, sot, bookkeeper, backgroundScope) { FetcherResult.Deleted }
 
         assertEquals("seed", engine.get(Freshness.LocalOnly))
         engine.invalidate()
         val stateBefore = engine.state.value
-        val statusBefore = assertNotNull(bookkeeper.status(keyId))
+        val statusBefore = assertNotNull(bookkeeper.status(key))
         val read =
             backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
                 runCatching { engine.get(Freshness.MustBeFresh) }
@@ -171,14 +169,13 @@ class SourceOfTruthCancellationConformanceTest {
         assertEquals(stateBefore, engine.state.value)
         assertEquals("seed", sot.current)
         assertEquals("seed", engine.get(Freshness.LocalOnly))
-        assertTrue(bookkeeper.status(keyId) === statusBefore)
+        assertTrue(bookkeeper.status(key) === statusBefore)
         assertEquals(1, sot.deleteCalls)
     }
 
     @Test
     fun serverDeleteCancellation_terminatesDynamicWatcher_andPreservesResident() = runTest {
         val key = TestKey("server-delete-cancellation-stream")
-        val keyId = KeyId.from(key)
         val sot = ThrowingDeleteSourceOfTruth(initial = null)
         val bookkeeper = InMemoryBookkeeper()
         var fetchCalls = 0
@@ -192,7 +189,7 @@ class SourceOfTruthCancellationConformanceTest {
             }
 
         assertEquals("seed", engine.get(Freshness.CachedOrFetch))
-        val statusBeforeInvalidation = assertNotNull(bookkeeper.status(keyId))
+        val statusBeforeInvalidation = assertNotNull(bookkeeper.status(key))
         val initialData = CompletableDeferred<Unit>()
         val collector =
             backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
@@ -207,7 +204,7 @@ class SourceOfTruthCancellationConformanceTest {
         initialData.await()
 
         engine.invalidate()
-        val statusAfterInvalidation = assertNotNull(bookkeeper.status(keyId))
+        val statusAfterInvalidation = assertNotNull(bookkeeper.status(key))
         assertTrue(statusAfterInvalidation.durablyStale)
         assertEquals(statusBeforeInvalidation.meta, statusAfterInvalidation.meta)
         sot.deleteStarted.await()
@@ -222,7 +219,7 @@ class SourceOfTruthCancellationConformanceTest {
         assertEquals("delete cancelled", failure.message)
         assertTrue(ticket.outcome.isCancelled)
         assertEquals("seed", sot.current)
-        assertTrue(bookkeeper.status(keyId) === statusAfterInvalidation)
+        assertTrue(bookkeeper.status(key) === statusAfterInvalidation)
         assertEquals(2, fetchCalls)
 
         engine.stream(Freshness.LocalOnly).test {
@@ -235,7 +232,6 @@ class SourceOfTruthCancellationConformanceTest {
     @Test
     fun commitFetch_cancelAfterDurableWrite_completesBookkeepingAndResidenceAtom() = runTest {
         val key = TestKey("post-write-cancellation")
-        val keyId = KeyId.from(key)
         val sot = PostWriteReturnSourceOfTruth()
         val bookkeeper = SignallingBookkeeper()
         val engineJob = SupervisorJob()
@@ -257,7 +253,7 @@ class SourceOfTruthCancellationConformanceTest {
 
             assertIs<CancellationException>(read.await().exceptionOrNull())
             assertEquals("durable", sot.current)
-            assertNotNull(bookkeeper.status(keyId)?.meta)
+            assertNotNull(bookkeeper.status(key)?.meta)
             assertIs<FetchSlot.Idle>(engine.state.value.fetch)
             assertNull(engine.state.value.attribution)
             assertIs<FetchDisposition.Committed>(ticket.disposition.value)
@@ -301,11 +297,10 @@ class SourceOfTruthCancellationConformanceTest {
     @Test
     fun commitDeleted_cancelAfterDurableDelete_completesStateAndBookkeepingAtomically() = runTest {
         val key = TestKey("post-delete-cancellation")
-        val keyId = KeyId.from(key)
         val sot = PostDeleteReturnSourceOfTruth(initial = "seed")
         val bookkeeper = SignallingBookkeeper()
         bookkeeper.recordSuccess(
-            keyId,
+            key,
             EngineStoreMeta(writtenAtEpochMillis = 30L, etag = "seed"),
         )
         val engineJob = SupervisorJob()
@@ -330,7 +325,7 @@ class SourceOfTruthCancellationConformanceTest {
 
             assertIs<CancellationException>(read.await().exceptionOrNull())
             assertNull(sot.current)
-            assertNull(bookkeeper.status(keyId))
+            assertNull(bookkeeper.status(key))
             assertIs<FetchSlot.Idle>(engine.state.value.fetch)
             assertEquals(stateBefore.clearEpoch + 1L, engine.state.value.clearEpoch)
             assertEquals(stateBefore.readerGen + 1L, engine.state.value.readerGen)
@@ -354,7 +349,7 @@ class SourceOfTruthCancellationConformanceTest {
         KeyEngine(
             key = key,
             keyId = KeyId.from(key),
-            fetcher = fetcher,
+            fetcher = ResultFetcher(fetcher),
             sot = sot,
             bookkeeper = bookkeeper,
             validator = DefaultFreshnessValidator,
@@ -499,7 +494,7 @@ class SourceOfTruthCancellationConformanceTest {
         val forgotten = CompletableDeferred<Unit>()
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             delegate.recordSuccess(key, meta)
@@ -507,28 +502,28 @@ class SourceOfTruthCancellationConformanceTest {
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             delegate.recordFailure(key, atEpochMillis)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             delegate.forget(key)
             forgotten.complete(Unit)
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()

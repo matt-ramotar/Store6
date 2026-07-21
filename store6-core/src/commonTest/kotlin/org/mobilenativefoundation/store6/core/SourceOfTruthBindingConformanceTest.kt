@@ -1,5 +1,6 @@
 package org.mobilenativefoundation.store6.core
 
+import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
 import app.cash.turbine.testIn
 import kotlinx.coroutines.CancellationException
@@ -22,7 +23,6 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import org.mobilenativefoundation.store6.core.internal.Bookkeeper
 import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
 import org.mobilenativefoundation.store6.core.internal.FetchDisposition
 import org.mobilenativefoundation.store6.core.internal.FetchOutcome
@@ -30,7 +30,10 @@ import org.mobilenativefoundation.store6.core.internal.FetchSlot
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.KeyEngine
 import org.mobilenativefoundation.store6.core.internal.KeyId
-import org.mobilenativefoundation.store6.core.internal.KeyStatus
+import org.mobilenativefoundation.store6.core.internal.ResultFetcher
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -43,7 +46,7 @@ import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.time.Duration.Companion.minutes
 
-@OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
+@OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class SourceOfTruthBindingConformanceTest {
     private val key = TestKey("key")
 
@@ -228,9 +231,9 @@ class SourceOfTruthBindingConformanceTest {
                 assertEquals("v1", assertIs<StoreResult.Data<String>>(observer.awaitItem()).value)
                 sourceOfTruth.liveReaderStarted.await()
                 sourceOfTruth.replay("sync")
-                awaitLocalValue(store, "sync")
+                observer.awaitDataValue("sync")
                 sourceOfTruth.replay("v1")
-                awaitLocalValue(store, "v1")
+                observer.awaitDataValue("v1")
                 store.invalidate(key)
                 bookkeeper.gateNextSuccess()
 
@@ -310,9 +313,9 @@ class SourceOfTruthBindingConformanceTest {
                 assertEquals("v1", assertIs<StoreResult.Data<String>>(observer.awaitItem()).value)
                 sourceOfTruth.liveReaderStarted.await()
                 sourceOfTruth.replay("sync")
-                awaitLocalValue(store, "sync")
+                observer.awaitDataValue("sync")
                 sourceOfTruth.replay("v1")
-                awaitLocalValue(store, "v1")
+                observer.awaitDataValue("v1")
                 store.invalidate(key)
 
                 val collector = store.stream(key).testIn(backgroundScope)
@@ -358,9 +361,9 @@ class SourceOfTruthBindingConformanceTest {
                 assertEquals("v1", assertIs<StoreResult.Data<String>>(observer.awaitItem()).value)
                 sourceOfTruth.liveReaderStarted.await()
                 sourceOfTruth.replay("sync")
-                awaitLocalValue(store, "sync")
+                observer.awaitDataValue("sync")
                 sourceOfTruth.replay("v1")
-                awaitLocalValue(store, "v1")
+                observer.awaitDataValue("v1")
                 store.invalidate(key)
                 bookkeeper.gateNextSuccess()
 
@@ -573,7 +576,7 @@ class SourceOfTruthBindingConformanceTest {
             KeyEngine(
                 key = key,
                 keyId = KeyId.from(key),
-                fetcher = {
+                fetcher = ResultFetcher {
                     when (++calls) {
                         1 -> FetcherResult.Success("v1", etag = "e1")
                         2 -> FetcherResult.Deleted
@@ -594,7 +597,7 @@ class SourceOfTruthBindingConformanceTest {
         runCurrent()
         assertEquals("v1", seed.await())
         val stateBefore = engine.state.value
-        val statusBefore = assertNotNull(bookkeeper.status(KeyId.from(key)))
+        val statusBefore = assertNotNull(bookkeeper.status(key))
         assertEquals("v1", sourceOfTruth.current)
 
         clock.now = 425L
@@ -628,7 +631,7 @@ class SourceOfTruthBindingConformanceTest {
         assertEquals("v1", engine.get(Freshness.LocalOnly))
         assertEquals(listOf(425L), bookkeeper.failureTimes)
         assertEquals(0, bookkeeper.forgetCalls)
-        val statusAfter = assertNotNull(bookkeeper.status(KeyId.from(key)))
+        val statusAfter = assertNotNull(bookkeeper.status(key))
         assertTrue(statusAfter.meta === statusBefore.meta)
         assertEquals(statusBefore.lastSuccessSequence, statusAfter.lastSuccessSequence)
         assertEquals(425L, statusAfter.lastFailureAtEpochMillis)
@@ -1285,7 +1288,7 @@ class SourceOfTruthBindingConformanceTest {
         }
         assertNotNull(read.await().exceptionOrNull())
         assertNull(sourceOfTruth.current)
-        assertNull(bookkeeper.status(KeyId.from(key)))
+        assertNull(bookkeeper.status(key))
     }
 
     @Test
@@ -1318,7 +1321,7 @@ class SourceOfTruthBindingConformanceTest {
         }
         assertNotNull(deleting.await().exceptionOrNull())
         assertNull(sourceOfTruth.current)
-        assertNull(bookkeeper.status(KeyId.from(key)))
+        assertNull(bookkeeper.status(key))
     }
 
     private suspend fun awaitLocalValue(
@@ -1331,6 +1334,14 @@ class SourceOfTruthBindingConformanceTest {
                     result is StoreResult.Data && result.value == expected
                 }
             }
+        }
+    }
+
+    /** Waits for the already-active observer to deliver [expected], proving its pipeline caught up. */
+    private suspend fun ReceiveTurbine<StoreResult<String>>.awaitDataValue(expected: String) {
+        while (true) {
+            val item = awaitItem()
+            if (item is StoreResult.Data && item.value == expected) return
         }
     }
 
@@ -1375,36 +1386,36 @@ class SourceOfTruthBindingConformanceTest {
             private set
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             delegate.recordSuccess(key, meta)
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             failureTimes += atEpochMillis
             delegate.recordFailure(key, atEpochMillis)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             forgetCalls += 1
             delegate.forget(key)
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()
@@ -1543,7 +1554,7 @@ class SourceOfTruthBindingConformanceTest {
         }
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             if (gateNext) {
@@ -1555,27 +1566,27 @@ class SourceOfTruthBindingConformanceTest {
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             delegate.recordFailure(key, atEpochMillis)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             delegate.forget(key)
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()
@@ -1991,35 +2002,35 @@ class SourceOfTruthBindingConformanceTest {
         val forgotten = CompletableDeferred<Unit>()
 
         override suspend fun recordSuccess(
-            key: KeyId,
+            key: StoreKey,
             meta: StoreMeta,
         ) {
             delegate.recordSuccess(key, meta)
         }
 
         override suspend fun recordFailure(
-            key: KeyId,
+            key: StoreKey,
             atEpochMillis: Long,
         ) {
             delegate.recordFailure(key, atEpochMillis)
         }
 
-        override suspend fun status(key: KeyId): KeyStatus? = delegate.status(key)
+        override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
 
-        override suspend fun forget(key: KeyId) {
+        override suspend fun forget(key: StoreKey) {
             delegate.forget(key)
             forgotten.complete(Unit)
         }
 
-        override suspend fun markStale(key: KeyId) = delegate.markStale(key)
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
 
-        override suspend fun advanceStaleWatermark(namespace: String) =
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
             delegate.advanceStaleWatermark(namespace)
 
         override suspend fun advanceGlobalStaleWatermark() =
             delegate.advanceGlobalStaleWatermark()
 
-        override suspend fun forgetNamespace(namespace: String) =
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
             delegate.forgetNamespace(namespace)
 
         override suspend fun forgetAll() = delegate.forgetAll()

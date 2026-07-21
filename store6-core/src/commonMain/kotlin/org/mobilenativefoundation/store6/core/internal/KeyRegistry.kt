@@ -55,6 +55,21 @@ internal class KeyRegistry<K : StoreKey, V : Any>(
         targets.forEach { engine -> action(engine) }
     }
 
+    /** Returns the exact resident snapshot acted on when a caller must notify it after a fence. */
+    internal suspend fun snapshotAndForEachResident(
+        namespace: String?,
+        action: suspend (KeyEngine<K, V>) -> Unit,
+    ): List<KeyEngine<K, V>> {
+        val targets =
+            lock.withLock {
+                engines.entries
+                    .filter { namespace == null || it.key.namespace == namespace }
+                    .map { it.value }
+            }
+        targets.forEach { engine -> action(engine) }
+        return targets
+    }
+
     /** Fails fast when a key's canonical identity is not stable across calls (FS-6). */
     private fun verifyStableCanonicalId(
         key: K,

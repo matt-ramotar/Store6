@@ -23,6 +23,8 @@ import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.KeyEngine
 import org.mobilenativefoundation.store6.core.internal.KeyId
+import org.mobilenativefoundation.store6.core.internal.ResultFetcher
+import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -136,7 +138,7 @@ class SourceOfTruthFailureConformanceTest {
                 KeyEngine(
                     key = key,
                     keyId = KeyId.from(key),
-                    fetcher = { FetcherResult.Success("unused") },
+                    fetcher = ResultFetcher { FetcherResult.Success("unused") },
                     sot = sot,
                     bookkeeper = InMemoryBookkeeper(),
                     validator = DefaultFreshnessValidator,
@@ -333,7 +335,7 @@ class SourceOfTruthFailureConformanceTest {
         return KeyEngine(
             key = key,
             keyId = KeyId.from(key),
-            fetcher = { FetcherResult.Success("unused") },
+            fetcher = ResultFetcher { FetcherResult.Success("unused") },
             sot = sot,
             bookkeeper = InMemoryBookkeeper(),
             validator = DefaultFreshnessValidator,
