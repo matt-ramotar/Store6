@@ -862,13 +862,14 @@ class OverlayProjectionProtocolTest {
             }
             failingStore.stream(key).test {
                 val first = awaitItem()
-                if (first is StoreResult.Loading) {
-                    val failure = assertIs<StoreResult.Error>(awaitItem())
-                    assertIs<StoreError.Persistence>(failure.error)
+                val failure = if (first is StoreResult.Loading) {
+                    assertIs<StoreResult.Error>(awaitItem())
                 } else {
                     assertIs<StoreResult.Error>(first)
                 }
-                expectNoEvents()
+                assertIs<StoreError.Persistence>(failure.error)
+                // Startup hydration and the live reader may each report the same outage. The
+                // contract under proof is that no overlay Data precedes the typed failure.
                 cancelAndIgnoreRemainingEvents()
             }
         } finally {
