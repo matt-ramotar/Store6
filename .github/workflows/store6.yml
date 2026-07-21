@@ -45,7 +45,7 @@ jobs:
 
       - name: Build Store6 core
         run: >
-          ./gradlew :store6-core:build
+          ./gradlew :store6-core:build :store6-testing:build
           -Pkotlin.native.enableKlibsCrossCompilation=true
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
@@ -65,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           status=0
-          for module in store6-extension-probe; do
+          for module in store6-extension-probe store6-testing; do
             source_dir="${module}/src"
             if [[ ! -d "${source_dir}" ]]; then
               echo "ERROR: expected extension source directory is missing: ${source_dir}" >&2
@@ -162,6 +162,8 @@ jobs:
             :store6-core:macosArm64Test \
             :store6-extension-probe:iosSimulatorArm64Test \
             :store6-extension-probe:macosArm64Test \
+            :store6-testing:iosSimulatorArm64Test \
+            :store6-testing:macosArm64Test \
             "-Pstore6.iosSimulatorDevice=${STORE6_IOS_SIMULATOR_DEVICE}" \
             --stacktrace
 
@@ -241,7 +243,7 @@ jobs:
 
       - name: Publish Store6 core to Maven local without signing
         run: >
-          ./gradlew :store6-core:publishToMavenLocal
+          ./gradlew :store6-core:publishToMavenLocal :store6-testing:publishToMavenLocal
           -Pkotlin.native.enableKlibsCrossCompilation=true
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
@@ -253,42 +255,46 @@ jobs:
           version="6.0.0-SNAPSHOT"
           repository="${HOME}/.m2/repository/org/mobilenativefoundation/store"
 
-          artifact_ids=(
-            store6-core
-            store6-core-android
-            store6-core-iosarm64
-            store6-core-iossimulatorarm64
-            store6-core-iosx64
-            store6-core-js
-            store6-core-jvm
-            store6-core-linuxx64
-            store6-core-macosarm64
-            store6-core-mingwx64
-            store6-core-tvosarm64
-            store6-core-wasm-js
-            store6-core-watchosarm64
+          modules=(store6-core store6-testing)
+          suffixes=(
+            ""
+            -android
+            -iosarm64
+            -iossimulatorarm64
+            -iosx64
+            -js
+            -jvm
+            -linuxx64
+            -macosarm64
+            -mingwx64
+            -tvosarm64
+            -wasm-js
+            -watchosarm64
           )
 
           failed=0
-          for artifact_id in "${artifact_ids[@]}"; do
-            artifact_dir="${repository}/${artifact_id}/${version}"
-            case "${artifact_id}" in
-              store6-core|store6-core-jvm)
-                extension="jar"
-                ;;
-              store6-core-android)
-                extension="aar"
-                ;;
-              *)
-                extension="klib"
-                ;;
-            esac
-            artifact_file="${artifact_dir}/${artifact_id}-${version}.${extension}"
-            if [[ ! -f "${artifact_file}" ]]; then
-              echo "Missing consumable publication artifact: ${artifact_file}" >&2
-              failed=1
-              continue
-            fi
-            echo "Verified ${group_id}:${artifact_id}:${version} (${extension})"
+          for module in "${modules[@]}"; do
+            for suffix in "${suffixes[@]}"; do
+              artifact_id="${module}${suffix}"
+              artifact_dir="${repository}/${artifact_id}/${version}"
+              case "${suffix}" in
+                ""|-jvm)
+                  extension="jar"
+                  ;;
+                -android)
+                  extension="aar"
+                  ;;
+                *)
+                  extension="klib"
+                  ;;
+              esac
+              artifact_file="${artifact_dir}/${artifact_id}-${version}.${extension}"
+              if [[ ! -f "${artifact_file}" ]]; then
+                echo "Missing consumable publication artifact: ${artifact_file}" >&2
+                failed=1
+                continue
+              fi
+              echo "Verified ${group_id}:${artifact_id}:${version} (${extension})"
+            done
           done
           exit "${failed}"
