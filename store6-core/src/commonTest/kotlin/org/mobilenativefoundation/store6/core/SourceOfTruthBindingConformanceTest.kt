@@ -1,5 +1,6 @@
 package org.mobilenativefoundation.store6.core
 
+import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
 import app.cash.turbine.testIn
 import kotlinx.coroutines.CancellationException
@@ -230,9 +231,9 @@ class SourceOfTruthBindingConformanceTest {
                 assertEquals("v1", assertIs<StoreResult.Data<String>>(observer.awaitItem()).value)
                 sourceOfTruth.liveReaderStarted.await()
                 sourceOfTruth.replay("sync")
-                awaitLocalValue(store, "sync")
+                observer.awaitDataValue("sync")
                 sourceOfTruth.replay("v1")
-                awaitLocalValue(store, "v1")
+                observer.awaitDataValue("v1")
                 store.invalidate(key)
                 bookkeeper.gateNextSuccess()
 
@@ -312,9 +313,9 @@ class SourceOfTruthBindingConformanceTest {
                 assertEquals("v1", assertIs<StoreResult.Data<String>>(observer.awaitItem()).value)
                 sourceOfTruth.liveReaderStarted.await()
                 sourceOfTruth.replay("sync")
-                awaitLocalValue(store, "sync")
+                observer.awaitDataValue("sync")
                 sourceOfTruth.replay("v1")
-                awaitLocalValue(store, "v1")
+                observer.awaitDataValue("v1")
                 store.invalidate(key)
 
                 val collector = store.stream(key).testIn(backgroundScope)
@@ -360,9 +361,9 @@ class SourceOfTruthBindingConformanceTest {
                 assertEquals("v1", assertIs<StoreResult.Data<String>>(observer.awaitItem()).value)
                 sourceOfTruth.liveReaderStarted.await()
                 sourceOfTruth.replay("sync")
-                awaitLocalValue(store, "sync")
+                observer.awaitDataValue("sync")
                 sourceOfTruth.replay("v1")
-                awaitLocalValue(store, "v1")
+                observer.awaitDataValue("v1")
                 store.invalidate(key)
                 bookkeeper.gateNextSuccess()
 
@@ -1333,6 +1334,14 @@ class SourceOfTruthBindingConformanceTest {
                     result is StoreResult.Data && result.value == expected
                 }
             }
+        }
+    }
+
+    /** Waits for the already-active observer to deliver [expected], proving its pipeline caught up. */
+    private suspend fun ReceiveTurbine<StoreResult<String>>.awaitDataValue(expected: String) {
+        while (true) {
+            val item = awaitItem()
+            if (item is StoreResult.Data && item.value == expected) return
         }
     }
 
