@@ -76,6 +76,7 @@ public final class org/mobilenativefoundation/store6/core/StoreBuilder {
 	public final fun fetcher (Lorg/mobilenativefoundation/store6/core/seam/Fetcher;)V
 	public final fun fetcherOfResult (Lkotlin/jvm/functions/Function2;)V
 	public final fun freshnessValidator (Lorg/mobilenativefoundation/store6/core/seam/FreshnessValidator;)V
+	public final fun overlay (Lorg/mobilenativefoundation/store6/core/seam/Overlay;)V
 	public final fun persistence (Lorg/mobilenativefoundation/store6/core/seam/SourceOfTruth;)V
 	public final fun telemetry (Lorg/mobilenativefoundation/store6/core/seam/StoreTelemetry;)V
 	public final fun wallClock (Lorg/mobilenativefoundation/store6/core/seam/WallClock;)V
@@ -264,6 +265,11 @@ public final class org/mobilenativefoundation/store6/core/seam/KeyStatus {
 	public final fun getLastFailureAtEpochMillis ()Ljava/lang/Long;
 	public final fun getLastSuccessSequence ()Ljava/lang/Long;
 	public final fun getMeta ()Lorg/mobilenativefoundation/store6/core/StoreMeta;
+}
+
+public abstract interface class org/mobilenativefoundation/store6/core/seam/Overlay {
+	public abstract fun apply (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;)Ljava/lang/Object;
+	public abstract fun getChanges ()Lkotlinx/coroutines/flow/Flow;
 }
 
 public abstract interface class org/mobilenativefoundation/store6/core/seam/SourceOfTruth {

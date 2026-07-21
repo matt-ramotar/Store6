@@ -132,6 +132,8 @@ internal sealed interface FetchOutcome {
     /** A NotModified baseline changed before commit and must be planned again. */
     data object ObsoleteRevalidation : FetchOutcome
 
-    /** The fetcher reported server-side deletion; residence was destructively removed. */
-    data object Deleted : FetchOutcome
+    /** The fetcher reported server-side deletion; [residenceRevision] names exact absence. */
+    class Deleted(
+        val residenceRevision: Long,
+    ) : FetchOutcome
 }

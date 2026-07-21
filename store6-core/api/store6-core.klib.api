@@ -35,6 +35,13 @@ abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kot
     abstract suspend fun fetch(#A, kotlin/String?): org.mobilenativefoundation.store6.core.seam/FetcherResult<#B> // org.mobilenativefoundation.store6.core.seam/Fetcher.fetch|fetch(1:0;kotlin.String?){}[0]
 }
 
+abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core.seam/Overlay { // org.mobilenativefoundation.store6.core.seam/Overlay|null[0]
+    abstract val changes // org.mobilenativefoundation.store6.core.seam/Overlay.changes|{}changes[0]
+        abstract fun <get-changes>(): kotlinx.coroutines.flow/Flow<org.mobilenativefoundation.store6.core/StoreKey> // org.mobilenativefoundation.store6.core.seam/Overlay.changes.<get-changes>|<get-changes>(){}[0]
+
+    abstract fun apply(#A, #B?): #B? // org.mobilenativefoundation.store6.core.seam/Overlay.apply|apply(1:0;1:1?){}[0]
+}
+
 abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core.seam/SourceOfTruth { // org.mobilenativefoundation.store6.core.seam/SourceOfTruth|null[0]
     abstract fun reader(#A): kotlinx.coroutines.flow/Flow<#B?> // org.mobilenativefoundation.store6.core.seam/SourceOfTruth.reader|reader(1:0){}[0]
     abstract suspend fun delete(#A) // org.mobilenativefoundation.store6.core.seam/SourceOfTruth.delete|delete(1:0){}[0]
@@ -262,6 +269,7 @@ final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any
     final fun fetcher(org.mobilenativefoundation.store6.core.seam/Fetcher<#A, #B>) // org.mobilenativefoundation.store6.core/StoreBuilder.fetcher|fetcher(org.mobilenativefoundation.store6.core.seam.Fetcher<1:0,1:1>){}[0]
     final fun fetcherOfResult(kotlin.coroutines/SuspendFunction1<#A, org.mobilenativefoundation.store6.core.seam/FetcherResult<#B>>) // org.mobilenativefoundation.store6.core/StoreBuilder.fetcherOfResult|fetcherOfResult(kotlin.coroutines.SuspendFunction1<1:0,org.mobilenativefoundation.store6.core.seam.FetcherResult<1:1>>){}[0]
     final fun freshnessValidator(org.mobilenativefoundation.store6.core.seam/FreshnessValidator) // org.mobilenativefoundation.store6.core/StoreBuilder.freshnessValidator|freshnessValidator(org.mobilenativefoundation.store6.core.seam.FreshnessValidator){}[0]
+    final fun overlay(org.mobilenativefoundation.store6.core.seam/Overlay<#A, #B>) // org.mobilenativefoundation.store6.core/StoreBuilder.overlay|overlay(org.mobilenativefoundation.store6.core.seam.Overlay<1:0,1:1>){}[0]
     final fun persistence(org.mobilenativefoundation.store6.core.seam/SourceOfTruth<#A, #B>) // org.mobilenativefoundation.store6.core/StoreBuilder.persistence|persistence(org.mobilenativefoundation.store6.core.seam.SourceOfTruth<1:0,1:1>){}[0]
     final fun telemetry(org.mobilenativefoundation.store6.core.seam/StoreTelemetry) // org.mobilenativefoundation.store6.core/StoreBuilder.telemetry|telemetry(org.mobilenativefoundation.store6.core.seam.StoreTelemetry){}[0]
     final fun wallClock(org.mobilenativefoundation.store6.core.seam/WallClock) // org.mobilenativefoundation.store6.core/StoreBuilder.wallClock|wallClock(org.mobilenativefoundation.store6.core.seam.WallClock){}[0]

@@ -11,8 +11,10 @@ import kotlin.time.Duration
  * Observes Store lifecycle events without participating in Store correctness.
  *
  * Handlers are non-suspending and must be non-blocking and must not throw. The engine never invokes
- * them while its state or write lock is held. [onServe] runs once for every public data or
- * revalidation emission and for every successful `get` return.
+ * them while its state or write lock is held. [onServe] runs for every public data emission and
+ * successful `get` return. For a revalidation it runs only when the rendered projection retains a
+ * visible value: pass-through uses the effective authorized origin, an overlaid value uses
+ * `Origin.OVERLAY`, and projected absence has no successful serve and therefore no hook.
  *
  * When telemetry is unset the engine retains a null reference, every call site short-circuits with
  * a null guard, and no fetch-duration mark is allocated. When configured, [onFetchStarted] runs at

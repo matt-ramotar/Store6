@@ -13,6 +13,7 @@ import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
+import org.mobilenativefoundation.store6.core.seam.Overlay
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.StoreTelemetry
 import org.mobilenativefoundation.store6.core.seam.WallClock
@@ -54,6 +55,9 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
 
     @OptIn(ExperimentalStoreApi::class)
     private var telemetry: StoreTelemetry? = null
+
+    @OptIn(ExperimentalStoreApi::class)
+    private var overlay: Overlay<K, V>? = null
 
     /**
      * Configures the suspending function used to retrieve a value for a key.
@@ -119,6 +123,17 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
         this.telemetry = telemetry
     }
 
+    /**
+     * Installs the stream-only projection layer for this store.
+     *
+     * The last registration wins. Leaving this unset preserves the direct-residence fast path and
+     * allocates no projection writer or readiness state.
+     */
+    @ExperimentalStoreApi
+    public fun overlay(overlay: Overlay<K, V>) {
+        this.overlay = overlay
+    }
+
     /** Installs the durable freshness bookkeeping implementation used by this store. */
     @ExperimentalStoreApi
     public fun bookkeeper(bookkeeper: Bookkeeper) {
@@ -144,6 +159,14 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
                 "fetcher(Fetcher) block."
         }
         val sourceOfTruth = sot ?: InMemorySourceOfTruth()
-        return RealStore(fetch, sourceOfTruth, wallClock, bookkeeper, validator, telemetry)
+        return RealStore(
+            fetch,
+            sourceOfTruth,
+            wallClock,
+            bookkeeper,
+            validator,
+            telemetry,
+            overlay,
+        )
     }
 }

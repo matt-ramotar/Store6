@@ -22,6 +22,7 @@ import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FreshnessValidator
 import org.mobilenativefoundation.store6.core.seam.KeyEvents
+import org.mobilenativefoundation.store6.core.seam.Overlay
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.StoreRuntime
 import org.mobilenativefoundation.store6.core.seam.StoreTelemetry
@@ -43,6 +44,7 @@ internal class RealStore<K : StoreKey, V : Any>(
     private val bookkeeper: Bookkeeper,
     validator: FreshnessValidator,
     internal val telemetry: StoreTelemetry?,
+    private val overlay: Overlay<K, V>?,
 ) : Store<K, V> {
     private val storeJob = SupervisorJob()
     private val storeScope = CoroutineScope(Dispatchers.Default + storeJob)
@@ -66,6 +68,7 @@ internal class RealStore<K : StoreKey, V : Any>(
                 validator = validator,
                 wallClock = wallClock,
                 telemetry = telemetry,
+                overlay = overlay,
                 events = events,
                 engineScope = CoroutineScope(storeScope.coroutineContext + engineJob),
                 maintenanceCoordinator = maintenanceCoordinator,
