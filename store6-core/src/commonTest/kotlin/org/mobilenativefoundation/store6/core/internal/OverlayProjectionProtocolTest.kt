@@ -848,11 +848,15 @@ class OverlayProjectionProtocolTest {
             overlay(create)
         }
         val readerBoom = IllegalStateException("reader failed")
-        val failingStore = store<TestKey, String> {
-            fetcher { awaitCancellation() }
-            persistence(FailingReaderSourceOfTruth(readerBoom))
-            overlay(CountingOverlay<String>({ it ?: "must-not-appear" }))
-        }
+        val liveReaderFailure = SuspendGate()
+        val projectionDelivery = SuspendGate()
+        val failingHarness =
+            stringEngine(
+                overlay = CountingOverlay<String>({ it ?: "must-not-appear" }),
+                fetcher = { awaitCancellation() },
+                sot = FailingReaderSourceOfTruth(readerBoom, liveReaderFailure),
+                afterProjectionDeliveryTestGate = { projectionDelivery.pause() },
+            )
 
         try {
             absentStore.stream(key).test {
@@ -860,21 +864,26 @@ class OverlayProjectionProtocolTest {
                 assertEquals(Origin.OVERLAY, created.origin)
                 cancelAndIgnoreRemainingEvents()
             }
-            failingStore.stream(key).test {
-                val first = awaitItem()
-                val failure = if (first is StoreResult.Loading) {
-                    assertIs<StoreResult.Error>(awaitItem())
-                } else {
-                    assertIs<StoreResult.Error>(first)
-                }
+            failingHarness.engine.stream(Freshness.CachedOrFetch).test {
+                assertIs<StoreResult.Loading>(awaitItem())
+                val failure = assertIs<StoreResult.Error>(awaitItem())
                 assertIs<StoreError.Persistence>(failure.error)
-                // Startup hydration and the live reader may each report the same outage. The
-                // contract under proof is that no overlay Data precedes the typed failure.
+
+                liveReaderFailure.awaitEntered()
+                projectionDelivery.awaitEntered()
+                expectNoEvents() // the ready optimistic-create snapshot was observed but rejected
+
+                projectionDelivery.release()
+                liveReaderFailure.release()
+                val liveFailure = assertIs<StoreResult.Error>(awaitItem())
+                assertIs<StoreError.Persistence>(liveFailure.error)
                 cancelAndIgnoreRemainingEvents()
             }
         } finally {
+            liveReaderFailure.release()
+            projectionDelivery.release()
             absentStore.close()
-            failingStore.close()
+            failingHarness.close()
         }
     }
 
@@ -1691,8 +1700,14 @@ class OverlayProjectionProtocolTest {
 
     private class FailingReaderSourceOfTruth(
         private val failure: Throwable,
+        private val liveReaderFailure: SuspendGate? = null,
     ) : SourceOfTruth<TestKey, String> {
-        override fun reader(key: TestKey): Flow<String?> = flow { throw failure }
+        private val startupCollection = CompletableDeferred<Unit>()
+
+        override fun reader(key: TestKey): Flow<String?> = flow {
+            if (!startupCollection.complete(Unit)) liveReaderFailure?.pause()
+            throw failure
+        }
 
         override suspend fun write(
             key: TestKey,
