@@ -3,13 +3,14 @@
     org.mobilenativefoundation.store6.core.ExperimentalStoreApi::class,
 )
 
-package org.mobilenativefoundation.store6.contracttests
+package org.mobilenativefoundation.store6.testing
 
 import app.cash.turbine.test
 import app.cash.turbine.turbineScope
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
@@ -18,15 +19,20 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 /**
- * Reusable contract tests for [SourceOfTruth] implementations.
+ * Conformance kit for [SourceOfTruth] implementations (TD-15). Extend it in your test source set,
+ * run your tests: every inherited @Test member executes on every target you compile.
  *
- * Every shipped or reusable adapter and fake must have a CI-executed subclass of this kit.
- * Purpose-built gated or fault-injection fakes are excluded because they intentionally violate a
- * contract edge in order to exercise engine recovery.
- *
- * @param K the key type accepted by the implementation
- * @param V the non-null value type stored by the implementation
+ * ```
+ * class MySourceOfTruthContractTest : SourceOfTruthContractKit<MyKey, MyValue>() {
+ *     override fun createSourceOfTruth() = MySourceOfTruth()
+ *     override val keyA = MyKey("users", "a")
+ *     override val keyB = MyKey("users", "b")
+ *     override val keyOtherNamespace = MyKey("teams", "a")
+ *     override fun value(index: Int) = MyValue("value-$index")
+ * }
+ * ```
  */
+@ExperimentalStoreApi
 public abstract class SourceOfTruthContractKit<K : StoreKey, V : Any> {
     /** Creates a fresh source of truth for one contract test. */
     public abstract fun createSourceOfTruth(): SourceOfTruth<K, V>

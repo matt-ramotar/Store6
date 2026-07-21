@@ -12,7 +12,7 @@ kotlin {
 
         val commonTest by getting {
             dependencies {
-                implementation(projects.store6ContractTests)
+                implementation(projects.store6Testing)
                 implementation(libs.kotlinx.coroutines.test)
                 implementation(libs.turbine)
             }

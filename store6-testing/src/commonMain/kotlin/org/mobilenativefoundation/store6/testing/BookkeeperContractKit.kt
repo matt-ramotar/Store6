@@ -1,9 +1,10 @@
 @file:OptIn(org.mobilenativefoundation.store6.core.ExperimentalStoreApi::class)
 
-package org.mobilenativefoundation.store6.contracttests
+package org.mobilenativefoundation.store6.testing
 
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.runTest
+import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.StoreNamespace
@@ -14,7 +15,17 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** Reusable contract tests for [Bookkeeper] implementations. */
+/**
+ * Conformance kit for [Bookkeeper] implementations. Extend it in your test source set and run your
+ * tests: every inherited @Test member executes on every target you compile.
+ *
+ * ```
+ * class MyBookkeeperContractTest : BookkeeperContractKit() {
+ *     override fun createBookkeeper() = MyBookkeeper()
+ * }
+ * ```
+ */
+@ExperimentalStoreApi
 public abstract class BookkeeperContractKit {
     /** Creates a fresh bookkeeper for one contract test. */
     public abstract fun createBookkeeper(): Bookkeeper

@@ -1,0 +1,35 @@
+public abstract class org/mobilenativefoundation/store6/testing/BookkeeperContractKit {
+	public fun <init> ()V
+	public abstract fun createBookkeeper ()Lorg/mobilenativefoundation/store6/core/seam/Bookkeeper;
+	public final fun failureOnlyRecord_isNotDurablyStale ()V
+	public final fun identityDerivation_differentCanonicalId_isolated ()V
+	public final fun identityDerivation_equalCanonicalPair_sharesRecords ()V
+	public final fun namespaceWatermark_thenLaterSuccess_clearsDurableStaleness ()V
+	public final fun recordSuccess_clearsFailureCountAndTimestamp ()V
+	public final fun watermarkOnlyKey_reportsDurablyStale ()V
+}
+
+public abstract class org/mobilenativefoundation/store6/testing/SourceOfTruthContractKit {
+	public fun <init> ()V
+	public abstract fun createSourceOfTruth ()Lorg/mobilenativefoundation/store6/core/seam/SourceOfTruth;
+	public final fun deleteAllDeletesEveryNamespaceAndEmitsNull ()V
+	public final fun deleteEmitsNull ()V
+	public final fun deleteIsVisibleToLateReader ()V
+	public final fun deleteNamespaceDeletesOnlyMatchingNamespace ()V
+	public final fun deleteNamespaceEmitsNullToActiveMatchingReader ()V
+	public final fun equalValueRewriteEmits ()V
+	public abstract fun getKeyA ()Lorg/mobilenativefoundation/store6/core/StoreKey;
+	public abstract fun getKeyB ()Lorg/mobilenativefoundation/store6/core/StoreKey;
+	public abstract fun getKeyOtherNamespace ()Lorg/mobilenativefoundation/store6/core/StoreKey;
+	public final fun keysAreIsolated ()V
+	public final fun readerFirstEmissionIsCurrentValue ()V
+	public final fun readerFirstEmissionIsNullWhenAbsent ()V
+	public final fun readerNeverCompletesNormally ()V
+	public final fun readerStaysLiveAcrossDelete ()V
+	public final fun readerStaysLiveAcrossNamespaceDelete ()V
+	public final fun readerStaysLiveAcrossThreeDeleteCycles ()V
+	public final fun twoConcurrentReadersBothSeeWrite ()V
+	public abstract fun value (I)Ljava/lang/Object;
+	public final fun writeIsVisibleToLateReader ()V
+}
+
