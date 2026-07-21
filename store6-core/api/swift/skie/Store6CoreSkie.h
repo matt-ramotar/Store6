@@ -6,9 +6,9 @@
 #import <Foundation/NSString.h>
 #import <Foundation/NSValue.h>
 
-@class SCS__SkieSuspendWrappersKt, SCSUShort, SCSULong, SCSUInt, SCSUByte, SCSStoreResultRevalidated, SCSStoreResultLoading, SCSStoreResultError, SCSStoreResultData<V>, SCSStoreNamespace, SCSStoreException, SCSStoreErrorPersistence, SCSStoreErrorMissing, SCSStoreErrorFreshnessUnsatisfiable, SCSStoreErrorFetch, SCSStoreErrorConversion, SCSStoreErrorConflict, SCSStoreError, SCSStoreBuilderKt, SCSStoreBuilder<K, V>, SCSSkie_SuspendResultSuccess, SCSSkie_SuspendResultError, SCSSkie_SuspendResultCanceled, SCSSkie_SuspendResult, SCSSkie_SuspendHandler, SCSSkie_CancellationHandler, SCSSkieKotlinStateFlow<T>, SCSSkieKotlinSharedFlow<T>, SCSSkieKotlinOptionalStateFlow<T>, SCSSkieKotlinOptionalSharedFlow<T>, SCSSkieKotlinOptionalMutableStateFlow<T>, SCSSkieKotlinOptionalMutableSharedFlow<T>, SCSSkieKotlinOptionalFlow<T>, SCSSkieKotlinMutableStateFlow<T>, SCSSkieKotlinMutableSharedFlow<T>, SCSSkieKotlinFlow<T>, SCSSkieColdFlowIterator<E>, SCSShort, SCSOrigin, SCSNumber, SCSMutableSet<ObjectType>, SCSMutableDictionary<KeyType, ObjectType>, SCSLong, SCSKotlinThrowable, SCSKotlinRuntimeException, SCSKotlinIllegalStateException, SCSKotlinException, SCSKotlinEnumCompanion, SCSKotlinEnum<E>, SCSKotlinCancellationException, SCSKotlinArray<T>, SCSInt, SCSFreshnessStaleIfError, SCSFreshnessMustBeFresh, SCSFreshnessMaxAge, SCSFreshnessLocalOnly, SCSFreshnessCachedOrFetch, SCSFloat, SCSFetcherResultSuccess<V>, SCSFetcherResultNotModified, SCSFetcherResultError, SCSFetcherResultDeleted, SCSDouble, SCSByte, SCSBoolean, SCSBase, NSString, NSSet<ObjectType>, NSObject, NSNumber, NSMutableSet<ObjectType>, NSMutableDictionary<KeyType, ObjectType>, NSMutableArray<ObjectType>, NSError, NSDictionary<KeyType, ObjectType>, NSArray<ObjectType>;
+@class SCS__SkieSuspendWrappersKt, SCSUShort, SCSULong, SCSUInt, SCSUByte, SCSStoreRuntimeKt, SCSStoreResults, SCSStoreResultRevalidated, SCSStoreResultLoading, SCSStoreResultError, SCSStoreResultData<V>, SCSStoreNamespace, SCSStoreException, SCSStoreErrorPersistence, SCSStoreErrorMissing, SCSStoreErrorFreshnessUnsatisfiable, SCSStoreErrorFetch, SCSStoreErrorConversion, SCSStoreErrorConflict, SCSStoreError, SCSStoreBuilderKt, SCSStoreBuilder<K, V>, SCSSkie_SuspendResultSuccess, SCSSkie_SuspendResultError, SCSSkie_SuspendResultCanceled, SCSSkie_SuspendResult, SCSSkie_SuspendHandler, SCSSkie_CancellationHandler, SCSSkieKotlinStateFlow<T>, SCSSkieKotlinSharedFlow<T>, SCSSkieKotlinOptionalStateFlow<T>, SCSSkieKotlinOptionalSharedFlow<T>, SCSSkieKotlinOptionalMutableStateFlow<T>, SCSSkieKotlinOptionalMutableSharedFlow<T>, SCSSkieKotlinOptionalFlow<T>, SCSSkieKotlinMutableStateFlow<T>, SCSSkieKotlinMutableSharedFlow<T>, SCSSkieKotlinFlow<T>, SCSSkieColdFlowIterator<E>, SCSShort, SCSOrigin, SCSNumber, SCSMutableSet<ObjectType>, SCSMutableDictionary<KeyType, ObjectType>, SCSLong, SCSKotlinThrowable, SCSKotlinRuntimeException, SCSKotlinIllegalStateException, SCSKotlinException, SCSKotlinEnumCompanion, SCSKotlinEnum<E>, SCSKotlinCancellationException, SCSKotlinArray<T>, SCSKeyStatus, SCSKeyEventsWritten, SCSKeyEventsInvalidated, SCSKeyEventsDeleted, SCSKeyEvents, SCSInt, SCSFreshnessStaleIfError, SCSFreshnessMustBeFresh, SCSFreshnessMaxAge, SCSFreshnessLocalOnly, SCSFreshnessContext, SCSFreshnessCachedOrFetch, SCSFloat, SCSFetcherResultSuccess<V>, SCSFetcherResultNotModified, SCSFetcherResultError, SCSFetcherResultDeleted, SCSFetchPlanSkip, SCSFetchPlanFetch, SCSFetchPlanConditional, SCSDouble, SCSByte, SCSBoolean, SCSBase, NSString, NSSet<ObjectType>, NSObject, NSNumber, NSMutableSet<ObjectType>, NSMutableDictionary<KeyType, ObjectType>, NSMutableArray<ObjectType>, NSError, NSDictionary<KeyType, ObjectType>, NSArray<ObjectType>;
 
-@protocol SCSStoreResult, SCSStoreMeta, SCSStoreKey, SCSStore, SCSSourceOfTruth, SCSSkie_DispatcherDelegate, SCSKotlinx_coroutines_coreStateFlow, SCSKotlinx_coroutines_coreSharedFlow, SCSKotlinx_coroutines_coreRunnable, SCSKotlinx_coroutines_coreMutableStateFlow, SCSKotlinx_coroutines_coreMutableSharedFlow, SCSKotlinx_coroutines_coreFlowCollector, SCSKotlinx_coroutines_coreFlow, SCSKotlinSuspendFunction1, SCSKotlinIterator, SCSKotlinFunction, SCSKotlinComparable, SCSFreshness, SCSFetcherResult, NSCopying;
+@protocol SCSWallClock, SCSTransactionalSourceOfTruth, SCSStoreWriteHandle, SCSStoreTelemetry, SCSStoreRuntime, SCSStoreResult, SCSStoreMeta, SCSStoreKey, SCSStore, SCSSourceOfTruth, SCSSkie_DispatcherDelegate, SCSOverlay, SCSKotlinx_coroutines_coreStateFlow, SCSKotlinx_coroutines_coreSharedFlow, SCSKotlinx_coroutines_coreRunnable, SCSKotlinx_coroutines_coreMutableStateFlow, SCSKotlinx_coroutines_coreMutableSharedFlow, SCSKotlinx_coroutines_coreFlowCollector, SCSKotlinx_coroutines_coreFlow, SCSKotlinSuspendFunction1, SCSKotlinSuspendFunction0, SCSKotlinIterator, SCSKotlinFunction, SCSKotlinComparable, SCSFreshnessValidator, SCSFreshness, SCSFetcherResult, SCSFetcher, SCSFetchPlan, SCSBookkeeper, NSCopying;
 
 // Due to an Obj-C/Swift interop limitation, SKIE cannot generate Swift types with a lambda type argument.
 // Example of such type is: A<() -> Unit> where A<T> is a generic class.
@@ -478,45 +478,6 @@ __attribute__((swift_name("Skie_SuspendResult.Success")))
 - (NSString *)description __attribute__((swift_name("description()")));
 @end
 
-__attribute__((swift_name("FetcherResult")))
-@protocol SCSFetcherResult
-@required
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("FetcherResultDeleted")))
-@interface SCSFetcherResultDeleted : SCSBase <SCSFetcherResult>
-@property (class, readonly, getter=shared) SCSFetcherResultDeleted *shared __attribute__((swift_name("shared")));
-+ (instancetype)alloc __attribute__((unavailable));
-+ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
-+ (instancetype)deleted __attribute__((swift_name("init()")));
-- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
-- (NSUInteger)hash __attribute__((swift_name("hash()")));
-- (NSString *)description __attribute__((swift_name("description()")));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("FetcherResultError")))
-@interface SCSFetcherResultError : SCSBase <SCSFetcherResult>
-@property (readonly) SCSKotlinThrowable *cause __attribute__((swift_name("cause")));
-- (instancetype)initWithCause:(SCSKotlinThrowable *)cause __attribute__((swift_name("init(cause:)"))) __attribute__((objc_designated_initializer));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("FetcherResultNotModified")))
-@interface SCSFetcherResultNotModified : SCSBase <SCSFetcherResult>
-@property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
-- (instancetype)initWithEtag:(NSString * _Nullable)etag __attribute__((swift_name("init(etag:)"))) __attribute__((objc_designated_initializer));
-@end
-
-__attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("FetcherResultSuccess")))
-@interface SCSFetcherResultSuccess<V> : SCSBase <SCSFetcherResult>
-@property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
-@property (readonly) V value __attribute__((swift_name("value")));
-- (instancetype)initWithValue:(V)value etag:(NSString * _Nullable)etag __attribute__((swift_name("init(value:etag:)"))) __attribute__((objc_designated_initializer));
-@end
-
 __attribute__((swift_name("Freshness")))
 @protocol SCSFreshness
 @required
@@ -661,14 +622,50 @@ __attribute__((swift_name("Store")))
 __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("StoreBuilder")))
 @interface SCSStoreBuilder<K, V> : SCSBase
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+- (void)bookkeeperBookkeeper:(id<SCSBookkeeper>)bookkeeper __attribute__((swift_name("bookkeeper(bookkeeper:)")));
 - (void)fetcherFetch:(id<SCSKotlinSuspendFunction1>)fetch __attribute__((swift_name("fetcher(fetch:)")));
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+- (void)fetcherFetcher:(id<SCSFetcher>)fetcher __attribute__((swift_name("fetcher(fetcher:)")));
 - (void)fetcherOfResultFetch:(id<SCSKotlinSuspendFunction1>)fetch __attribute__((swift_name("fetcherOfResult(fetch:)")));
 
 /**
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
+- (void)freshnessValidatorValidator:(id<SCSFreshnessValidator>)validator __attribute__((swift_name("freshnessValidator(validator:)")));
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+- (void)overlayOverlay:(id<SCSOverlay>)overlay __attribute__((swift_name("overlay(overlay:)")));
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
 - (void)persistenceSot:(id<SCSSourceOfTruth>)sot __attribute__((swift_name("persistence(sot:)")));
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+- (void)telemetryTelemetry:(id<SCSStoreTelemetry>)telemetry __attribute__((swift_name("telemetry(telemetry:)")));
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+- (void)wallClockWallClock:(id<SCSWallClock>)wallClock __attribute__((swift_name("wallClock(wallClock:)")));
 @end
 
 __attribute__((swift_name("StoreError")))
@@ -824,6 +821,247 @@ __attribute__((swift_name("StoreResultRevalidated")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
+__attribute__((swift_name("Bookkeeper")))
+@protocol SCSBookkeeper
+@required
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)advanceGlobalStaleWatermarkWithCompletionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("advanceGlobalStaleWatermark(completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)advanceStaleWatermarkNamespace:(SCSStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("advanceStaleWatermark(namespace:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)forgetKey:(id<SCSStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("forget(key:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)forgetAllWithCompletionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("forgetAll(completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)forgetNamespaceNamespace:(SCSStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("forgetNamespace(namespace:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)markStaleKey:(id<SCSStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("markStale(key:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)recordFailureKey:(id<SCSStoreKey>)key atEpochMillis:(int64_t)atEpochMillis completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("recordFailure(key:atEpochMillis:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)recordSuccessKey:(id<SCSStoreKey>)key meta:(id<SCSStoreMeta>)meta completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("recordSuccess(key:meta:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)statusKey:(id<SCSStoreKey>)key completionHandler:(void (^)(SCSKeyStatus * _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("status(key:completionHandler:)")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((swift_name("FetchPlan")))
+@protocol SCSFetchPlan
+@required
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetchPlanConditional")))
+@interface SCSFetchPlanConditional : SCSBase <SCSFetchPlan>
+@property (readonly) NSString *etag __attribute__((swift_name("etag")));
+@property (readonly) BOOL servesResidentWhileFetching __attribute__((swift_name("servesResidentWhileFetching")));
+- (instancetype)initWithEtag:(NSString *)etag servesResidentWhileFetching:(BOOL)servesResidentWhileFetching __attribute__((swift_name("init(etag:servesResidentWhileFetching:)"))) __attribute__((objc_designated_initializer));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetchPlanFetch")))
+@interface SCSFetchPlanFetch : SCSBase <SCSFetchPlan>
+@property (readonly) BOOL servesResidentWhileFetching __attribute__((swift_name("servesResidentWhileFetching")));
+- (instancetype)initWithServesResidentWhileFetching:(BOOL)servesResidentWhileFetching __attribute__((swift_name("init(servesResidentWhileFetching:)"))) __attribute__((objc_designated_initializer));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetchPlanSkip")))
+@interface SCSFetchPlanSkip : SCSBase <SCSFetchPlan>
+@property (class, readonly, getter=shared) SCSFetchPlanSkip *shared __attribute__((swift_name("shared")));
++ (instancetype)alloc __attribute__((unavailable));
++ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
++ (instancetype)skip __attribute__((swift_name("init()")));
+- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
+- (NSUInteger)hash __attribute__((swift_name("hash()")));
+- (NSString *)description __attribute__((swift_name("description()")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((swift_name("Fetcher")))
+@protocol SCSFetcher
+@required
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)fetchKey:(id<SCSStoreKey>)key etag:(NSString * _Nullable)etag completionHandler:(void (^)(id<SCSFetcherResult> _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("fetch(key:etag:completionHandler:)")));
+@end
+
+__attribute__((swift_name("FetcherResult")))
+@protocol SCSFetcherResult
+@required
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultDeleted")))
+@interface SCSFetcherResultDeleted : SCSBase <SCSFetcherResult>
+@property (class, readonly, getter=shared) SCSFetcherResultDeleted *shared __attribute__((swift_name("shared")));
++ (instancetype)alloc __attribute__((unavailable));
++ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
++ (instancetype)deleted __attribute__((swift_name("init()")));
+- (BOOL)isEqual:(id _Nullable)other __attribute__((swift_name("isEqual(_:)")));
+- (NSUInteger)hash __attribute__((swift_name("hash()")));
+- (NSString *)description __attribute__((swift_name("description()")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultError")))
+@interface SCSFetcherResultError : SCSBase <SCSFetcherResult>
+@property (readonly) SCSKotlinThrowable *cause __attribute__((swift_name("cause")));
+- (instancetype)initWithCause:(SCSKotlinThrowable *)cause __attribute__((swift_name("init(cause:)"))) __attribute__((objc_designated_initializer));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultNotModified")))
+@interface SCSFetcherResultNotModified : SCSBase <SCSFetcherResult>
+@property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
+- (instancetype)initWithEtag:(NSString * _Nullable)etag __attribute__((swift_name("init(etag:)"))) __attribute__((objc_designated_initializer));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FetcherResultSuccess")))
+@interface SCSFetcherResultSuccess<V> : SCSBase <SCSFetcherResult>
+@property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
+@property (readonly) V value __attribute__((swift_name("value")));
+- (instancetype)initWithValue:(V)value etag:(NSString * _Nullable)etag __attribute__((swift_name("init(value:etag:)"))) __attribute__((objc_designated_initializer));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FreshnessContext")))
+@interface SCSFreshnessContext : SCSBase
+@property (readonly) BOOL epochStale __attribute__((swift_name("epochStale")));
+@property (readonly) id<SCSFreshness> freshness __attribute__((swift_name("freshness")));
+@property (readonly) BOOL hasResidentValue __attribute__((swift_name("hasResidentValue")));
+@property (readonly) id<SCSStoreMeta> _Nullable meta __attribute__((swift_name("meta")));
+@property (readonly) int64_t nowEpochMillis __attribute__((swift_name("nowEpochMillis")));
+@property (readonly) SCSKeyStatus * _Nullable status __attribute__((swift_name("status")));
+- (instancetype)initWithHasResidentValue:(BOOL)hasResidentValue meta:(id<SCSStoreMeta> _Nullable)meta epochStale:(BOOL)epochStale freshness:(id<SCSFreshness>)freshness nowEpochMillis:(int64_t)nowEpochMillis status:(SCSKeyStatus * _Nullable)status __attribute__((swift_name("init(hasResidentValue:meta:epochStale:freshness:nowEpochMillis:status:)"))) __attribute__((objc_designated_initializer));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((swift_name("FreshnessValidator")))
+@protocol SCSFreshnessValidator
+@required
+- (id<SCSFetchPlan>)planContext:(SCSFreshnessContext *)context __attribute__((swift_name("plan(context:)")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((swift_name("KeyEvents")))
+@interface SCSKeyEvents : SCSBase
+@property (readonly) id<SCSStoreKey> key __attribute__((swift_name("key")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("KeyEvents.Deleted")))
+@interface SCSKeyEventsDeleted : SCSKeyEvents
+@property (readonly) id<SCSStoreKey> key __attribute__((swift_name("key")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("KeyEvents.Invalidated")))
+@interface SCSKeyEventsInvalidated : SCSKeyEvents
+@property (readonly) id<SCSStoreKey> key __attribute__((swift_name("key")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("KeyEvents.Written")))
+@interface SCSKeyEventsWritten : SCSKeyEvents
+@property (readonly) id<SCSStoreKey> key __attribute__((swift_name("key")));
+@property (readonly) SCSOrigin *origin __attribute__((swift_name("origin")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("KeyStatus")))
+@interface SCSKeyStatus : SCSBase
+@property (readonly) int32_t consecutiveFailures __attribute__((swift_name("consecutiveFailures")));
+@property (readonly) BOOL durablyStale __attribute__((swift_name("durablyStale")));
+@property (readonly) SCSLong * _Nullable lastFailureAtEpochMillis __attribute__((swift_name("lastFailureAtEpochMillis")));
+@property (readonly) SCSLong * _Nullable lastSuccessSequence __attribute__((swift_name("lastSuccessSequence")));
+@property (readonly) id<SCSStoreMeta> _Nullable meta __attribute__((swift_name("meta")));
+- (instancetype)initWithMeta:(id<SCSStoreMeta> _Nullable)meta lastSuccessSequence:(SCSLong * _Nullable)lastSuccessSequence lastFailureAtEpochMillis:(SCSLong * _Nullable)lastFailureAtEpochMillis consecutiveFailures:(int32_t)consecutiveFailures durablyStale:(BOOL)durablyStale __attribute__((swift_name("init(meta:lastSuccessSequence:lastFailureAtEpochMillis:consecutiveFailures:durablyStale:)"))) __attribute__((objc_designated_initializer));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((swift_name("Overlay")))
+@protocol SCSOverlay
+@required
+- (id _Nullable)applyKey:(id<SCSStoreKey>)key base:(id _Nullable)base __attribute__((swift_name("apply(key:base:)")));
+@property (readonly) id<SCSKotlinx_coroutines_coreFlow> changes __attribute__((swift_name("changes")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
 __attribute__((swift_name("SourceOfTruth")))
 @protocol SCSSourceOfTruth
 @required
@@ -854,10 +1092,130 @@ __attribute__((swift_name("SourceOfTruth")))
 - (void)writeKey:(id<SCSStoreKey>)key value:(id)value completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("write(key:value:completionHandler:)")));
 @end
 
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("StoreResults")))
+@interface SCSStoreResults : SCSBase
+@property (class, readonly, getter=shared) SCSStoreResults *shared __attribute__((swift_name("shared")));
++ (instancetype)alloc __attribute__((unavailable));
++ (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
++ (instancetype)storeResults __attribute__((swift_name("init()")));
+- (SCSStoreErrorConflict *)conflictServerMeta:(id<SCSStoreMeta> _Nullable)serverMeta message:(NSString *)message __attribute__((swift_name("conflict(serverMeta:message:)")));
+- (SCSStoreErrorConversion *)conversionErrorMessage:(NSString *)message cause:(SCSKotlinThrowable * _Nullable)cause __attribute__((swift_name("conversionError(message:cause:)")));
+- (SCSStoreResultData<id> *)dataValue:(id _Nullable)value origin:(SCSOrigin *)origin age:(int64_t)age isStale:(BOOL)isStale refreshing:(BOOL)refreshing __attribute__((swift_name("data(value:origin:age:isStale:refreshing:)")));
+- (SCSStoreResultError *)errorError:(SCSStoreError *)error servedStale:(BOOL)servedStale __attribute__((swift_name("error(error:servedStale:)")));
+- (SCSStoreException *)exceptionError:(SCSStoreError *)error cause:(SCSKotlinThrowable * _Nullable)cause __attribute__((swift_name("exception(error:cause:)")));
+- (SCSStoreErrorFetch *)fetchErrorMessage:(NSString *)message cause:(SCSKotlinThrowable * _Nullable)cause __attribute__((swift_name("fetchError(message:cause:)")));
+- (SCSStoreErrorFreshnessUnsatisfiable *)freshnessUnsatisfiableMessage:(NSString *)message __attribute__((swift_name("freshnessUnsatisfiable(message:)")));
+- (SCSStoreResultLoading *)loading __attribute__((swift_name("loading()")));
+- (SCSStoreErrorMissing *)missingKey:(id<SCSStoreKey>)key message:(NSString *)message __attribute__((swift_name("missing(key:message:)")));
+- (SCSStoreErrorPersistence *)persistenceErrorMessage:(NSString *)message cause:(SCSKotlinThrowable * _Nullable)cause __attribute__((swift_name("persistenceError(message:cause:)")));
+- (SCSStoreResultRevalidated *)revalidatedAge:(int64_t)age __attribute__((swift_name("revalidated(age:)")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((swift_name("StoreRuntime")))
+@protocol SCSStoreRuntime
+@required
+@property (readonly) id<SCSKotlinx_coroutines_coreFlow> keyEvents __attribute__((swift_name("keyEvents")));
+@property (readonly) id<SCSStoreTelemetry> _Nullable telemetry __attribute__((swift_name("telemetry")));
+@property (readonly) id<SCSStoreWriteHandle> writeHandle __attribute__((swift_name("writeHandle")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((swift_name("StoreTelemetry")))
+@protocol SCSStoreTelemetry
+@required
+- (void)onClearedKey:(id<SCSStoreKey>)key __attribute__((swift_name("onCleared(key:)")));
+- (void)onFetchFailedKey:(id<SCSStoreKey>)key error:(SCSStoreError *)error duration:(int64_t)duration __attribute__((swift_name("onFetchFailed(key:error:duration:)")));
+- (void)onFetchStartedKey:(id<SCSStoreKey>)key __attribute__((swift_name("onFetchStarted(key:)")));
+- (void)onFetchSucceededKey:(id<SCSStoreKey>)key duration:(int64_t)duration __attribute__((swift_name("onFetchSucceeded(key:duration:)")));
+- (void)onInvalidatedKey:(id<SCSStoreKey>)key __attribute__((swift_name("onInvalidated(key:)")));
+- (void)onServeKey:(id<SCSStoreKey>)key origin:(SCSOrigin *)origin __attribute__((swift_name("onServe(key:origin:)")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((swift_name("StoreWriteHandle")))
+@protocol SCSStoreWriteHandle
+@required
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)applyKey:(id<SCSStoreKey>)key value:(id)value completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("apply(key:value:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)confirmFreshKey:(id<SCSStoreKey>)key etag:(NSString * _Nullable)etag completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("confirmFresh(key:etag:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)markStaleKey:(id<SCSStoreKey>)key completionHandler_:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("markStale(key:completionHandler_:)")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((swift_name("TransactionalSourceOfTruth")))
+@protocol SCSTransactionalSourceOfTruth <SCSSourceOfTruth>
+@required
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)withTransactionBlock:(id<SCSKotlinSuspendFunction0>)block completionHandler:(void (^)(id _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("withTransaction(block:completionHandler:)")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((swift_name("WallClock")))
+@protocol SCSWallClock
+@required
+- (int64_t)nowEpochMillis __attribute__((swift_name("nowEpochMillis()")));
+@end
+
 __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("StoreBuilderKt")))
 @interface SCSStoreBuilderKt : SCSBase
 + (id<SCSStore>)storeConfigure:(void (^)(SCSStoreBuilder<id<SCSStoreKey>, id> *))configure __attribute__((swift_name("store(configure:)")));
+@end
+
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("StoreRuntimeKt")))
+@interface SCSStoreRuntimeKt : SCSBase
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
++ (id<SCSStoreRuntime> _Nullable)runtime:(id<SCSStore>)receiver __attribute__((swift_name("runtime(_:)")));
 @end
 
 __attribute__((objc_subclassing_restricted))
@@ -868,8 +1226,23 @@ __attribute__((swift_name("__SkieSuspendWrappersKt")))
 + (void)Skie_Suspend__11__deleteNamespaceDispatchReceiver:(id<SCSSourceOfTruth>)dispatchReceiver namespace:(SCSStoreNamespace *)namespace_ suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__11__deleteNamespace(dispatchReceiver:namespace:suspendHandler:)")));
 + (void)Skie_Suspend__12__writeDispatchReceiver:(id<SCSSourceOfTruth>)dispatchReceiver key:(id<SCSStoreKey>)key value:(id)value suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__12__write(dispatchReceiver:key:value:suspendHandler:)")));
 + (void)Skie_Suspend__13__invokeDispatchReceiver:(id<SCSKotlinSuspendFunction1>)dispatchReceiver p1:(id _Nullable)p1 suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__13__invoke(dispatchReceiver:p1:suspendHandler:)")));
-+ (void)Skie_Suspend__14__hasNextDispatchReceiver:(SCSSkieColdFlowIterator<id> *)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__14__hasNext(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__14__fetchDispatchReceiver:(id<SCSFetcher>)dispatchReceiver key:(id<SCSStoreKey>)key etag:(NSString * _Nullable)etag suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__14__fetch(dispatchReceiver:key:etag:suspendHandler:)")));
++ (void)Skie_Suspend__15__advanceGlobalStaleWatermarkDispatchReceiver:(id<SCSBookkeeper>)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__15__advanceGlobalStaleWatermark(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__16__advanceStaleWatermarkDispatchReceiver:(id<SCSBookkeeper>)dispatchReceiver namespace:(SCSStoreNamespace *)namespace_ suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__16__advanceStaleWatermark(dispatchReceiver:namespace:suspendHandler:)")));
++ (void)Skie_Suspend__17__forgetDispatchReceiver:(id<SCSBookkeeper>)dispatchReceiver key:(id<SCSStoreKey>)key suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__17__forget(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__18__forgetAllDispatchReceiver:(id<SCSBookkeeper>)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__18__forgetAll(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__19__forgetNamespaceDispatchReceiver:(id<SCSBookkeeper>)dispatchReceiver namespace:(SCSStoreNamespace *)namespace_ suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__19__forgetNamespace(dispatchReceiver:namespace:suspendHandler:)")));
 + (void)Skie_Suspend__1__clearAllDispatchReceiver:(id<SCSStore>)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__1__clearAll(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__20__markStaleDispatchReceiver:(id<SCSBookkeeper>)dispatchReceiver key:(id<SCSStoreKey>)key suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__20__markStale(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__21__recordFailureDispatchReceiver:(id<SCSBookkeeper>)dispatchReceiver key:(id<SCSStoreKey>)key atEpochMillis:(int64_t)atEpochMillis suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__21__recordFailure(dispatchReceiver:key:atEpochMillis:suspendHandler:)")));
++ (void)Skie_Suspend__22__recordSuccessDispatchReceiver:(id<SCSBookkeeper>)dispatchReceiver key:(id<SCSStoreKey>)key meta:(id<SCSStoreMeta>)meta suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__22__recordSuccess(dispatchReceiver:key:meta:suspendHandler:)")));
++ (void)Skie_Suspend__23__statusDispatchReceiver:(id<SCSBookkeeper>)dispatchReceiver key:(id<SCSStoreKey>)key suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__23__status(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__24__applyDispatchReceiver:(id<SCSStoreWriteHandle>)dispatchReceiver key:(id<SCSStoreKey>)key value:(id)value suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__24__apply(dispatchReceiver:key:value:suspendHandler:)")));
++ (void)Skie_Suspend__25__confirmFreshDispatchReceiver:(id<SCSStoreWriteHandle>)dispatchReceiver key:(id<SCSStoreKey>)key etag:(NSString * _Nullable)etag suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__25__confirmFresh(dispatchReceiver:key:etag:suspendHandler:)")));
++ (void)Skie_Suspend__26__markStaleDispatchReceiver:(id<SCSStoreWriteHandle>)dispatchReceiver key:(id<SCSStoreKey>)key suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__26__markStale(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__27__withTransactionDispatchReceiver:(id<SCSTransactionalSourceOfTruth>)dispatchReceiver block:(id<SCSKotlinSuspendFunction0>)block suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__27__withTransaction(dispatchReceiver:block:suspendHandler:)")));
++ (void)Skie_Suspend__28__invokeDispatchReceiver:(id<SCSKotlinSuspendFunction0>)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__28__invoke(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__29__hasNextDispatchReceiver:(SCSSkieColdFlowIterator<id> *)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__29__hasNext(dispatchReceiver:suspendHandler:)")));
 + (void)Skie_Suspend__2__clearNamespaceDispatchReceiver:(id<SCSStore>)dispatchReceiver namespace:(SCSStoreNamespace *)namespace_ suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__2__clearNamespace(dispatchReceiver:namespace:suspendHandler:)")));
 + (void)Skie_Suspend__3__getDispatchReceiver:(id<SCSStore>)dispatchReceiver key:(id<SCSStoreKey>)key freshness:(id<SCSFreshness>)freshness suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__3__get(dispatchReceiver:key:freshness:suspendHandler:)")));
 + (void)Skie_Suspend__4__invalidateDispatchReceiver:(id<SCSStore>)dispatchReceiver key:(id<SCSStoreKey>)key suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__4__invalidate(dispatchReceiver:key:suspendHandler:)")));
@@ -944,6 +1317,17 @@ __attribute__((swift_name("KotlinSuspendFunction1")))
  * Other uncaught Kotlin exceptions are fatal.
 */
 - (void)invokeP1:(id _Nullable)p1 completionHandler:(void (^)(id _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("invoke(p1:completionHandler:)")));
+@end
+
+__attribute__((swift_name("KotlinSuspendFunction0")))
+@protocol SCSKotlinSuspendFunction0 <SCSKotlinFunction>
+@required
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)invokeWithCompletionHandler:(void (^)(id _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("invoke(completionHandler:)")));
 @end
 
 __attribute__((swift_name("KotlinIterator")))
