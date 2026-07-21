@@ -215,6 +215,66 @@ class KeyEnginePlanningTest {
     }
 
     @Test
+    fun completedExactOwnerNotModified_rejectsStaleStatusSnapshotWithoutThirdFetch() = runTest {
+        val key = TestKey("owner-revalidated-stale-status")
+        val bookkeeper = PostDelegateStatusGateBookkeeper()
+        val secondFetchEntered = CompletableDeferred<Unit>()
+        val releaseSecondFetch = CompletableDeferred<Unit>()
+        val thirdFetchEntered = CompletableDeferred<Unit>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher =
+                    ResultFetcher {
+                        when (++calls) {
+                            1 -> FetcherResult.Success("v1", etag = "e1")
+                            2 -> {
+                                secondFetchEntered.complete(Unit)
+                                releaseSecondFetch.await()
+                                FetcherResult.NotModified("e1")
+                            }
+                            3 -> {
+                                thirdFetchEntered.complete(Unit)
+                                FetcherResult.Success("v2", etag = "e2")
+                            }
+                            else -> error("unexpected fetch call $calls")
+                        }
+                    },
+                sot = InMemorySourceOfTruth(),
+                bookkeeper = bookkeeper,
+                validator = DefaultFreshnessValidator,
+                wallClock = FakeWallClock(now = 100L),
+                engineScope = backgroundScope,
+            )
+
+        assertEquals("v1", engine.get(Freshness.MustBeFresh))
+        engine.invalidate()
+        val owner = async { engine.get(Freshness.MustBeFresh) }
+        secondFetchEntered.await()
+        val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+
+        bookkeeper.gateStatusCall(number = 2)
+        val staleWaiter = async { engine.get(Freshness.CachedOrFetch) }
+        bookkeeper.statusEntered.await()
+
+        releaseSecondFetch.complete(Unit)
+        assertIs<FetchOutcome.Revalidated>(ticket.outcome.await())
+        bookkeeper.releaseStatus.complete(Unit)
+
+        assertEquals("v1", owner.await())
+        assertEquals("v1", staleWaiter.await())
+        testScheduler.runCurrent()
+        assertFalse(thirdFetchEntered.isCompleted)
+        assertEquals(2, calls)
+        assertIs<FetchSlot.Idle>(engine.state.value.fetch)
+        assertEquals("v2", engine.get(Freshness.MustBeFresh))
+        assertTrue(thirdFetchEntered.isCompleted)
+        assertEquals(3, calls, "a later MustBeFresh demand must not reuse the old 304 owner")
+    }
+
+    @Test
     fun exactOwnerNotModified_backwardClockEmitsZeroAge() = runTest {
         val key = TestKey("owner-revalidated-backward-clock")
         val clock = FakeWallClock(now = 100L)
@@ -3642,6 +3702,61 @@ class KeyEnginePlanningTest {
         ) = delegate.recordFailure(key, atEpochMillis)
 
         override suspend fun status(key: StoreKey): KeyStatus? = delegate.status(key)
+
+        override suspend fun forget(key: StoreKey) = delegate.forget(key)
+
+        override suspend fun markStale(key: StoreKey) = delegate.markStale(key)
+
+        override suspend fun advanceStaleWatermark(namespace: StoreNamespace) =
+            delegate.advanceStaleWatermark(namespace)
+
+        override suspend fun advanceGlobalStaleWatermark() =
+            delegate.advanceGlobalStaleWatermark()
+
+        override suspend fun forgetNamespace(namespace: StoreNamespace) =
+            delegate.forgetNamespace(namespace)
+
+        override suspend fun forgetAll() = delegate.forgetAll()
+    }
+
+    /** Pauses one selected status call after it has captured the delegate's immutable snapshot. */
+    private class PostDelegateStatusGateBookkeeper : Bookkeeper {
+        private val delegate = InMemoryBookkeeper()
+        private val statusCallsUntilGate = MutableStateFlow(0)
+        val statusEntered = CompletableDeferred<Unit>()
+        val releaseStatus = CompletableDeferred<Unit>()
+
+        fun gateStatusCall(number: Int) {
+            require(number > 0) { "number must be positive" }
+            check(statusCallsUntilGate.compareAndSet(expect = 0, update = number)) {
+                "a status gate is already armed"
+            }
+        }
+
+        override suspend fun recordSuccess(
+            key: StoreKey,
+            meta: StoreMeta,
+        ) = delegate.recordSuccess(key, meta)
+
+        override suspend fun recordFailure(
+            key: StoreKey,
+            atEpochMillis: Long,
+        ) = delegate.recordFailure(key, atEpochMillis)
+
+        override suspend fun status(key: StoreKey): KeyStatus? {
+            val captured = delegate.status(key)
+            while (true) {
+                val remaining = statusCallsUntilGate.value
+                if (remaining == 0) return captured
+                if (statusCallsUntilGate.compareAndSet(remaining, remaining - 1)) {
+                    if (remaining == 1) {
+                        statusEntered.complete(Unit)
+                        releaseStatus.await()
+                    }
+                    return captured
+                }
+            }
+        }
 
         override suspend fun forget(key: StoreKey) = delegate.forget(key)
 

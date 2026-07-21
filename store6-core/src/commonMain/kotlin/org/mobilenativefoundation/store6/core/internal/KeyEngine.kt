@@ -934,7 +934,9 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         enforceCollectorEligibility: Boolean = false,
     ): FetchReservation<V>? {
         while (true) {
+            val statusResidenceRevision = stateLock.withLock { residenceRevision }
             val status = bookkeeper.status(key)
+            var retryStaleStatus = false
             var pendingRevalidationOwner: FetchTicket? = null
             val planned =
                 stateLock.withLock {
@@ -942,6 +944,10 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     val now = wallClock.nowEpochMillis()
                     val snapshot = mutableState.value
                     val currentResidence = residence.value
+                    if (residenceRevision != statusResidenceRevision) {
+                        retryStaleStatus = true
+                        return@withLock null
+                    }
                     val directOwner = currentResidence?.directRevalidationOwner
                     val directDisposition =
                         directOwner?.disposition?.value as? FetchDisposition.Revalidated
@@ -995,6 +1001,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         plan = plan,
                     )
                 }
+
+            if (retryStaleStatus) continue
 
             val owner = pendingRevalidationOwner
             if (owner != null) {
@@ -3360,9 +3368,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             flushPendingFailureHandoffsLocked()
         }
 
-        /** Suppresses only an already-mapped pre-outcome absence while its writer echo catches up. */
+        /** Defers an absence already owned by an in-flight commit or authoritative delete outcome. */
         private suspend fun deliverAbsentLocked(notification: ReaderRecord.Absent) {
             val pendingTicket = watchedTicket
+            // The authoritative Deleted outcome owns exact-absence projection and its terminal
+            // Missing error. A restarted reader can observe the committed null first; letting that
+            // record replan here would insert Loading between the optimistic projection and error.
+            if (pendingTicket?.disposition?.value == FetchDisposition.Deleted) return
             if (pendingTicket != null && !pendingTicket.outcome.isCompleted) {
                 val committing =
                     pendingTicket.disposition.value as? FetchDisposition.Committing

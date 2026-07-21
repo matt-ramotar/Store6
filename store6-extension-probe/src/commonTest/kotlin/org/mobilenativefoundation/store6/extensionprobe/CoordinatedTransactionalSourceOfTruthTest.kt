@@ -9,8 +9,11 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -53,11 +56,15 @@ private class NoisyTransactionalSourceOfTruth(
     )
 
     private val rows = MutableSharedFlow<RowEvent>(replay = 1)
+    private val readerStarts = Channel<Unit>(Channel.UNLIMITED)
+    private val readerRowsReleased = CompletableDeferred<Unit>()
     private val oldIntermediate = initial
     private var current: String = initial
+    private val committedPendingMutation = MutableStateFlow(true)
+    private var transactionPendingMutation: Boolean? = null
 
-    var pendingMutation: Boolean = true
-        private set
+    val pendingMutation: Boolean
+        get() = committedPendingMutation.value
     var writeCalls: Int = 0
         private set
     var retirementCalls: Int = 0
@@ -70,6 +77,8 @@ private class NoisyTransactionalSourceOfTruth(
 
     override fun reader(key: CoordinatorKey): Flow<String?> =
         flow {
+            readerStarts.send(Unit)
+            readerRowsReleased.await()
             rows.collect { event ->
                 emit(event.row)
                 event.acknowledgements?.send(Unit)
@@ -101,22 +110,27 @@ private class NoisyTransactionalSourceOfTruth(
 
     override suspend fun <R> withTransaction(block: suspend () -> R): R {
         val rowBefore = current
-        val pendingBefore = pendingMutation
+        check(transactionPendingMutation == null) { "nested transactions are not supported" }
+        transactionPendingMutation = committedPendingMutation.value
         try {
-            return block()
+            val result = block()
+            committedPendingMutation.value = checkNotNull(transactionPendingMutation)
+            return result
         } catch (failure: Throwable) {
             withContext(NonCancellable) {
                 current = rowBefore
-                pendingMutation = pendingBefore
                 publish(current, recordAsWriteNotification = false)
             }
             throw failure
+        } finally {
+            transactionPendingMutation = null
         }
     }
 
     suspend fun retireMutation() {
         retirementCalls++
-        pendingMutation = false
+        checkNotNull(transactionPendingMutation) { "retirement must run inside a transaction" }
+        transactionPendingMutation = false
     }
 
     suspend fun publishAuthoritative(value: String) {
@@ -127,6 +141,15 @@ private class NoisyTransactionalSourceOfTruth(
     fun resetWriteObservations() {
         writeCalls = 0
         rawWriteNotifications.clear()
+    }
+
+    suspend fun awaitReaderStarts(expected: Int) {
+        require(expected > 0) { "expected must be positive" }
+        repeat(expected) { readerStarts.receive() }
+    }
+
+    fun releaseReaderRows() {
+        check(readerRowsReleased.complete(Unit)) { "reader rows were already released" }
     }
 
     private suspend fun publish(
@@ -145,15 +168,28 @@ private class NoisyTransactionalSourceOfTruth(
 private class PendingMutationOverlay(
     private val source: NoisyTransactionalSourceOfTruth,
 ) : Overlay<CoordinatorKey, String> {
+    private val completedApplications = MutableStateFlow(0L)
+
+    val completedApplicationCount: Long
+        get() = completedApplications.value
+
+    suspend fun awaitApplicationAfter(observed: Long) {
+        completedApplications.first { it > observed }
+    }
+
     override fun apply(
         key: CoordinatorKey,
         base: String?,
-    ): String? =
-        if (source.pendingMutation) {
-            base?.let { "$it+pending" } ?: "pending"
-        } else {
-            base
-        }
+    ): String? {
+        val output =
+            if (source.pendingMutation) {
+                base?.let { "$it+pending" } ?: "pending"
+            } else {
+                base
+            }
+        completedApplications.update { it + 1L }
+        return output
+    }
 
     override val changes: Flow<StoreKey> = emptyFlow()
 }
@@ -343,6 +379,32 @@ private class BufferedReaderTransactionalSourceOfTruth(
 
 @OptIn(ExperimentalStoreApi::class, DelicateStoreApi::class)
 class CoordinatedTransactionalSourceOfTruthTest {
+    @Test
+    fun retirementVisibility_isPrivateUntilCommit_andRollbackKeepsMutationPending() = runTest {
+        val delegate = NoisyTransactionalSourceOfTruth(initial = "base")
+        val retirementStaged = CompletableDeferred<Unit>()
+        val holdTransaction = CompletableDeferred<Unit>()
+        val transaction = backgroundScope.launch {
+            delegate.withTransaction {
+                delegate.retireMutation()
+                retirementStaged.complete(Unit)
+                holdTransaction.await()
+            }
+        }
+
+        retirementStaged.await()
+        assertTrue(delegate.pendingMutation)
+        transaction.cancel(CancellationException("roll back staged retirement"))
+        transaction.join()
+        assertTrue(delegate.pendingMutation)
+
+        delegate.withTransaction {
+            delegate.retireMutation()
+            assertTrue(delegate.pendingMutation)
+        }
+        assertFalse(delegate.pendingMutation)
+    }
+
     @Test
     fun applyFailure_rethrowsAndReopensWithAuthority_withoutRetirementSignal() = runTest {
         val failure =
@@ -677,6 +739,8 @@ class CoordinatedTransactionalSourceOfTruthTest {
 
         try {
             val realHandle = checkNotNull(store.runtime()).writeHandle
+            realHandle.apply(key, "base")
+            realHandle.confirmFresh(key, etag = "seed")
             val localValues = Channel<String>(Channel.UNLIMITED)
             val localCollector = backgroundScope.launch {
                 store.stream(key, Freshness.LocalOnly).collect { result ->
@@ -684,9 +748,10 @@ class CoordinatedTransactionalSourceOfTruthTest {
                 }
             }
             assertEquals("base+pending", localValues.receive())
-            realHandle.apply(key, "base")
-            realHandle.confirmFresh(key, etag = "seed")
-            testScheduler.runCurrent()
+            delegate.awaitReaderStarts(expected = 1)
+            val beforeReplay = overlay.completedApplicationCount
+            delegate.releaseReaderRows()
+            overlay.awaitApplicationAfter(beforeReplay)
             delegate.resetWriteObservations()
             val fetchesBeforeAcknowledge = fetches
 
@@ -813,6 +878,8 @@ class CoordinatedTransactionalSourceOfTruthTest {
 
         try {
             val realHandle = checkNotNull(store.runtime()).writeHandle
+            realHandle.apply(key, "base")
+            realHandle.confirmFresh(key, etag = "seed")
             val localValues = Channel<String>(Channel.UNLIMITED)
             val localCollector = backgroundScope.launch {
                 store.stream(key, Freshness.LocalOnly).collect { result ->
@@ -820,9 +887,10 @@ class CoordinatedTransactionalSourceOfTruthTest {
                 }
             }
             assertEquals("base+pending", localValues.receive())
-            realHandle.apply(key, "base")
-            realHandle.confirmFresh(key, etag = "seed")
-            testScheduler.runCurrent()
+            delegate.awaitReaderStarts(expected = 1)
+            val beforeReplay = overlay.completedApplicationCount
+            delegate.releaseReaderRows()
+            overlay.awaitApplicationAfter(beforeReplay)
             delegate.resetWriteObservations()
             val fetchesBeforeAcknowledge = fetches
 

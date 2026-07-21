@@ -947,10 +947,13 @@ class OverlayProjectionProtocolTest {
     fun revalidated_unchangedOverlaidHasNoExtraData_andSingleTelemetryHook() = runTest {
         val telemetry = RecordingTelemetry()
         revalidationScenario(
-            overlay = CountingOverlay<String>({ "stable-overlay" }),
+            overlay = CountingOverlay<String>({ base -> base?.let { "stable-overlay" } }),
             telemetry = telemetry,
         ) { turbine ->
-            assertIs<StoreResult.Revalidated>(turbine.awaitNonDataTerminal())
+            val terminal = turbine.awaitNonDataTerminal()
+            val fetchFailure =
+                (terminal as? StoreResult.Error)?.error as? StoreError.Fetch
+            assertIs<StoreResult.Revalidated>(terminal, fetchFailure?.cause?.message)
             turbine.expectNoEvents()
             assertEquals(listOf(Origin.OVERLAY), telemetry.serves)
         }
@@ -1421,9 +1424,10 @@ class OverlayProjectionProtocolTest {
         try {
             store.stream(key).test {
                 awaitDataValue()
-                telemetry.serves.clear()
+                telemetry.awaitServeCausally()
+                telemetry.clear()
                 store.invalidate(key)
-                gate.awaitEntered()
+                gate.awaitEnteredCausally()
                 beforeRelease()
                 gate.release()
                 verify(this)
@@ -1665,7 +1669,12 @@ class OverlayProjectionProtocolTest {
     private suspend fun ReceiveTurbine<StoreResult<String>>.awaitNonDataTerminal(): StoreResult<String> {
         while (true) {
             when (val item = awaitItem()) {
-                is StoreResult.Data<String> -> error("unexpected extra Data(${item.value})")
+                is StoreResult.Data<String> ->
+                    error(
+                        "unexpected extra Data(" +
+                            "value=${item.value}, origin=${item.origin}, age=${item.age}, " +
+                            "isStale=${item.isStale}, refreshing=${item.refreshing})",
+                    )
                 is StoreResult.Revalidated,
                 is StoreResult.Error,
                 -> return item
@@ -1693,6 +1702,10 @@ class OverlayProjectionProtocolTest {
 
         suspend fun awaitEntered() {
             withContext(Dispatchers.Default) { withTimeout(2_000L) { entered.await() } }
+        }
+
+        suspend fun awaitEnteredCausally() {
+            entered.await()
         }
 
         suspend fun awaitExited() {
@@ -1826,6 +1839,13 @@ class OverlayProjectionProtocolTest {
                     withContext(Dispatchers.Default) {
                         withTimeout(2_000L) { serveEvents.receive() }
                     }
+                if (expected == null || observed == expected) return observed
+            }
+        }
+
+        suspend fun awaitServeCausally(expected: Origin? = null): Origin {
+            while (true) {
+                val observed = serveEvents.receive()
                 if (expected == null || observed == expected) return observed
             }
         }
