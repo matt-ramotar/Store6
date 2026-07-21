@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
@@ -268,20 +269,16 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private suspend fun runProjectionWriter(configured: Overlay<K, V>) {
         val residenceTriggers = checkNotNull(projectionResidence).map { Unit }
         val overlayTriggers =
-            flow {
-                try {
-                    emitAll(
-                        configured.changes
-                            .filter { changed -> KeyId.from(changed) == keyId }
-                            .map { Unit },
-                    )
-                } catch (cancellation: CancellationException) {
-                    if (engineJob.isActive) {
-                        throw ProjectionChangesFailure(cancellation)
+            configured.changes
+                .filter { changed -> KeyId.from(changed) == keyId }
+                .map { Unit }
+                .catch { failure ->
+                    // Downstream/parent cancellation stays transparent, preserving an apply failure.
+                    if (failure is CancellationException && engineJob.isActive) {
+                        throw ProjectionChangesFailure(failure)
                     }
-                    throw cancellation
+                    throw failure
                 }
-            }
         try {
             merge(residenceTriggers, overlayTriggers).collect {
                 val pending =

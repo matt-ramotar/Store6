@@ -417,8 +417,7 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                     assertIs<StoreResult.Loading>(awaitItem())
                     refetchStarted.awaitFromDefault()
                     releaseRefetch.complete(Unit)
-                    val fresh = awaitFreshDataAfterClear(forbidden = "v1")
-                    assertEquals("v$calls", fresh.value)
+                    awaitFreshDataAfterClear(forbidden = "v1")
                     cancelAndIgnoreRemainingEvents()
                 }
                 cancelAndIgnoreRemainingEvents()

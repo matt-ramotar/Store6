@@ -16,8 +16,10 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.test.TestScope
@@ -1090,12 +1092,15 @@ class OverlayProjectionProtocolTest {
     @Test
     fun mustBeFreshWaitingFetch_observesOverlayTerminalForCurrentAndFutureStreams() = runTest {
         val boom = IllegalStateException("projection failed while fetch waits")
-        var failProjection = false
+        val failChanges = CompletableDeferred<Unit>()
         val overlay =
-            CountingOverlay<String>({ base ->
-                if (failProjection) throw boom
-                base
-            })
+            CountingOverlay<String>(
+                changes = flow {
+                    failChanges.await()
+                    throw boom
+                },
+                transform = { base -> base },
+            )
         val store = store<TestKey, String> {
             fetcher { awaitCancellation() }
             overlay(overlay)
@@ -1103,14 +1108,14 @@ class OverlayProjectionProtocolTest {
 
         try {
             store.runtime()!!.writeHandle.apply(key, "resident")
-            overlay.awaitCallValue("resident")
-            overlay.clearCalls()
+            store.stream(key, Freshness.LocalOnly).test {
+                awaitDataValue("resident")
+                cancelAndIgnoreRemainingEvents()
+            }
 
             store.stream(key, Freshness.MustBeFresh).test {
                 assertIs<StoreResult.Loading>(awaitItem())
-                failProjection = true
-                overlay.signals.emit(key)
-                overlay.awaitCallValue("resident")
+                failChanges.complete(Unit)
 
                 val terminal = assertIs<OverlayProjectionException>(awaitError())
                 assertEquals(boom::class, terminal.cause!!::class)
@@ -1125,9 +1130,61 @@ class OverlayProjectionProtocolTest {
             assertEquals(boom::class, futureTerminal.cause!!::class)
             assertEquals(boom.message, futureTerminal.cause?.message)
         } finally {
+            failChanges.complete(Unit)
             store.close()
         }
     }
+
+    @Test
+    fun applyFailureWithLiveChangesCollector_retainsOriginalCauseForCurrentAndFutureStreams() =
+        runTest {
+            val boom = IllegalStateException("apply failed with live changes collector")
+            val failProjection = MutableStateFlow(false)
+            val signals = MutableSharedFlow<StoreKey>(replay = 1)
+            val overlay =
+                object : Overlay<TestKey, String> {
+                    override val changes: Flow<StoreKey> = signals
+
+                    override fun apply(
+                        key: TestKey,
+                        base: String?,
+                    ): String? {
+                        if (failProjection.value) throw boom
+                        return base
+                    }
+                }
+            val store = store<TestKey, String> {
+                fetcher { awaitCancellation() }
+                overlay(overlay)
+            }
+
+            try {
+                store.runtime()!!.writeHandle.apply(key, "resident")
+                store.stream(key, Freshness.LocalOnly).test {
+                    awaitDataValue("resident")
+                    cancelAndIgnoreRemainingEvents()
+                }
+                withContext(Dispatchers.Default) {
+                    withTimeout(2_000L) {
+                        signals.subscriptionCount.first { count -> count > 0 }
+                    }
+                }
+
+                store.stream(key, Freshness.MustBeFresh).test {
+                    assertIs<StoreResult.Loading>(awaitItem())
+                    failProjection.value = true
+                    signals.emit(key)
+
+                    val terminal = assertIs<OverlayProjectionException>(awaitError())
+                    assertEquals(boom::class, terminal.cause!!::class)
+                    assertEquals(boom.message, terminal.cause?.message)
+                }
+
+                assertTerminalCause(store, boom)
+            } finally {
+                store.close()
+            }
+        }
 
     @Test
     fun closeCancelsPendingReadiness_withoutTerminalizingCooperativeClose() = runTest {
