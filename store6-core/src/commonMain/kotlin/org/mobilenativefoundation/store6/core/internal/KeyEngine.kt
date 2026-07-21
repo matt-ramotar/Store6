@@ -2521,8 +2521,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                     )
                                 val currentSatisfiesDemand =
                                     revalidatedSatisfiesDemand(snapshot, currentPlan)
+                                // Revalidated publishes before its bookkeeping/outcome tail. The
+                                // old durable status cannot supersede an owner covering this epoch.
+                                val exactOwnerCoversCurrentEpoch =
+                                    disposition.envelope.staleEpochAtCommit >=
+                                        snapshot.state.staleEpoch
                                 val replacement =
-                                    if (currentSatisfiesDemand) {
+                                    if (currentSatisfiesDemand || exactOwnerCoversCurrentEpoch) {
                                         null
                                     } else {
                                         ensureFetchForCollector(
@@ -2538,7 +2543,11 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                         )
                                     }
                                 revalidationReplacementReservedBeforeTail = replacement
-                                if (currentSatisfiesDemand || replacement != null) {
+                                if (
+                                    currentSatisfiesDemand ||
+                                    exactOwnerCoversCurrentEpoch ||
+                                    replacement != null
+                                ) {
                                     if (
                                         baseline.envelope != null &&
                                         baseline.plan.servesResident

@@ -1539,6 +1539,76 @@ class KeyEnginePlanningTest {
     }
 
     @Test
+    fun outerTicketRevalidatedBeforeOutcomeTail_doesNotReserveReplacement() = runTest {
+        val key = TestKey("outer-ticket-revalidated-pending-tail")
+        val sourceOfTruth = StartupRaceSourceOfTruth()
+        val bookkeeper = PreDelegateSuccessGateBookkeeper().also { it.gateNextSuccess() }
+        val classificationGate = InitialDeliveryGate().also { it.arm() }
+        val fetchStarted = CompletableDeferred<Unit>()
+        val releaseFetch = CompletableDeferred<Unit>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = ResultFetcher {
+                    when (++calls) {
+                        1 -> {
+                            fetchStarted.complete(Unit)
+                            releaseFetch.await()
+                            FetcherResult.NotModified(etag = "e1")
+                        }
+
+                        else -> error("unexpected fetch call $calls")
+                    }
+                },
+                sot = sourceOfTruth,
+                bookkeeper = bookkeeper,
+                validator = DefaultFreshnessValidator,
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+                beforeReplacementDispositionClassificationTestGate =
+                    classificationGate::awaitIfArmed,
+            )
+
+        assertEquals("seed", engine.get(Freshness.LocalOnly))
+        engine.invalidate()
+        app.cash.turbine.turbineScope {
+            val collector = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
+            try {
+                classificationGate.entered.await()
+                fetchStarted.await()
+                val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+                releaseFetch.complete(Unit)
+                bookkeeper.successEntered.await()
+                assertIs<FetchDisposition.Revalidated>(ticket.disposition.value)
+                assertFalse(ticket.outcome.isCompleted)
+
+                classificationGate.release()
+                val baseline = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                assertEquals("seed", baseline.value)
+                assertTrue(baseline.isStale)
+                assertFalse(baseline.refreshing)
+                assertEquals(1, calls)
+
+                bookkeeper.releaseSuccess.complete(Unit)
+                assertIs<FetchOutcome.Revalidated>(ticket.outcome.await())
+                assertEquals(
+                    Duration.ZERO,
+                    assertIs<StoreResult.Revalidated>(collector.awaitItem()).age,
+                )
+                assertEquals(1, calls)
+                collector.expectNoEvents()
+                collector.cancelAndIgnoreRemainingEvents()
+            } finally {
+                classificationGate.release()
+                releaseFetch.complete(Unit)
+                bookkeeper.releaseSuccess.complete(Unit)
+            }
+        }
+    }
+
+    @Test
     fun cachedFastNotModified_emitsBaselineThenWatcherRefresh() = runTest {
         val key = TestKey("cached-fast-304")
         val sourceOfTruth = StartupRaceSourceOfTruth()
