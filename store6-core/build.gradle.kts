@@ -3,6 +3,16 @@ plugins {
 }
 
 kotlin {
+    js {
+        nodejs {
+            testTask {
+                useMocha {
+                    timeout = "30s"
+                }
+            }
+        }
+    }
+
     sourceSets {
         val commonMain by getting {
             dependencies {
