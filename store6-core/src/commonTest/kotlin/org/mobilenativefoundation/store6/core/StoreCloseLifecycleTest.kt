@@ -3,9 +3,13 @@ package org.mobilenativefoundation.store6.core
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import org.mobilenativefoundation.store6.core.internal.RealStore
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,27 +33,29 @@ class StoreCloseLifecycleTest {
                         "value"
                     }
                 } as RealStore<TestKey, String>
-            val collector =
-                backgroundScope.async {
-                    runCatching {
-                        store.stream(key).collect {
-                            firstFrame.complete(Unit)
-                        }
-                    }
+            val waiter =
+                backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                    runCatching { store.get(key, Freshness.MustBeFresh) }
                 }
+            var collector: Deferred<Result<Unit>>? = null
 
             try {
-                firstFrame.await()
                 fetchStarted.await()
-                val waiter =
+                val activeCollector =
                     backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
-                        runCatching { store.get(key, Freshness.MustBeFresh) }
+                        runCatching {
+                            store.stream(key).collect {
+                                firstFrame.complete(Unit)
+                            }
+                        }
                     }
+                collector = activeCollector
+                firstFrame.await()
 
                 store.close()
 
                 val collectorFailure =
-                    assertIs<CancellationException>(collector.await().exceptionOrNull())
+                    assertIs<CancellationException>(activeCollector.await().exceptionOrNull())
                 assertEquals("Store is closed.", collectorFailure.message)
                 val waiterFailure =
                     assertIs<CancellationException>(waiter.await().exceptionOrNull())
@@ -57,8 +63,12 @@ class StoreCloseLifecycleTest {
                 store.awaitTerminationForTest()
                 assertEquals(0, store.residentEngineCountForTest())
             } finally {
-                fetchGate.complete(Unit)
-                store.close()
+                withContext(NonCancellable) {
+                    fetchGate.complete(Unit)
+                    waiter.cancelAndJoin()
+                    collector?.cancelAndJoin()
+                    store.close()
+                }
             }
         }
 
