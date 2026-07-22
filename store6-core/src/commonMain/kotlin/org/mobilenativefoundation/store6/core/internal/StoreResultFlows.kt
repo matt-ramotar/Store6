@@ -14,12 +14,19 @@ import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.StoreResult
 
 /**
- * Decouples Store result production from collection while retaining every lifecycle signal.
+ * Decouples Store result production from collection with a kind-bounded pending queue.
  *
- * The pending queue contains at most one Data value per run of consecutive Data values. Lifecycle
- * signals split runs and remain lossless, so queue growth is attributable to those signals rather
- * than to an independently unbounded Data buffer. Bounding lifecycle-signal growth is deliberately
- * deferred to issue 007.
+ * The queue holds at most one pending element per [StoreResult] kind (≤ 4). The latest occurrence
+ * wins for each kind, and delivery order is the relative order of those latest occurrences.
+ * When pending results drain before the next same-kind emission, every emission is delivered. A
+ * blocked collector instead receives at least the latest pending result per kind. This realizes
+ * FS-1's O(1)-per-collector bound and closes the lifecycle-signal bound deferred to issue 007.
+ *
+ * Per engine-design R3, a pathological fetch-error storm cannot grow a collector's buffer because
+ * the queue is kind-bounded. This operator bounds delivery buffering only and adds or changes no
+ * engine retry or backoff behavior. [StoreResult.Revalidated] is never conflated away in favor of
+ * another kind: only a newer Revalidated supersedes an older queued one for a blocked collector,
+ * so the kind is never lost.
  */
 internal fun <V> Flow<StoreResult<V>>.conflateLatestData(): Flow<StoreResult<V>> = flow {
     var terminalFailure: Throwable? = null
@@ -35,12 +42,7 @@ internal fun <V> Flow<StoreResult<V>>.conflateLatestData(): Flow<StoreResult<V>>
             try {
                 this@conflateLatestData.collect { result ->
                     mutex.withLock {
-                        if (
-                            result is StoreResult.Data<*> &&
-                            pending.lastOrNull() is StoreResult.Data<*>
-                        ) {
-                            pending.removeLast()
-                        }
+                        pending.removeAll { queued -> sameKind(queued, result) }
                         pending.addLast(result)
                         wakeVersion.value += 1
                     }
@@ -91,3 +93,12 @@ internal fun <V> Flow<StoreResult<V>>.conflateLatestData(): Flow<StoreResult<V>>
 
     terminalFailure?.let { throw it }
 }
+
+/** Two results share a kind when a newer one supersedes the older for a blocked collector. */
+private fun sameKind(a: StoreResult<*>, b: StoreResult<*>): Boolean =
+    when (a) {
+        is StoreResult.Data<*> -> b is StoreResult.Data<*>
+        is StoreResult.Loading -> b is StoreResult.Loading
+        is StoreResult.Revalidated -> b is StoreResult.Revalidated
+        is StoreResult.Error -> b is StoreResult.Error
+    }

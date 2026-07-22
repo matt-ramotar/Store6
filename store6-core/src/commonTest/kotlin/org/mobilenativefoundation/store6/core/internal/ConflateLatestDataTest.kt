@@ -18,6 +18,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 class ConflateLatestDataTest {
 
@@ -63,8 +64,119 @@ class ConflateLatestDataTest {
         collector.join()
 
         assertEquals(
-            listOf("data:1", "data:3", "loading", "loading", "revalidated", "error"),
+            listOf("data:1", "data:3", "loading", "revalidated", "error"),
             received.map(::label),
+        )
+    }
+
+    @Test
+    fun blockedCollector_queueBoundedAcrossManyRevalidationCycles() = runTest {
+        val firstDataSeen = CompletableDeferred<Unit>()
+        val releaseCollector = CompletableDeferred<Unit>()
+        val upstreamCompleted = CompletableDeferred<Unit>()
+        val received = mutableListOf<StoreResult<Int>>()
+
+        val upstream = flow<StoreResult<Int>> {
+            emit(data(0))
+            firstDataSeen.await()
+            repeat(1_000) { cycle ->
+                emit(data(cycle + 1))
+                emit(StoreResult.Loading())
+                emit(
+                    StoreResult.Error(
+                        error = StoreError.Fetch(message = "e$cycle", cause = null),
+                        servedStale = false,
+                    ),
+                )
+                emit(StoreResult.Revalidated(age = Duration.ZERO))
+            }
+            emit(data(9_999))
+            upstreamCompleted.complete(Unit)
+        }
+
+        val collector = backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            upstream.conflateLatestData().collect { result ->
+                received += result
+                if (result is StoreResult.Data && result.value == 0) {
+                    firstDataSeen.complete(Unit)
+                    releaseCollector.await() // park: 4_001 further emissions coalesce in the queue
+                }
+            }
+        }
+
+        firstDataSeen.await()
+        upstreamCompleted.await()
+        releaseCollector.complete(Unit)
+        collector.join()
+
+        // First delivered frame + at most one queued element per kind (<= 4) = <= 5 total.
+        assertTrue(
+            received.size <= 5,
+            "blocked collector saw ${received.size} results; bound is O(kinds)",
+        )
+        assertEquals(
+            9_999,
+            (received.last { it is StoreResult.Data } as StoreResult.Data<Int>).value,
+        )
+        assertTrue(received.any { it is StoreResult.Error })
+        assertTrue(received.any { it is StoreResult.Revalidated })
+        assertTrue(received.any { it is StoreResult.Loading })
+    }
+
+    @Test
+    fun blockedCollector_removeAndAppendKeepsLatestPayloadsInRelativeOccurrenceOrder() = runTest {
+        val firstDataSeen = CompletableDeferred<Unit>()
+        val releaseCollector = CompletableDeferred<Unit>()
+        val upstreamCompleted = CompletableDeferred<Unit>()
+        val received = mutableListOf<StoreResult<Int>>()
+
+        val upstream = flow<StoreResult<Int>> {
+            emit(data(0))
+            firstDataSeen.await()
+            emit(
+                StoreResult.Error(
+                    error = StoreError.Fetch(message = "old-error", cause = null),
+                    servedStale = false,
+                ),
+            )
+            emit(StoreResult.Revalidated(age = 1.seconds))
+            emit(StoreResult.Loading())
+            emit(
+                StoreResult.Error(
+                    error = StoreError.Fetch(message = "latest-error", cause = null),
+                    servedStale = true,
+                ),
+            )
+            emit(StoreResult.Revalidated(age = 2.seconds))
+            emit(data(42))
+            upstreamCompleted.complete(Unit)
+        }
+
+        val collector = backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            upstream.conflateLatestData().collect { result ->
+                received += result
+                if (result is StoreResult.Data && result.value == 0) {
+                    firstDataSeen.complete(Unit)
+                    releaseCollector.await()
+                }
+            }
+        }
+
+        firstDataSeen.await()
+        upstreamCompleted.await()
+        releaseCollector.complete(Unit)
+        collector.join()
+
+        assertEquals(
+            listOf("data:0", "loading", "error", "revalidated", "data:42"),
+            received.map(::label),
+        )
+        val latestError = received.filterIsInstance<StoreResult.Error>().single()
+        assertEquals("latest-error", (latestError.error as StoreError.Fetch).message)
+        assertTrue(latestError.servedStale)
+        assertEquals(
+            2.seconds,
+            received.filterIsInstance<StoreResult.Revalidated>().single().age,
         )
     }
 

@@ -372,9 +372,7 @@ class FakeStoreConformanceTest {
 
     @Test
     fun close_isIdempotent_andOperationsAfterCloseFailFast() = runTest {
-        // PROVISIONAL-PENDING-007: exception types and the "Store is closed." literal are pinned
-        // against the landed RealStore (core's STORE_CLOSED_MESSAGE is internal and cannot be
-        // imported). Re-verify — and prefer delegating to a shared public constant — when 007 lands.
+        // Finalized by issue 007: pins verified against StoreCloseLifecycleTest in store6-core.
         val store = FakeStore<TestingKey, String>()
         store.close()
         store.close() // no additional effect
@@ -385,10 +383,7 @@ class FakeStoreConformanceTest {
 
     @Test
     fun close_cancelsActiveCollectors() = runTest {
-        // Mirrors the LANDED StoreConformanceTest close mechanism on main (backgroundScope.async +
-        // runCatching) instead of turbine's CE-sensitive awaitError. A causal first-frame barrier
-        // proves the collector is active before close. PROVISIONAL-PENDING-007 on the cancellation
-        // message text.
+        // Finalized by issue 007: pins verified against StoreCloseLifecycleTest in store6-core.
         val store = FakeStore<TestingKey, String>()
         store.setValue(key, "v")
         val started = CompletableDeferred<Unit>()

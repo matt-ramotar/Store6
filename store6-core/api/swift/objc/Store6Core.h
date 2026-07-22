@@ -308,6 +308,7 @@ __attribute__((swift_name("StoreBuilder")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
 - (void)freshnessValidatorValidator:(id<Store6CoreFreshnessValidator>)validator __attribute__((swift_name("freshnessValidator(validator:)")));
+- (void)maxIdleKeysCount:(int32_t)count __attribute__((swift_name("maxIdleKeys(count:)")));
 
 /**
  * @note annotations

@@ -109,6 +109,142 @@ jobs:
             <(printf '%s\n' "${expected[@]}" | LC_ALL=C sort) \
             <(LC_ALL=C ls -1A "${seam_dir}" | LC_ALL=C sort)
 
+      - name: Enforce the TD-8 primitive whitelist and single-writer residence
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          banned_regex='(^|[^[:alnum:]_])(runBlocking|GlobalScope|atomicfu|Channel|actor)([^[:alnum:]_]|$)|kotlinx[.]coroutines[.]channels[.][*]'
+          shopt -s nullglob
+          production_source_dirs=(store6-core/src/*Main store6-testing/src/*Main)
+          for source_dir in "${production_source_dirs[@]}"; do
+            [[ -d "${source_dir}" ]] || continue
+            if grep -rnE --include='*.kt' "${banned_regex}" "${source_dir}"; then
+              echo "ERROR: banned concurrency primitive found in ${source_dir}" >&2
+              status=1
+            else
+              grep_status=$?
+              if [[ "${grep_status}" -ne 1 ]]; then
+                echo "ERROR: grep failed for ${source_dir} with status ${grep_status}" >&2
+                status=1
+              fi
+            fi
+          done
+          key_engine="store6-core/src/commonMain/kotlin/org/mobilenativefoundation/store6/core/internal/KeyEngine.kt"
+          python3 - "${key_engine}" <<'PY' || status=1
+          import re
+          import sys
+          from pathlib import Path
+
+          assignment = re.compile(r"\bresidence\s*\.\s*value\s*=(?!=)")
+
+
+          def mask_non_code(source: str) -> str:
+              output: list[str] = []
+              state = "code"
+              block_depth = 0
+              index = 0
+
+              def mask(text: str) -> None:
+                  output.extend(char if char in "\r\n" else " " for char in text)
+
+              while index < len(source):
+                  if state == "code":
+                      if source.startswith("//", index):
+                          mask(source[index:index + 2])
+                          index += 2
+                          state = "line-comment"
+                      elif source.startswith("/*", index):
+                          mask(source[index:index + 2])
+                          index += 2
+                          block_depth = 1
+                          state = "block-comment"
+                      elif source.startswith('"""', index):
+                          mask(source[index:index + 3])
+                          index += 3
+                          state = "raw-string"
+                      elif source[index] == '"':
+                          mask(source[index])
+                          index += 1
+                          state = "string"
+                      elif source[index] == "'":
+                          mask(source[index])
+                          index += 1
+                          state = "char"
+                      else:
+                          output.append(source[index])
+                          index += 1
+                  elif state == "line-comment":
+                      mask(source[index])
+                      if source[index] == "\n":
+                          state = "code"
+                      index += 1
+                  elif state == "block-comment":
+                      if source.startswith("/*", index):
+                          mask(source[index:index + 2])
+                          index += 2
+                          block_depth += 1
+                      elif source.startswith("*/", index):
+                          mask(source[index:index + 2])
+                          index += 2
+                          block_depth -= 1
+                          if block_depth == 0:
+                              state = "code"
+                      else:
+                          mask(source[index])
+                          index += 1
+                  elif state in ("string", "char"):
+                      delimiter = '"' if state == "string" else "'"
+                      if source[index] == "\\":
+                          end = min(index + 2, len(source))
+                          mask(source[index:end])
+                          index = end
+                      else:
+                          closing = source[index] == delimiter
+                          mask(source[index])
+                          index += 1
+                          if closing:
+                              state = "code"
+                  elif state == "raw-string":
+                      if source.startswith('"""', index):
+                          mask(source[index:index + 3])
+                          index += 3
+                          state = "code"
+                      else:
+                          mask(source[index])
+                          index += 1
+
+              if state not in ("code", "line-comment"):
+                  raise ValueError(f"unterminated Kotlin lexical state: {state}")
+              return "".join(output)
+
+
+          source_path = Path(sys.argv[1])
+          try:
+              source = source_path.read_text(encoding="utf-8")
+              raw_count = len(assignment.findall(source))
+              code_count = len(assignment.findall(mask_non_code(source)))
+          except (OSError, UnicodeError, ValueError) as error:
+              print(f"ERROR: writer audit failed for {source_path}: {error}", file=sys.stderr)
+              raise SystemExit(1)
+
+          if raw_count != 1 or code_count != 1:
+              print(
+                  f"ERROR: expected exactly one raw and one code-level residence.value "
+                  f"assignment in {source_path}; raw_count={raw_count}, code_count={code_count}",
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+          print(
+              f"Verified residence.value assignment counts in {source_path}: "
+              f"raw_count={raw_count}, code_count={code_count}"
+          )
+          PY
+          exit "${status}"
+
+      - name: JS lock-discipline canary (full conformance suite on the JS lane)
+        run: ./gradlew :store6-core:jsNodeTest :store6-testing:jsNodeTest --stacktrace
+
   apple-tests:
     runs-on: macos-latest
     timeout-minutes: 40
@@ -298,3 +434,97 @@ jobs:
             done
           done
           exit "${failed}"
+
+  native-stress:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cache Kotlin/Native compiler
+        uses: actions/cache@v4
+        with:
+          path: ~/.konan
+          key: ${{ runner.os }}-konan-${{ hashFiles('gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', '**/*.gradle.kts') }}
+          restore-keys: |
+            ${{ runner.os }}-konan-
+
+      - name: Grant execute permission for Gradlew
+        run: chmod +x gradlew
+
+      - name: Run Store6 Native stress and soak lane (macOS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :store6-core:macosArm64Test \
+            --tests '*StoreEvictionStressTest' \
+            --tests '*StoreInvalidationStressTest' \
+            --tests '*StoreCloseLifecycleTest' \
+            --tests '*StoreBackpressureConformanceTest' \
+            --stacktrace
+
+          result_dir="store6-core/build/test-results/macosArm64Test"
+          expected_test_classes=(
+            StoreEvictionStressTest
+            StoreInvalidationStressTest
+            StoreCloseLifecycleTest
+            StoreBackpressureConformanceTest
+          )
+          python3 - "${result_dir}" "${expected_test_classes[@]}" <<'PY'
+          import sys
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+
+          def local_name(tag: str) -> str:
+              return tag.rsplit("}", 1)[-1]
+
+
+          result_dir = Path(sys.argv[1])
+          expected_test_classes = sys.argv[2:]
+          result_files = sorted(result_dir.glob("TEST-*.xml"))
+          if not result_files:
+              print(f"ERROR: no Kotlin/Native test-result XML found in {result_dir}", file=sys.stderr)
+              raise SystemExit(1)
+
+          executed = {test_class: 0 for test_class in expected_test_classes}
+          for result_file in result_files:
+              try:
+                  root = ET.parse(result_file).getroot()
+              except (OSError, ET.ParseError) as error:
+                  print(f"ERROR: failed to parse {result_file}: {error}", file=sys.stderr)
+                  raise SystemExit(1)
+
+              for testcase in root.iter():
+                  if local_name(testcase.tag) != "testcase":
+                      continue
+                  if any(local_name(child.tag) == "skipped" for child in testcase):
+                      continue
+                  classname = testcase.get("classname", "")
+                  for test_class in expected_test_classes:
+                      if classname == test_class or classname.endswith(f".{test_class}"):
+                          executed[test_class] += 1
+
+          missing = [test_class for test_class, count in executed.items() if count == 0]
+          for test_class, count in executed.items():
+              if count:
+                  print(f"Verified {count} executed Native testcase(s) for {test_class}")
+          if missing:
+              print(
+                  "ERROR: no non-skipped Native testcase evidence for: " + ", ".join(missing),
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+          PY

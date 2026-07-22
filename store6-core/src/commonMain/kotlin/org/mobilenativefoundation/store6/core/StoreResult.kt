@@ -42,8 +42,9 @@ public sealed interface StoreResult<out V> {
      *
      * Emitted when a conditional fetch returns not-modified: the value is server-confirmed fresh,
      * metadata is refreshed, and [age] is the elapsed time since the last commit measured at
-     * revalidation. Revalidated is a lifecycle signal: `conflateLatestData` never conflates or
-     * drops it.
+     * revalidation. Revalidated is a lifecycle signal: `conflateLatestData` never conflates it
+     * away in favor of another kind; for a blocked collector a newer `Revalidated` supersedes an
+     * older queued one, so the kind itself is never lost.
      */
     public class Revalidated internal constructor(
         /** Elapsed time since the value was last committed, measured at revalidation. */
