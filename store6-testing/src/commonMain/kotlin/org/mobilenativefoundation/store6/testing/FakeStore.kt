@@ -60,7 +60,7 @@ import kotlin.time.Duration.Companion.milliseconds
  * issue 007 lands and Matt signs off. [close] is synchronous and idempotent. Active collectors are
  * cancelled; later [Store] operations fail immediately, and stream checks closure both when called
  * and when collection starts. Those exception types, post-close behavior, and the exact message
- * text are PROVISIONAL-PENDING-007 and must be re-verified when 007 lands.
+ * text were finalized by issue 007 against the engine's close lifecycle.
  */
 @ExperimentalStoreApi
 @OptIn(DelicateStoreApi::class)
@@ -271,7 +271,7 @@ public class FakeStore<K : StoreKey, V : Any>(
 
     /**
      * Closes this fake synchronously and idempotently.
-     * PROVISIONAL-PENDING-007: re-verify exception types and message text when issue 007 lands.
+     * Close semantics finalized by issue 007.
      */
     override fun close() {
         if (!closed.compareAndSet(expect = false, update = true)) return
@@ -484,9 +484,10 @@ public class FakeStore<K : StoreKey, V : Any>(
     }
 
     private companion object {
-        // PROVISIONAL-PENDING-007: core's STORE_CLOSED_MESSAGE is internal and cannot be imported.
-        // If 007 publishes a shared constant, delegate-and-delete this local literal, then re-verify
-        // every close-semantics pin.
+        // Finalized by issue 007: core keeps STORE_CLOSED_MESSAGE internal by design (FS-5 —
+        // diagnostics are review-gated text, not ABI). This literal is pinned by the close
+        // conformance tests here and by StoreCloseLifecycleTest in store6-core; change both
+        // pins together if the message ever changes.
         private const val CLOSED_MESSAGE = "Store is closed."
     }
 }
