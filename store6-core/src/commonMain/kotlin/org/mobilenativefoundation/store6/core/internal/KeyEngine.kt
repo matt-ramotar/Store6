@@ -89,6 +89,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private val validator: FreshnessValidator,
     private val wallClock: WallClock,
     private val engineScope: CoroutineScope,
+    private val residencyHooks: EngineResidencyHooks = EngineResidencyHooks.Noop,
     /** Optional deterministic gate used only by direct engine tests before final initial recapture. */
     private val beforeInitialDeliveryTestGate: suspend () -> Unit = {},
     /** Optional direct-test gate after the initial planning snapshot, before outcome classification. */
@@ -249,6 +250,14 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         overlay?.let { configured ->
             engineScope.launch { runProjectionWriter(configured) }
         }
+    }
+
+    /** Quiescent for idling: no fetch owns the slot. All other work holds registry references. */
+    internal fun isQuiescentForIdle(): Boolean = state.value.fetch is FetchSlot.Idle
+
+    /** Destroys a quiescent, unreferenced engine; nothing user-visible is running by definition. */
+    internal fun destroy() {
+        engineScope.cancel(CancellationException(ENGINE_EVICTED_MESSAGE))
     }
 
     /** Assigns residence and advances its revision for every accepted observation or mutation. */
@@ -1043,43 +1052,50 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     ) {
         val fetchJob =
             engineScope.launch(start = CoroutineStart.UNDISPATCHED) {
-                val mark = if (telemetry == null) null else TimeSource.Monotonic.markNow()
-                telemetry?.onFetchStarted(key)
-                val outcome =
-                    try {
-                        currentCoroutineContext().ensureActive()
-                        yield()
-                        val result = fetcher.fetch(key, etag)
-                        currentCoroutineContext().ensureActive()
-                        when (result) {
-                            is FetcherResult.Success ->
-                                commitFetch(ticket, result.value, result.etag)
+                var fetchRefHeld = false
+                try {
+                    val mark = if (telemetry == null) null else TimeSource.Monotonic.markNow()
+                    telemetry?.onFetchStarted(key)
+                    val outcome =
+                        try {
+                            residencyHooks.retainFetchRef()
+                            fetchRefHeld = true
+                            currentCoroutineContext().ensureActive()
+                            yield()
+                            val result = fetcher.fetch(key, etag)
+                            currentCoroutineContext().ensureActive()
+                            when (result) {
+                                is FetcherResult.Success ->
+                                    commitFetch(ticket, result.value, result.etag)
 
-                            is FetcherResult.NotModified ->
-                                commitNotModified(ticket, result.etag)
+                                is FetcherResult.NotModified ->
+                                    commitNotModified(ticket, result.etag)
 
-                            is FetcherResult.Error -> {
-                                if (result.cause is CancellationException) throw result.cause
-                                FetchOutcome.Failed(
-                                    exception = fetchResultException(result.cause),
-                                    atEpochMillis = wallClock.nowEpochMillis(),
-                                )
+                                is FetcherResult.Error -> {
+                                    if (result.cause is CancellationException) throw result.cause
+                                    FetchOutcome.Failed(
+                                        exception = fetchResultException(result.cause),
+                                        atEpochMillis = wallClock.nowEpochMillis(),
+                                    )
+                                }
+
+                                FetcherResult.Deleted -> commitDeleted(ticket)
                             }
-
-                            FetcherResult.Deleted -> commitDeleted(ticket)
+                        } catch (cancellation: CancellationException) {
+                            ticket.outcome.cancel(cancellation)
+                            settleFetch(ticket)
+                            throw cancellation
+                        } catch (failure: Throwable) {
+                            FetchOutcome.Failed(
+                                exception = fetchException(failure),
+                                atEpochMillis = wallClock.nowEpochMillis(),
+                            )
                         }
-                    } catch (cancellation: CancellationException) {
-                        ticket.outcome.cancel(cancellation)
-                        settleFetch(ticket)
-                        throw cancellation
-                    } catch (failure: Throwable) {
-                        FetchOutcome.Failed(
-                            exception = fetchException(failure),
-                            atEpochMillis = wallClock.nowEpochMillis(),
-                        )
-                    }
 
-                finishFetch(ticket, outcome, mark)
+                    finishFetch(ticket, outcome, mark)
+                } finally {
+                    if (fetchRefHeld) residencyHooks.releaseFetchRef()
+                }
             }
 
         fetchJob.invokeOnCompletion { failure ->

@@ -45,6 +45,7 @@ internal class RealStore<K : StoreKey, V : Any>(
     validator: FreshnessValidator,
     internal val telemetry: StoreTelemetry?,
     private val overlay: Overlay<K, V>?,
+    private val maxIdleKeys: Int,
 ) : Store<K, V> {
     private val storeJob = SupervisorJob()
     private val storeScope = CoroutineScope(Dispatchers.Default + storeJob)
@@ -57,7 +58,7 @@ internal class RealStore<K : StoreKey, V : Any>(
         )
     internal val runtime: StoreRuntime<K, V> = RealStoreRuntime(this)
     private val registry =
-        KeyRegistry<K, V> { key, id ->
+        KeyRegistry<K, V>(maxIdleKeys) { key, id, hooks ->
             val engineJob = SupervisorJob(storeJob)
             KeyEngine(
                 key = key,
@@ -71,9 +72,14 @@ internal class RealStore<K : StoreKey, V : Any>(
                 overlay = overlay,
                 events = events,
                 engineScope = CoroutineScope(storeScope.coroutineContext + engineJob),
+                residencyHooks = hooks,
                 maintenanceCoordinator = maintenanceCoordinator,
             )
         }
+
+    init {
+        storeJob.invokeOnCompletion { registry.clearOnClose() }
+    }
 
     override fun stream(
         key: K,
@@ -165,8 +171,19 @@ internal class RealStore<K : StoreKey, V : Any>(
         return registry.withEngine(key, action)
     }
 
+    internal suspend fun residentEngineCountForTest(): Int = registry.residentCountForTest()
+
+    internal suspend fun idleEngineCountForTest(): Int = registry.idleCountForTest()
+
+    internal suspend fun createdEngineCountForTest(): Long = registry.createdCountForTest()
+
+    internal suspend fun destroyedEngineCountForTest(): Long = registry.destroyedCountForTest()
+
+    internal suspend fun awaitTerminationForTest() = storeJob.join()
+
     override fun close() {
         storeJob.cancel(CancellationException(STORE_CLOSED_MESSAGE))
+        registry.clearOnClose()
     }
 
     /** Fails deterministically when an operation starts after [close]. */

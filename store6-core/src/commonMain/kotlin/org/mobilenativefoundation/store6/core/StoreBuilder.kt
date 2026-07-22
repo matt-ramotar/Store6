@@ -2,6 +2,7 @@
 
 package org.mobilenativefoundation.store6.core
 
+import org.mobilenativefoundation.store6.core.internal.DEFAULT_MAX_IDLE_ENGINES
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
 import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
@@ -59,6 +60,8 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
     @OptIn(ExperimentalStoreApi::class)
     private var overlay: Overlay<K, V>? = null
 
+    private var maxIdleKeys: Int = DEFAULT_MAX_IDLE_ENGINES
+
     /**
      * Configures the suspending function used to retrieve a value for a key.
      *
@@ -99,6 +102,23 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
     @ExperimentalStoreApi
     public fun fetcher(fetcher: Fetcher<K, V>) {
         this.fetcher = fetcher
+    }
+
+    /**
+     * Bounds quiescent per-key engine residency.
+     *
+     * Engines whose key has active collectors, in-flight work, or an in-flight fetch are always
+     * resident and are never evicted. Once a key becomes quiescent its engine parks in an LRU idle
+     * set holding at most [count] engines; the eldest quiescent engine beyond the bound is destroyed.
+     * Eviction discards only derived in-memory state — durable rows, freshness metadata, stale marks,
+     * and watermarks live in the source of truth and bookkeeper, so a later read of an evicted key is
+     * semantically identical to one that was never evicted. `0` destroys every engine at quiescence.
+     *
+     * @param count the maximum number of quiescent engines retained; must be >= 0. Default 128.
+     */
+    public fun maxIdleKeys(count: Int) {
+        require(count >= 0) { "maxIdleKeys must be >= 0, was $count." }
+        maxIdleKeys = count
     }
 
     /**
@@ -167,6 +187,7 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
             validator,
             telemetry,
             overlay,
+            maxIdleKeys,
         )
     }
 }
