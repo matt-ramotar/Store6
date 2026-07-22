@@ -9,6 +9,7 @@ import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.KeyStatus
+import org.mobilenativefoundation.store6.sqldelight.internal.DriverAccess
 import org.mobilenativefoundation.store6.sqldelight.internal.MetaSidecar
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -20,8 +21,11 @@ import kotlin.coroutines.cancellation.CancellationException
  * watermarks.
  *
  * This adapter is the leaf lock owner: it acquires no Store locks and serializes each operation in
- * a SQLite transaction. Use one logical Store per database/namespace-set. Multiple logical stores
- * sharing a database also share its monotone sequence as one store-local order.
+ * a SQLite transaction. Suspend operations sharing a driver also share one bounded access gate
+ * with [SqlDelightSourceOfTruth]. Construct adapters before exposing the driver to concurrent work:
+ * sidecar schema setup is synchronous at construction time. Use one logical Store per
+ * database/namespace-set. Multiple logical stores sharing a database also share its monotone
+ * sequence as one store-local order.
  *
  * [recordSuccess], [recordFailure], and [forget] absorb non-cancellation storage failures.
  * [status] treats a non-cancellation storage failure as unavailable status and returns null, so
@@ -37,12 +41,15 @@ public class SqlDelightBookkeeper(
     private val transacter: Transacter,
 ) : Bookkeeper {
     private val sidecar = MetaSidecar(driver, transacter)
+    private val driverAccess = DriverAccess.forDriver(driver)
 
     public override suspend fun recordSuccess(key: StoreKey, meta: StoreMeta) {
         val ns = key.namespace
         val canonicalId = key.canonicalId()
         absorbing {
-            transacter.transaction { sidecar.recordSuccess(ns.value, canonicalId, meta) }
+            driverAccess.withAccess {
+                transacter.transaction { sidecar.recordSuccess(ns.value, canonicalId, meta) }
+            }
         }
     }
 
@@ -50,8 +57,10 @@ public class SqlDelightBookkeeper(
         val ns = key.namespace
         val canonicalId = key.canonicalId()
         absorbing {
-            transacter.transaction {
-                sidecar.recordFailure(ns.value, canonicalId, atEpochMillis)
+            driverAccess.withAccess {
+                transacter.transaction {
+                    sidecar.recordFailure(ns.value, canonicalId, atEpochMillis)
+                }
             }
         }
     }
@@ -60,7 +69,9 @@ public class SqlDelightBookkeeper(
         val ns = key.namespace
         val canonicalId = key.canonicalId()
         return try {
-            transacter.transactionWithResult { sidecar.readStatus(ns.value, canonicalId) }
+            driverAccess.withAccess {
+                transacter.transactionWithResult { sidecar.readStatus(ns.value, canonicalId) }
+            }
         } catch (exception: CancellationException) {
             throw exception
         } catch (_: Throwable) {
@@ -72,33 +83,45 @@ public class SqlDelightBookkeeper(
         val ns = key.namespace
         val canonicalId = key.canonicalId()
         absorbing {
-            transacter.transaction { sidecar.forget(ns.value, canonicalId) }
+            driverAccess.withAccess {
+                transacter.transaction { sidecar.forget(ns.value, canonicalId) }
+            }
         }
     }
 
     public override suspend fun markStale(key: StoreKey) {
         val ns = key.namespace
         val canonicalId = key.canonicalId()
-        transacter.transaction { sidecar.markStale(ns.value, canonicalId) }
+        driverAccess.withAccess {
+            transacter.transaction { sidecar.markStale(ns.value, canonicalId) }
+        }
     }
 
     public override suspend fun advanceStaleWatermark(namespace: StoreNamespace) {
-        transacter.transaction { sidecar.advanceNamespaceWatermark(namespace.value) }
+        driverAccess.withAccess {
+            transacter.transaction { sidecar.advanceNamespaceWatermark(namespace.value) }
+        }
     }
 
     public override suspend fun advanceGlobalStaleWatermark() {
-        transacter.transaction { sidecar.advanceGlobalWatermark() }
+        driverAccess.withAccess {
+            transacter.transaction { sidecar.advanceGlobalWatermark() }
+        }
     }
 
     public override suspend fun forgetNamespace(namespace: StoreNamespace) {
-        transacter.transaction { sidecar.forgetNamespace(namespace.value) }
+        driverAccess.withAccess {
+            transacter.transaction { sidecar.forgetNamespace(namespace.value) }
+        }
     }
 
     public override suspend fun forgetAll() {
-        transacter.transaction { sidecar.forgetAll() }
+        driverAccess.withAccess {
+            transacter.transaction { sidecar.forgetAll() }
+        }
     }
 
-    private inline fun absorbing(block: () -> Unit) {
+    private suspend inline fun absorbing(crossinline block: suspend () -> Unit) {
         try {
             block()
         } catch (exception: Throwable) {

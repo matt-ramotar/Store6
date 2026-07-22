@@ -3,21 +3,23 @@ package org.mobilenativefoundation.store6.sqldelight
 import app.cash.sqldelight.Query
 import app.cash.sqldelight.Transacter
 import app.cash.sqldelight.TransactionCallbacks
-import app.cash.sqldelight.coroutines.mapToOneOrNull
 import app.cash.sqldelight.db.SqlDriver
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.TransactionalSourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.WallClock
+import org.mobilenativefoundation.store6.sqldelight.internal.DriverAccess
 import org.mobilenativefoundation.store6.sqldelight.internal.MetaSidecar
 import org.mobilenativefoundation.store6.sqldelight.internal.SqlDelightSystemWallClock
 import org.mobilenativefoundation.store6.sqldelight.internal.runNonSuspending
@@ -35,6 +37,11 @@ import kotlin.coroutines.CoroutineContext
  * mutation callbacks must use the same [SqlDriver] passed to this adapter so user rows, their
  * transaction, and the sidecar remain coherent.
  *
+ * Suspend operations sharing a driver are serialized through one bounded driver-access gate,
+ * including [SqlDelightBookkeeper] operations constructed with that driver. Construct adapters
+ * before exposing the driver to concurrent work: sidecar schema setup is synchronous at
+ * construction time.
+ *
  * Live reader signals are instance-scoped: successful commits made through this instance publish
  * to the affected key, namespace, or all active readers, including equal-value rewrites. Raw
  * SQLDelight listener invalidations, direct SQL inside [withTransaction], and changes made through
@@ -47,8 +54,10 @@ import kotlin.coroutines.CoroutineContext
  * reader query work uses [readContext], which defaults to [Dispatchers.Default].
  *
  * Present behavior supports synchronous [Transacter] implementations only. A [withTransaction]
- * block must complete without suspension; a genuine suspension fails and rolls back the enclosing
- * transaction.
+ * block must complete without suspension and remain on its calling thread; a genuine suspension
+ * fails and rolls back the enclosing transaction. The adapter cancels the block's child job before
+ * reporting that failure, preventing cooperatively cancellable work from resuming after rollback.
+ * Non-cooperative suspension is unsupported.
  *
  * Seam status: FREEZE CANDIDATE awaiting Matt signature; never frozen.
  *
@@ -69,6 +78,7 @@ public class SqlDelightSourceOfTruth<K : StoreKey, V : Any>(
     private val readContext: CoroutineContext = Dispatchers.Default,
 ) : TransactionalSourceOfTruth<K, V> {
     private val sidecar = MetaSidecar(driver, transacter)
+    private val driverAccess = DriverAccess.forDriver(driver)
     private val clock = wallClock ?: SqlDelightSystemWallClock
     private val activeReaders = MutableStateFlow<Map<KeyIdentity, ReaderEntry>>(emptyMap())
 
@@ -77,7 +87,13 @@ public class SqlDelightSourceOfTruth<K : StoreKey, V : Any>(
         val signal = acquireReader(identity)
         try {
             val query = readQuery(key)
-            emitAll(signal.map { query }.mapToOneOrNull(readContext))
+            emitAll(
+                signal.map {
+                    driverAccess.withAccess {
+                        withContext(readContext) { query.executeAsOneOrNull() }
+                    }
+                },
+            )
         } finally {
             releaseReader(identity, signal)
         }
@@ -87,39 +103,50 @@ public class SqlDelightSourceOfTruth<K : StoreKey, V : Any>(
         key: K,
         value: V,
     ) {
-        transacter.transaction {
-            publishAfterCommit(MutationScope.Key(KeyIdentity(key)))
-            writeRow(key, value)
-            sidecar.stampWrite(key.namespace.value, key.canonicalId(), clock.nowEpochMillis())
+        driverAccess.withAccess {
+            transacter.transaction {
+                publishAfterCommit(MutationScope.Key(KeyIdentity(key)))
+                writeRow(key, value)
+                sidecar.stampWrite(key.namespace.value, key.canonicalId(), clock.nowEpochMillis())
+            }
         }
     }
 
     override suspend fun delete(key: K) {
-        transacter.transaction {
-            publishAfterCommit(MutationScope.Key(KeyIdentity(key)))
-            deleteRow(key)
-            sidecar.deleteRow(key.namespace.value, key.canonicalId())
+        driverAccess.withAccess {
+            transacter.transaction {
+                publishAfterCommit(MutationScope.Key(KeyIdentity(key)))
+                deleteRow(key)
+                sidecar.deleteRow(key.namespace.value, key.canonicalId())
+            }
         }
     }
 
     override suspend fun deleteNamespace(namespace: StoreNamespace) {
-        transacter.transaction {
-            publishAfterCommit(MutationScope.Namespace(namespace.value))
-            deleteNamespaceRows(namespace)
-            sidecar.deleteNamespaceRows(namespace.value)
+        driverAccess.withAccess {
+            transacter.transaction {
+                publishAfterCommit(MutationScope.Namespace(namespace.value))
+                deleteNamespaceRows(namespace)
+                sidecar.deleteNamespaceRows(namespace.value)
+            }
         }
     }
 
     override suspend fun deleteAll() {
-        transacter.transaction {
-            publishAfterCommit(MutationScope.All)
-            deleteAllRows()
-            sidecar.deleteAllRows()
+        driverAccess.withAccess {
+            transacter.transaction {
+                publishAfterCommit(MutationScope.All)
+                deleteAllRows()
+                sidecar.deleteAllRows()
+            }
         }
     }
 
     override suspend fun <R> withTransaction(block: suspend () -> R): R =
-        transacter.transactionWithResult { runNonSuspending(block) }
+        driverAccess.withAccess {
+            val context = currentCoroutineContext()
+            transacter.transactionWithResult { runNonSuspending(context, block) }
+        }
 
     private fun acquireReader(key: KeyIdentity): MutableStateFlow<Long> {
         while (true) {
