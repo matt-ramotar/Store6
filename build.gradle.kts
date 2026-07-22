@@ -1,6 +1,13 @@
 plugins {
     alias(libs.plugins.ktlint)
     id("com.diffplug.spotless") version "6.4.1"
+    // 010/011/012 toolchain: loaded once here (apply false) so every module shares one
+    // plugin classloader + version; module branches only `alias(...)` without versions.
+    alias(libs.plugins.ksp) apply false
+    alias(libs.plugins.sqldelight) apply false
+    alias(libs.plugins.room) apply false
+    alias(libs.plugins.kotlin.compose.compiler) apply false
+    alias(libs.plugins.jetbrains.compose) apply false
 }
 
 buildscript {

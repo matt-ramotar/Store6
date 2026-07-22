@@ -1,3 +1,6 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+
 plugins {
     `kotlin-dsl`
 }
@@ -7,10 +10,10 @@ group = "org.mobilenativefoundation.store"
 java {
     sourceCompatibility = JavaVersion.VERSION_11
     targetCompatibility = JavaVersion.VERSION_11
+}
 
-    toolchain {
-        languageVersion.set(JavaLanguageVersion.of(11))
-    }
+tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions.jvmTarget.set(JvmTarget.JVM_11)
 }
 
 dependencies {
@@ -33,6 +36,11 @@ gradlePlugin {
         register("store6MultiplatformConventionPlugin") {
             id = "org.mobilenativefoundation.store.store6.multiplatform"
             implementationClass = "org.mobilenativefoundation.store.tooling.plugins.Store6MultiplatformConventionPlugin"
+        }
+
+        register("store6MultiplatformSubsetConventionPlugin") {
+            id = "org.mobilenativefoundation.store.store6.multiplatform.subset"
+            implementationClass = "org.mobilenativefoundation.store.tooling.plugins.Store6MultiplatformSubsetConventionPlugin"
         }
 
         register("store6ObjcSwiftDumpPlugin") {
