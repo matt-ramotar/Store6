@@ -1,19 +1,37 @@
 package org.mobilenativefoundation.store6.testing
 
 import app.cash.turbine.test
-import app.cash.turbine.turbineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.mobilenativefoundation.store6.core.*
 import kotlin.test.*
 import kotlin.time.Duration.Companion.minutes
 
+/**
+ * Read-core conformance coverage for [FakeStore].
+ *
+ * | Posture | Behaviors |
+ * |---|---|
+ * | Applicable | Cold-stream sequence, value/error channels, replay, resident serve, one-time
+ * script consumption, stale-get SWR, Decision #37 demand-deferred invalidation, clear transitions,
+ * Revalidated cycles, namespace isolation, close semantics, clock-derived age, and lifecycle-frame
+ * survival through StateFlow/stateIn. |
+ * | Engine-only | Fetch cancellation and non-cooperative fetchers, freshness-policy matrices,
+ * dispatcher contention, backpressure conflation, overlay projection, key events, and runtime
+ * access. Test those by composing the seam fakes into a real store. |
+ *
+ * There is no invalidate-divergence row: Decision #37 (Matt, 2026-07-20) aligned the fake to the
+ * engine's stale-mark-only, next-demand consumption posture.
+ */
 @OptIn(ExperimentalStoreApi::class)
 class FakeStoreConformanceTest {
     private val key = TestingKey("test", "1")
@@ -104,17 +122,43 @@ class FakeStoreConformanceTest {
     @Test
     fun twoConcurrentCollectors_oneScriptedOutcomeConsumedOnce() = runTest {
         val store = FakeStore<TestingKey, String>()
-        store.enqueueFetchValue(key, "v")
-        turbineScope {
-            val a = store.stream(key).testIn(backgroundScope)
-            val b = store.stream(key).testIn(backgroundScope) // launched after a consumed the script
-            assertIs<StoreResult.Loading>(a.awaitItem())
-            assertEquals("v", assertIs<StoreResult.Data<String>>(a.awaitItem()).value)
-            assertEquals("v", assertIs<StoreResult.Data<String>>(b.awaitItem()).value) // resident replay, no Loading
-            a.cancelAndIgnoreRemainingEvents()
-            b.cancelAndIgnoreRemainingEvents()
-        }
-        assertEquals("v", store.get(key)) // resident, not a second script pop
+        store.setValue(key, "v1", isStale = true)
+        store.enqueueFetchError(key, TestStoreResults.fetchError("first scripted failure"))
+        store.enqueueFetchValue(key, "v2")
+        val aReady = CompletableDeferred<Unit>()
+        val bReady = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val a =
+            backgroundScope.async {
+                store.stream(key)
+                    .onEach {
+                        if (it is StoreResult.Data && it.isStale) {
+                            aReady.complete(Unit)
+                            release.await()
+                        }
+                    }.take(2)
+                    .toList()
+            }
+        val b =
+            backgroundScope.async {
+                store.stream(key)
+                    .onEach {
+                        if (it is StoreResult.Data && it.isStale) {
+                            bReady.complete(Unit)
+                            release.await()
+                        }
+                    }.take(2)
+                    .toList()
+            }
+        aReady.await()
+        bReady.await()
+        release.complete(Unit)
+        val aResults = a.await()
+        val bResults = b.await()
+        assertIs<StoreResult.Error>(aResults.single { it is StoreResult.Error })
+        assertIs<StoreResult.Error>(bResults.single { it is StoreResult.Error })
+        assertEquals("v1", store.get(key)) // the one winning demand consumed only the failure
+        assertEquals("v2", store.get(key)) // the next demand consumed the retained value
         store.close()
     }
 
@@ -192,6 +236,25 @@ class FakeStoreConformanceTest {
             cancelAndIgnoreRemainingEvents()
         }
         assertEquals("v1", store.get(key)) // stale resident still served; no script to consume
+        store.close()
+    }
+
+    @Test
+    fun invalidate_activeDemand_consumesOnlyOneFailure_thenRetainsNextScript() = runTest {
+        val store = FakeStore<TestingKey, String>()
+        store.setValue(key, "v1")
+        store.stream(key).test {
+            assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+            store.enqueueFetchError(key, TestStoreResults.fetchError("first scripted failure"))
+            store.enqueueFetchValue(key, "v2")
+            store.invalidate(key)
+            assertTrue(assertIs<StoreResult.Data<String>>(awaitItem()).isStale)
+            assertIs<StoreResult.Error>(awaitItem())
+            expectNoEvents()
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertEquals("v1", store.get(key))
+        assertEquals("v2", store.get(key))
         store.close()
     }
 
@@ -281,6 +344,27 @@ class FakeStoreConformanceTest {
             assertTrue(stale.isStale)
             assertTrue(stale.refreshing)
             assertIs<StoreResult.Error>(awaitItem())
+            cancelAndIgnoreRemainingEvents()
+        }
+        store.close()
+    }
+
+    @Test
+    fun staleBeforeCollection_lifecycleFramesSurviveStateFlowConsumer() = runTest {
+        val store = FakeStore<TestingKey, String>()
+        store.setValue(key, "v1")
+        store.enqueueFetchValue(key, "v2")
+        store.invalidate(key)
+        val state: StateFlow<StoreResult<String>?> =
+            store.stream(key).stateIn(backgroundScope, SharingStarted.Lazily, null)
+        state.filterNotNull().test {
+            val stale = assertIs<StoreResult.Data<String>>(awaitItem())
+            assertEquals("v1", stale.value)
+            assertTrue(stale.isStale)
+            assertTrue(stale.refreshing)
+            val fresh = assertIs<StoreResult.Data<String>>(awaitItem())
+            assertEquals("v2", fresh.value)
+            assertFalse(fresh.isStale)
             cancelAndIgnoreRemainingEvents()
         }
         store.close()

@@ -29,16 +29,38 @@ import kotlin.time.Duration.Companion.milliseconds
  * history frame is followed by [yield], deliberately providing stronger delivery than the engine
  * so StateFlow/stateIn consumers can assert each lifecycle frame without conflation.
  *
- * Invalidation implements Decision #37 (Matt, 2026-07-20): it only stale-marks residence and never
- * consumes a script. Scripted staleness is consumed at the next demand from an active or later
- * stream, or behind a stale [get] read, with a single CAS consumption site for invalidated cells.
+ * A stream is cold and records its interaction when collection starts. A resident key emits an
+ * immediate Data snapshot without Loading. An absent key emits Loading and consumes at most one
+ * queued outcome, then remains live. Stream errors are values, never thrown. A fresh [get] returns
+ * residence without consuming a script; an absent get consumes one outcome, returning a scripted
+ * value or throwing a [StoreException] through the public result-factory door. A resident
+ * Revalidated outcome refreshes its write time and clears staleness; without residence it becomes
+ * Missing on both channels.
+ *
+ * Invalidation implements Decision #37 (Matt, 2026-07-20): it is a stale-mark only and never
+ * consumes a script. A stale Data frame reports `refreshing` from whether a script is currently
+ * pending. Scripted staleness is consumed at the next demand from an active collector, a later
+ * stream after its stale snapshot, or behind a stale [get] read. One CAS consumption site allows at
+ * most one winner across concurrent collectors. With no demand, the queued outcome is retained;
+ * with no queued outcome, the stale frame has `refreshing=false` and no synthetic error. There is
+ * no invalidate divergence from the engine's demand-deferred posture.
+ *
+ * Clear drops residence, emits Loading to active collectors, and retains the script for later
+ * demand. Namespace and global operations sweep resident keys. Durable watermarks are deliberately
+ * absent here; compose [FakeBookkeeper] into a real store when testing that engine policy.
+ *
+ * Data age is derived from [wallClock] and clamped at zero. [setValue] defaults to
+ * [Origin.MEMORY], scripted values commit with [Origin.FETCHER], and all stale/refreshing flags are
+ * computed from current fake state rather than asserted optimistically.
  *
  * `runtime()` returns null by design. [FakeStore] produces no KeyEvents and performs no overlay
  * projection; runtime, events, overlays, and freshness-policy behavior belong to a real store.
  *
  * The seam consumed here is a FREEZE CANDIDATE, not frozen: freeze sign-off remains held until
- * issue 007 lands and Matt signs off. Close semantics and message text are
- * PROVISIONAL-PENDING-007 and must be re-verified when 007 lands.
+ * issue 007 lands and Matt signs off. [close] is synchronous and idempotent. Active collectors are
+ * cancelled; later [Store] operations fail immediately, and stream checks closure both when called
+ * and when collection starts. Those exception types, post-close behavior, and the exact message
+ * text are PROVISIONAL-PENDING-007 and must be re-verified when 007 lands.
  */
 @ExperimentalStoreApi
 @OptIn(DelicateStoreApi::class)
@@ -51,7 +73,12 @@ public class FakeStore<K : StoreKey, V : Any>(
         val writtenAtEpochMillis: Long,
         val isStale: Boolean,
         val script: List<Scripted<V>>,
-        val history: List<StoreResult<V>>,
+        val history: List<HistoryFrame<V>>,
+    )
+
+    private class HistoryFrame<V : Any>(
+        val result: StoreResult<V>,
+        val staleDemandHead: Scripted<V>? = null,
     )
 
     private sealed class Scripted<out V : Any> {
@@ -96,12 +123,14 @@ public class FakeStore<K : StoreKey, V : Any>(
                             isStale = isStale,
                             history =
                                 cell.history +
-                                    dataOf(
-                                        value,
-                                        origin,
-                                        now,
-                                        isStale,
-                                        refreshing = false,
+                                    HistoryFrame(
+                                        dataOf(
+                                            value,
+                                            origin,
+                                            now,
+                                            isStale,
+                                            refreshing = false,
+                                        ),
                                     ),
                         )
                 )
@@ -134,6 +163,7 @@ public class FakeStore<K : StoreKey, V : Any>(
             record(FakeStoreInteraction.Stream(key, freshness))
             val id = idOf(key)
             val before = cells.value[id]
+            val initialHead = before?.script?.firstOrNull()
             var cursor = before?.history?.size ?: 0
             if (before?.value != null) {
                 emit(
@@ -145,25 +175,32 @@ public class FakeStore<K : StoreKey, V : Any>(
                         refreshing = before.isStale && before.script.isNotEmpty(),
                     ),
                 )
+                // Initial snapshots are dispatch-pinned too: a stale late-collector snapshot must
+                // reach StateFlow/stateIn consumers before its demand commits the scripted result.
+                yield()
+                if (before.isStale && initialHead != null) {
+                    consumeIfStale(key, initialHead)
+                }
             } else {
                 emit(TestStoreResults.loading())
-                consumeIfAbsent(key)
+                yield()
+                if (initialHead != null) consumeIfAbsent(key, initialHead)
             }
             combine(cells, closed) { map, isClosed -> map[id] to isClosed }
                 .collect { (cell, isClosed) ->
                     if (isClosed) throw CancellationException(CLOSED_MESSAGE)
                     val history = cell?.history.orEmpty()
                     while (cursor < history.size) {
-                        emit(history[cursor])
+                        val frame = history[cursor]
+                        emit(frame.result)
                         cursor += 1
                         // Per-frame dispatch pin: deliberately stronger test delivery prevents
                         // StateFlow/stateIn consumers from losing intermediate lifecycle frames.
                         yield()
-                    }
-                    // Decision #37: an active collector is demand, but invalidate itself never
-                    // consumes. CAS allows only one collector to claim each queued outcome.
-                    if (cell?.value != null && cell.isStale && cell.script.isNotEmpty()) {
-                        consumeIfStale(key)
+                        // The stale frame carries the script head it advertised. Every collector
+                        // races for that same head, so only one can win and a failure update cannot
+                        // drain the next queued outcome without another demand.
+                        frame.staleDemandHead?.let { consumeIfStale(key, it) }
                     }
                 }
         }
@@ -177,10 +214,12 @@ public class FakeStore<K : StoreKey, V : Any>(
         if (resident != null) {
             // Decision #37 SWR mirror: return stale residence and commit one queued outcome behind
             // this read. The next read observes the committed refresh.
-            if (cell.isStale) consumeIfStale(key)
+            val head = cell.script.firstOrNull()
+            if (cell.isStale && head != null) consumeIfStale(key, head)
             return resident
         }
-        return when (val consumed = consumeIfAbsent(key)) {
+        val head = cell?.script?.firstOrNull()
+        return when (val consumed = head?.let { consumeIfAbsent(key, it) }) {
             is Scripted.Value -> consumed.value
             is Scripted.Failure -> throw TestStoreResults.exception(consumed.error)
             is Scripted.Revalidated ->
@@ -188,7 +227,9 @@ public class FakeStore<K : StoreKey, V : Any>(
                     key,
                     "a scripted Revalidated confirmed freshness but no resident value exists",
                 )
-            null -> throw missingException(key, "no resident value and no scripted fetch exist")
+            null ->
+                cells.value[idOf(key)]?.value
+                    ?: throw missingException(key, "no resident value and no scripted fetch exist")
         }
     }
 
@@ -233,9 +274,8 @@ public class FakeStore<K : StoreKey, V : Any>(
      * PROVISIONAL-PENDING-007: re-verify exception types and message text when issue 007 lands.
      */
     override fun close() {
-        if (closed.value) return
+        if (!closed.compareAndSet(expect = false, update = true)) return
         record(FakeStoreInteraction.Close)
-        closed.value = true
     }
 
     private fun idOf(key: K): Pair<String, String> =
@@ -293,13 +333,14 @@ public class FakeStore<K : StoreKey, V : Any>(
      * Consumes the script head when no resident value exists; at most one consumer wins (CAS).
      * Owns the absent-Revalidated case because it holds the real key for the Missing payload.
      */
-    private fun consumeIfAbsent(key: K): Scripted<V>? {
+    private fun consumeIfAbsent(key: K, expectedHead: Scripted<V>): Scripted<V>? {
         val id = idOf(key)
         while (true) {
             val current = cells.value
             val cell = current[id]
             if (cell?.value != null) return null
             val head = cell?.script?.firstOrNull() ?: return null
+            if (head !== expectedHead) return null
             val next =
                 when (head) {
                     is Scripted.Revalidated ->
@@ -307,15 +348,17 @@ public class FakeStore<K : StoreKey, V : Any>(
                             script = cell.script.drop(1),
                             history =
                                 cell.history +
-                                    TestStoreResults.error(
-                                        TestStoreResults.missing(
-                                            key,
-                                            "a scripted Revalidated arrived with no resident " +
-                                                "value for ${key.namespace.value}/" +
-                                                "${key.canonicalId()}. Script " +
-                                                "enqueueFetchValue() first or seed setValue().",
+                                    HistoryFrame(
+                                        TestStoreResults.error(
+                                            TestStoreResults.missing(
+                                                key,
+                                                "a scripted Revalidated arrived with no resident " +
+                                                    "value for ${key.namespace.value}/" +
+                                                    "${key.canonicalId()}. Script " +
+                                                    "enqueueFetchValue() first or seed setValue().",
+                                            ),
+                                            servedStale = false,
                                         ),
-                                        servedStale = false,
                                     ),
                         )
                     else -> applyScript(cell, head)
@@ -329,13 +372,14 @@ public class FakeStore<K : StoreKey, V : Any>(
      * consumption site for invalidated cells under Decision #37, called from stale [get] demand
      * and from the stream collector loop for active or later stream demand.
      */
-    private fun consumeIfStale(key: K) {
+    private fun consumeIfStale(key: K, expectedHead: Scripted<V>) {
         val id = idOf(key)
         while (true) {
             val current = cells.value
             val cell = current[id] ?: return
             if (cell.value == null || !cell.isStale) return
             val head = cell.script.firstOrNull() ?: return
+            if (head !== expectedHead) return
             if (cells.compareAndSet(current, current + (id to applyScript(cell, head)))) return
         }
     }
@@ -357,12 +401,14 @@ public class FakeStore<K : StoreKey, V : Any>(
                     script = rest,
                     history =
                         cell.history +
-                            dataOf(
-                                head.value,
-                                Origin.FETCHER,
-                                now,
-                                isStale = false,
-                                refreshing = false,
+                            HistoryFrame(
+                                dataOf(
+                                    head.value,
+                                    Origin.FETCHER,
+                                    now,
+                                    isStale = false,
+                                    refreshing = false,
+                                ),
                             ),
                 )
             is Scripted.Failure ->
@@ -370,7 +416,7 @@ public class FakeStore<K : StoreKey, V : Any>(
                     script = rest,
                     history =
                         cell.history +
-                            TestStoreResults.error(head.error, head.servedStale),
+                            HistoryFrame(TestStoreResults.error(head.error, head.servedStale)),
                 )
             is Scripted.Revalidated -> {
                 check(cell.value != null) {
@@ -381,7 +427,7 @@ public class FakeStore<K : StoreKey, V : Any>(
                     writtenAtEpochMillis = now,
                     isStale = false,
                     script = rest,
-                    history = cell.history + TestStoreResults.revalidated(head.age),
+                    history = cell.history + HistoryFrame(TestStoreResults.revalidated(head.age)),
                 )
             }
         }
@@ -397,6 +443,7 @@ public class FakeStore<K : StoreKey, V : Any>(
             val cell = map[id] ?: return@update map
             if (cell.value == null) return@update map
             val refreshing = cell.script.isNotEmpty()
+            val demandHead = cell.script.firstOrNull()
             map +
                 (
                     id to
@@ -404,12 +451,16 @@ public class FakeStore<K : StoreKey, V : Any>(
                             isStale = true,
                             history =
                                 cell.history +
-                                    dataOf(
-                                        cell.value,
-                                        cell.origin,
-                                        cell.writtenAtEpochMillis,
-                                        isStale = true,
-                                        refreshing = refreshing,
+                                    HistoryFrame(
+                                        result =
+                                            dataOf(
+                                                cell.value,
+                                                cell.origin,
+                                                cell.writtenAtEpochMillis,
+                                                isStale = true,
+                                                refreshing = refreshing,
+                                            ),
+                                        staleDemandHead = demandHead,
                                     ),
                         )
                 )
@@ -426,7 +477,7 @@ public class FakeStore<K : StoreKey, V : Any>(
                         cell.copy(
                             value = null,
                             isStale = false,
-                            history = cell.history + TestStoreResults.loading(),
+                            history = cell.history + HistoryFrame(TestStoreResults.loading()),
                         )
                 )
         }

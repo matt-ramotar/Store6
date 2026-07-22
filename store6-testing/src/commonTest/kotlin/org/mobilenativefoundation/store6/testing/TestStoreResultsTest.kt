@@ -22,7 +22,7 @@ class TestStoreResultsTest {
             TestStoreResults.error(TestStoreResults.missing(key, "no value for test/1: scripted. Fix the script.")),
         )
         results.forEach { result ->
-            when (result) { // exhaustive consumer-side when over the frozen vocabulary
+            when (result) { // exhaustive consumer-side when over the sealed vocabulary
                 is StoreResult.Loading, is StoreResult.Data, is StoreResult.Revalidated, is StoreResult.Error -> Unit
             }
         }
