@@ -1,8 +1,16 @@
+import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
+
 plugins {
     id("org.mobilenativefoundation.store.store6.multiplatform")
 }
 
 kotlin {
+    // Mirrors SQLDelight's linkSqlite() without applying its codegen/database plugin.
+    targets
+        .filterIsInstance<KotlinNativeTarget>()
+        .flatMap { it.binaries }
+        .forEach { it.linkerOpts("-lsqlite3") }
+
     sourceSets {
         val commonMain by getting {
             dependencies {
