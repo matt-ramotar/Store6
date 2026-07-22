@@ -6,11 +6,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import org.mobilenativefoundation.store6.contracttests.SourceOfTruthContractKit
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.NamespacedTestKey
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import org.mobilenativefoundation.store6.testing.SourceOfTruthContractKit
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
