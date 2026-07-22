@@ -16,11 +16,12 @@ kotlin {
                 // (plain inheritance — no expect/actual, no forwarding members on js/wasmJs).
                 // This is the exact evidence phase0 item 35 conditioned api scope on (approved).
                 api(libs.kotlinx.coroutines.test)
-                // The SoT kit BODIES use turbine (app.cash.turbine.test/turbineScope) but turbine
-                // never appears in any published signature: implementation scope keeps it off
-                // consumer compile classpaths while the POM's runtime scope still delivers it to
-                // consumer test runtimes. (Deliberate narrowing vs the landed contract-tests
-                // api(libs.turbine) — recorded in the decision doc, flagged for Matt.)
+                // The SoT kit BODIES use turbine (app.cash.turbine.test/turbineScope), but turbine
+                // never appears in a source signature. The declaration is deliberately narrower
+                // than the landed contract-tests api(libs.turbine). Effective publication scope is
+                // target-dependent: JVM/Android/JS/Wasm POMs publish it at runtime, while Gradle
+                // metadata and Native variants place it on API/compile variants. That live tooling
+                // shape is recorded in the decision doc and remains flagged for Matt.
                 implementation(libs.turbine)
             }
         }
