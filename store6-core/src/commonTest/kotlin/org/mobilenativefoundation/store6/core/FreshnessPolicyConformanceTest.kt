@@ -118,12 +118,17 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                 firstStarted.awaitFromDefault()
                 awaitCurrentReaderFirstDelivery(key)
                 assertEquals(1, calls)
+                val initialGet =
+                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                        store.get(key)
+                    }
+                assertFalse(initialGet.isCompleted)
                 firstGate.complete(Unit)
+                assertEquals("v1", initialGet.await())
 
                 val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
                 assertEquals("v1", initial.value)
-                assertFalse(initial.isStale)
-                assertFalse(initial.refreshing)
+                assertFalse(initial.isStale, "seed frame must not be stale: $initial")
                 assertEquals(1, calls)
                 clock.now = 600.seconds.inWholeMilliseconds
 
@@ -139,8 +144,11 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                 val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
                 assertEquals("v2", fresh.value)
                 assertEquals(Duration.ZERO, fresh.age)
-                assertFalse(fresh.isStale)
-                assertFalse(fresh.refreshing)
+                assertFalse(fresh.isStale, "fresh frame must not be stale: $fresh")
+                assertFalse(
+                    fresh.refreshing,
+                    "fresh terminal must not remain refreshing: $fresh",
+                )
                 collector.expectNoEvents()
                 initialCollector.cancelAndIgnoreRemainingEvents()
                 collector.cancelAndIgnoreRemainingEvents()
