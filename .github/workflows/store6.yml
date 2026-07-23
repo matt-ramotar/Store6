@@ -248,6 +248,17 @@ jobs:
       - name: JS lock-discipline canary (full conformance suite on the JS lane)
         run: ./gradlew :store6-core:jsNodeTest :store6-testing:jsNodeTest --stacktrace
 
+      - name: Upload test reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-store6-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            store6-*/build/test-results/**/*.xml
+            store6-*/build/reports/tests/**
+          if-no-files-found: warn
+          retention-days: 7
+
   apple-tests:
     runs-on: macos-latest
     timeout-minutes: 40
@@ -307,6 +318,17 @@ jobs:
             :store6-sqldelight:macosArm64Test \
             "-Pstore6.iosSimulatorDevice=${STORE6_IOS_SIMULATOR_DEVICE}" \
             --stacktrace
+
+      - name: Upload test reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-store6-apple-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            store6-*/build/test-results/**/*.xml
+            store6-*/build/reports/tests/**
+          if-no-files-found: warn
+          retention-days: 7
 
   swift-dumps:
     runs-on: macos-latest
@@ -533,3 +555,14 @@ jobs:
               )
               raise SystemExit(1)
           PY
+
+      - name: Upload test reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-store6-native-stress-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            store6-*/build/test-results/**/*.xml
+            store6-*/build/reports/tests/**
+          if-no-files-found: warn
+          retention-days: 7

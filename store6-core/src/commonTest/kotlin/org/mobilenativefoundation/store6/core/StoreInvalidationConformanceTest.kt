@@ -5,7 +5,11 @@ import app.cash.turbine.testIn
 import app.cash.turbine.turbineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.flow.produceIn
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -18,30 +22,13 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration
 
 open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
-
     // AC-3 (TEST-1): an active stream signaled by invalidate observes refetched data.
     @Test
     fun invalidate_activeStream_observesRefetchedData() = runTest {
         var calls = 0
-        val store = testStore<TestKey, String> { fetcher { calls++; "v$calls" } }
-        store.stream(TestKey("1")).test {
-            assertIs<StoreResult.Loading>(awaitItem())
-            assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
-
-            store.invalidate(TestKey("1"))
-
-            assertEquals("v2", assertIs<StoreResult.Data<String>>(awaitItem()).value)
-            cancelAndIgnoreRemainingEvents()
-        }
-        store.close()
-    }
-
-    // Pinned SWR posture: get on a stale resident serves stale now and refetches in background.
-    @Test
-    fun getOnStaleResident_servesStaleThenRefetchesInBackground() = runTest {
-        var calls = 0
         val secondFetchStarted = CompletableDeferred<Unit>()
         val releaseSecondFetch = CompletableDeferred<Unit>()
+        val key = TestKey("1")
         val store = testStore<TestKey, String> {
             fetcher {
                 when (++calls) {
@@ -51,86 +38,245 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                         releaseSecondFetch.await()
                         "v2"
                     }
-                    else -> "v$calls"
+                    else -> error("unexpected fetch call $calls")
                 }
             }
         }
-        assertEquals("v1", store.get(TestKey("1")))
 
-        store.invalidate(TestKey("1"))
+        try {
+            val seedReader =
+                store.awaitLocalOnlyMissingReaderBarrier(key, backgroundScope)
+            assertEquals(0, calls)
+            awaitCurrentReaderFirstDelivery(key)
 
-        assertEquals("v1", store.get(TestKey("1"))) // stale served immediately, not blocked
-        secondFetchStarted.await()
-        store.stream(TestKey("1")).test {           // deterministically await the background commit
-            releaseSecondFetch.complete(Unit)
-            while (true) {
-                val item = awaitItem()
-                if (item is StoreResult.Data<String> && item.value == "v2") break
+            store.stream(key).test {
+                assertIs<StoreResult.Loading>(awaitItem())
+                val initial = assertIs<StoreResult.Data<String>>(awaitItem())
+                assertEquals("v1", initial.value)
+                assertFalse(initial.isStale)
+                assertFalse(initial.refreshing)
+                seedReader.cancel()
+
+                store.invalidate(key)
+                secondFetchStarted.awaitFromDefault()
+                releaseSecondFetch.complete(Unit)
+
+                var fresh = assertIs<StoreResult.Data<String>>(awaitItem())
+                var queuedStaleReplays = 0
+                while (fresh.value == "v1") {
+                    queuedStaleReplays += 1
+                    assertEquals(1, queuedStaleReplays, "more than one queued stale replay")
+                    assertTrue(fresh.isStale)
+                    assertTrue(fresh.refreshing)
+                    fresh = assertIs<StoreResult.Data<String>>(awaitItem())
+                }
+                assertEquals("v2", fresh.value)
+                assertFalse(fresh.isStale)
+                assertFalse(fresh.refreshing)
+                expectNoEvents()
+                assertEquals(2, calls)
+                cancelAndIgnoreRemainingEvents()
             }
-            cancelAndIgnoreRemainingEvents()
+        } finally {
+            releaseSecondFetch.complete(Unit)
+            store.closeAndSettleForTest()
         }
-        assertEquals("v2", store.get(TestKey("1")))
-        assertEquals(2, calls) // background refetch and stream fetch single-flighted
-        store.close()
+    }
+
+    // Pinned SWR posture: get on a stale resident serves stale now and refetches in background.
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun getOnStaleResident_servesStaleThenRefetchesInBackground() = runTest {
+        var calls = 0
+        val secondFetchStarted = CompletableDeferred<Unit>()
+        val releaseSecondFetch = CompletableDeferred<Unit>()
+        val key = TestKey("1")
+        val store = testStore<TestKey, String> {
+            fetcher {
+                when (++calls) {
+                    1 -> "v1"
+                    2 -> {
+                        secondFetchStarted.complete(Unit)
+                        releaseSecondFetch.await()
+                        "v2"
+                    }
+                    else -> error("unexpected fetch call $calls")
+                }
+            }
+        }
+        try {
+            val seedReader =
+                store.awaitLocalOnlyMissingReaderBarrier(key, backgroundScope)
+            assertEquals(0, calls)
+            awaitCurrentReaderFirstDelivery(key)
+
+            turbineScope {
+                val initialCollector = store.stream(key).testIn(backgroundScope)
+                assertIs<StoreResult.Loading>(initialCollector.awaitItem())
+                val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
+                assertEquals("v1", initial.value)
+                assertFalse(initial.isStale)
+                assertFalse(initial.refreshing)
+                seedReader.cancel()
+
+                store.invalidate(key)
+
+                assertEquals("v1", store.get(key)) // stale served immediately, not blocked
+                secondFetchStarted.awaitFromDefault()
+                val collector = store.stream(key).testIn(backgroundScope)
+                val stale = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                assertEquals("v1", stale.value)
+                assertTrue(stale.isStale)
+                assertTrue(stale.refreshing)
+
+                // The stale frame precedes this collector's ticket-watcher enrollment. Drain its
+                // continuation while fetch 2 is gated so the collector joins before settlement.
+                runCurrent()
+                releaseSecondFetch.complete(Unit)
+                var fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                var queuedStaleReplays = 0
+                while (fresh.value == "v1") {
+                    queuedStaleReplays += 1
+                    assertEquals(1, queuedStaleReplays, "more than one queued stale replay")
+                    assertTrue(fresh.isStale)
+                    assertTrue(fresh.refreshing)
+                    fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                }
+                assertEquals("v2", fresh.value)
+                assertFalse(fresh.isStale)
+                assertFalse(fresh.refreshing)
+                collector.expectNoEvents()
+                initialCollector.cancelAndIgnoreRemainingEvents()
+                collector.cancelAndIgnoreRemainingEvents()
+            }
+            assertEquals("v2", store.get(key))
+            assertEquals(2, calls) // background refetch and stream fetch single-flighted
+        } finally {
+            releaseSecondFetch.complete(Unit)
+            store.closeAndSettleForTest()
+        }
     }
 
     // Honesty of age / isStale / refreshing on emissions.
     @Test
     fun staleResident_newCollector_seesHonestFlagsThenFreshData() = runTest {
         var calls = 0
-        val gate = CompletableDeferred<Unit>()
+        val secondStarted = CompletableDeferred<Unit>()
+        val secondGate = CompletableDeferred<Unit>()
         val store = testStore<TestKey, String> {
             fetcher {
-                calls++
-                if (calls > 1) gate.await()
-                "v$calls"
+                when (++calls) {
+                    1 -> "v1"
+                    2 -> {
+                        secondStarted.complete(Unit)
+                        secondGate.await()
+                        "v2"
+                    }
+                    else -> error("unexpected fetch call $calls")
+                }
             }
         }
-        assertEquals("v1", store.get(TestKey("1")))
-        store.invalidate(TestKey("1"))
 
-        store.stream(TestKey("1")).test {
-            val stale = assertIs<StoreResult.Data<String>>(awaitItem())
-            assertEquals("v1", stale.value)
-            assertTrue(stale.isStale)
-            assertTrue(stale.refreshing) // fetch launched inline before the replay emission
-            assertTrue(stale.age >= Duration.ZERO)
+        try {
+            val key = TestKey("1")
+            val seedReader =
+                store.awaitLocalOnlyMissingReaderBarrier(key, backgroundScope)
+            assertEquals(0, calls)
+            awaitCurrentReaderFirstDelivery(key)
 
-            gate.complete(Unit)
+            turbineScope {
+                val initialCollector = store.stream(key).testIn(backgroundScope)
+                assertIs<StoreResult.Loading>(initialCollector.awaitItem())
+                val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
+                assertEquals("v1", initial.value)
+                assertFalse(initial.isStale)
+                assertFalse(initial.refreshing)
+                seedReader.cancel()
 
-            val fresh = assertIs<StoreResult.Data<String>>(awaitItem())
-            assertEquals("v2", fresh.value)
-            assertFalse(fresh.isStale)
-            assertFalse(fresh.refreshing) // commit settles the slot atomically
-            cancelAndIgnoreRemainingEvents()
+                store.invalidate(key)
+                secondStarted.awaitFromDefault()
+
+                val collector = store.stream(key).testIn(backgroundScope)
+                val stale = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                assertEquals("v1", stale.value)
+                assertTrue(stale.isStale)
+                assertTrue(stale.refreshing)
+                assertTrue(stale.age >= Duration.ZERO)
+
+                secondGate.complete(Unit)
+
+                var fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                var queuedStaleReplays = 0
+                while (fresh.value == "v1") {
+                    queuedStaleReplays += 1
+                    assertEquals(1, queuedStaleReplays, "more than one queued stale replay")
+                    assertTrue(fresh.isStale)
+                    assertTrue(fresh.refreshing)
+                    fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                }
+                assertEquals("v2", fresh.value)
+                assertFalse(fresh.isStale)
+                assertFalse(fresh.refreshing)
+                collector.expectNoEvents()
+                assertEquals(2, calls)
+                initialCollector.cancelAndIgnoreRemainingEvents()
+                collector.cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            secondGate.complete(Unit)
+            store.closeAndSettleForTest()
         }
-        store.close()
     }
 
     // Clear on an active stream: absent transition (Loading), then refetched data, never stale replay.
     @Test
     fun clear_activeStream_emitsLoadingThenRefetchedData() = runTest {
         var calls = 0
-        val gate = CompletableDeferred<Unit>()
+        val secondFetchStarted = CompletableDeferred<Unit>()
+        val releaseSecondFetch = CompletableDeferred<Unit>()
+        val key = TestKey("1")
         val store = testStore<TestKey, String> {
             fetcher {
-                calls++
-                if (calls == 2) gate.await() // hold the refetch so Loading is observable
-                "v$calls"
+                when (++calls) {
+                    1 -> "v1"
+                    2 -> {
+                        secondFetchStarted.complete(Unit)
+                        releaseSecondFetch.await() // hold the refetch so Loading is observable
+                        "v2"
+                    }
+                    else -> error("unexpected fetch call $calls")
+                }
             }
         }
-        store.stream(TestKey("1")).test {
-            assertIs<StoreResult.Loading>(awaitItem())
-            assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
 
-            store.clear(TestKey("1"))
+        try {
+            val seedReader =
+                store.awaitLocalOnlyMissingReaderBarrier(key, backgroundScope)
+            assertEquals(0, calls)
+            awaitCurrentReaderFirstDelivery(key)
 
-            assertIs<StoreResult.Loading>(awaitItem()) // honest absent transition
-            gate.complete(Unit)
-            assertEquals("v2", assertIs<StoreResult.Data<String>>(awaitItem()).value)
-            cancelAndIgnoreRemainingEvents()
+            store.stream(key).test {
+                assertIs<StoreResult.Loading>(awaitItem())
+                assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+                seedReader.cancel()
+
+                prepareNextReaderDelivery(key)
+                store.clear(key)
+
+                assertIs<StoreResult.Loading>(awaitItem()) // honest absent transition
+                secondFetchStarted.awaitFromDefault()
+                awaitCurrentReaderFirstDelivery(key)
+                assertEquals(2, calls)
+                releaseSecondFetch.complete(Unit)
+                assertEquals("v2", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+                expectNoEvents()
+                assertEquals(2, calls)
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            releaseSecondFetch.complete(Unit)
+            store.closeAndSettleForTest()
         }
-        store.close()
     }
 
     // C-12 seed: clear during an in-flight fetch discards the commit; no resurrection.
@@ -151,24 +297,29 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                 }
             }
         }
-        val waiter = backgroundScope.async { runCatching { store.get(TestKey("1")) } }
-        firstStarted.await()
 
-        store.clear(TestKey("1"))
-        firstGate.complete(Unit)
+        try {
+            val waiter = backgroundScope.async { runCatching { store.get(TestKey("1")) } }
+            firstStarted.awaitFromDefault()
 
-        val failure =
-            withContext(Dispatchers.Default) {
-                withTimeout(5_000) { waiter.await() }
-            }.exceptionOrNull()
-        val exception = assertIs<StoreException>(failure)
-        val missing = assertIs<StoreError.Missing>(exception.error)
-        assertEquals("1", missing.key.canonicalId())
-        assertTrue(exception.message!!.contains("test/1"))   // FS-5: which key
-        assertTrue(exception.message!!.contains("clear"))    // FS-5: what happened
+            store.clear(TestKey("1"))
+            firstGate.complete(Unit)
 
-        assertEquals("v2", store.get(TestKey("1"))) // fresh fetch, never "doomed-v1"
-        store.close()
+            val failure =
+                withContext(Dispatchers.Default) {
+                    withTimeout(5_000) { waiter.await() }
+                }.exceptionOrNull()
+            val exception = assertIs<StoreException>(failure)
+            val missing = assertIs<StoreError.Missing>(exception.error)
+            assertEquals("1", missing.key.canonicalId())
+            assertTrue(exception.message!!.contains("test/1")) // FS-5: which key
+            assertTrue(exception.message!!.contains("clear")) // FS-5: what happened
+
+            assertEquals("v2", store.get(TestKey("1"))) // fresh fetch, never "doomed-v1"
+        } finally {
+            firstGate.complete(Unit)
+            store.closeAndSettleForTest()
+        }
     }
 
     @Test
@@ -182,21 +333,26 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                 error("fetch failed after clear")
             }
         }
-        val waiter = backgroundScope.async { runCatching { store.get(TestKey("1")) } }
-        fetchStarted.await()
 
-        store.clear(TestKey("1"))
-        fetchGate.complete(Unit)
+        try {
+            val waiter = backgroundScope.async { runCatching { store.get(TestKey("1")) } }
+            fetchStarted.awaitFromDefault()
 
-        val failure =
-            withContext(Dispatchers.Default) {
-                withTimeout(5_000) { waiter.await() }
-            }.exceptionOrNull()
-        val exception = assertIs<StoreException>(failure)
-        assertIs<StoreError.Missing>(exception.error)
-        assertTrue(exception.message!!.contains("test/1"))
-        assertTrue(exception.message!!.contains("clear"))
-        store.close()
+            store.clear(TestKey("1"))
+            fetchGate.complete(Unit)
+
+            val failure =
+                withContext(Dispatchers.Default) {
+                    withTimeout(5_000) { waiter.await() }
+                }.exceptionOrNull()
+            val exception = assertIs<StoreException>(failure)
+            assertIs<StoreError.Missing>(exception.error)
+            assertTrue(exception.message!!.contains("test/1"))
+            assertTrue(exception.message!!.contains("clear"))
+        } finally {
+            fetchGate.complete(Unit)
+            store.closeAndSettleForTest()
+        }
     }
 
     @Test
@@ -205,41 +361,84 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
         var bCalls = 0
         val a2Started = CompletableDeferred<Unit>()
         val a2Gate = CompletableDeferred<Unit>()
+        val keyA = NamespacedTestKey("a", "1")
+        val keyB = NamespacedTestKey("b", "1")
         val store = testStore<NamespacedTestKey, String> {
             fetcher { key ->
                 if (key.namespace.value == "a") {
                     when (++aCalls) {
+                        1 -> "a1"
                         2 -> {
                             a2Started.complete(Unit)
                             a2Gate.await()
                             "a2"
                         }
-                        else -> "a$aCalls"
+                        else -> error("unexpected namespace-a fetch call $aCalls")
                     }
                 } else {
-                    "b${++bCalls}"
+                    when (++bCalls) {
+                        1 -> "b1"
+                        else -> error("unexpected namespace-b fetch call $bCalls")
+                    }
                 }
             }
         }
-        assertEquals("a1", store.get(NamespacedTestKey("a", "1")))
-        assertEquals("b1", store.get(NamespacedTestKey("b", "1")))
 
-        store.invalidateNamespace(StoreNamespace("a"))
+        try {
+            val seedReaderA =
+                store.awaitLocalOnlyMissingReaderBarrier(keyA, backgroundScope)
+            val seedReaderB =
+                store.awaitLocalOnlyMissingReaderBarrier(keyB, backgroundScope)
+            assertEquals(0, aCalls)
+            assertEquals(0, bCalls)
+            awaitCurrentReaderFirstDelivery(keyA)
+            awaitCurrentReaderFirstDelivery(keyB)
 
-        assertEquals("b1", store.get(NamespacedTestKey("b", "1"))) // untouched, no refetch
-        assertEquals(1, bCalls)
-        assertEquals("a1", store.get(NamespacedTestKey("a", "1"))) // stale served, refetch fired
-        a2Started.await()
-        store.stream(NamespacedTestKey("a", "1")).test {
-            a2Gate.complete(Unit)
-            while (true) {
-                val item = awaitItem()
-                if (item is StoreResult.Data<String> && item.value == "a2") break
+            turbineScope {
+                val initialCollector = store.stream(keyA).testIn(backgroundScope)
+                assertIs<StoreResult.Loading>(initialCollector.awaitItem())
+                val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
+                assertEquals("a1", initial.value)
+                assertFalse(initial.isStale)
+                assertFalse(initial.refreshing)
+                assertEquals("b1", store.get(keyB))
+                seedReaderA.cancel()
+                seedReaderB.cancel()
+
+                store.invalidateNamespace(StoreNamespace("a"))
+                a2Started.awaitFromDefault()
+
+                assertEquals("b1", store.get(keyB)) // untouched, no refetch
+                assertEquals(1, bCalls)
+                assertEquals("a1", store.get(keyA)) // stale served immediately
+
+                val collector = store.stream(keyA).testIn(backgroundScope)
+                val stale = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                assertEquals("a1", stale.value)
+                assertTrue(stale.isStale)
+                assertTrue(stale.refreshing)
+                a2Gate.complete(Unit)
+                var fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                var queuedStaleReplays = 0
+                while (fresh.value == "a1") {
+                    queuedStaleReplays += 1
+                    assertEquals(1, queuedStaleReplays, "more than one queued stale replay")
+                    assertTrue(fresh.isStale)
+                    assertTrue(fresh.refreshing)
+                    fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                }
+                assertEquals("a2", fresh.value)
+                assertFalse(fresh.isStale)
+                assertFalse(fresh.refreshing)
+                collector.expectNoEvents()
+                initialCollector.cancelAndIgnoreRemainingEvents()
+                collector.cancelAndIgnoreRemainingEvents()
             }
-            cancelAndIgnoreRemainingEvents()
+            assertEquals(2, aCalls)
+        } finally {
+            a2Gate.complete(Unit)
+            store.closeAndSettleForTest()
         }
-        assertEquals(2, aCalls)
-        store.close()
     }
 
     @Test
@@ -253,19 +452,34 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
         val store = testStore<NamespacedTestKey, String> {
             fetcher { key ->
                 if (key.namespace.value == "a") {
-                    val call = ++aCalls
-                    if (call == 2) {
-                        aRefreshStarted.complete(Unit)
-                        releaseARefresh.await()
+                    when (++aCalls) {
+                        1 -> "a1"
+                        2 -> {
+                            aRefreshStarted.complete(Unit)
+                            releaseARefresh.await()
+                            "a2"
+                        }
+                        else -> error("unexpected namespace-a fetch call $aCalls")
                     }
-                    "a$call"
                 } else {
-                    "b${++bCalls}"
+                    when (++bCalls) {
+                        1 -> "b1"
+                        else -> error("unexpected namespace-b fetch call $bCalls")
+                    }
                 }
             }
         }
 
         try {
+            val seedReaderA =
+                store.awaitLocalOnlyMissingReaderBarrier(keyA, backgroundScope)
+            val seedReaderB =
+                store.awaitLocalOnlyMissingReaderBarrier(keyB, backgroundScope)
+            assertEquals(0, aCalls)
+            assertEquals(0, bCalls)
+            awaitCurrentReaderFirstDelivery(keyA)
+            awaitCurrentReaderFirstDelivery(keyB)
+
             turbineScope {
                 val aCollector = store.stream(keyA).testIn(backgroundScope)
                 val bCollector = store.stream(keyB).testIn(backgroundScope)
@@ -273,6 +487,8 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                 assertEquals("a1", assertIs<StoreResult.Data<String>>(aCollector.awaitItem()).value)
                 assertIs<StoreResult.Loading>(bCollector.awaitItem())
                 assertEquals("b1", assertIs<StoreResult.Data<String>>(bCollector.awaitItem()).value)
+                seedReaderA.cancel()
+                seedReaderB.cancel()
 
                 store.invalidateNamespace(StoreNamespace("a"))
                 aRefreshStarted.awaitFromDefault()
@@ -292,7 +508,7 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             }
         } finally {
             releaseARefresh.complete(Unit)
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 
@@ -303,19 +519,29 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
         val releaseRefresh = CompletableDeferred<Unit>()
         val store = testStore<TestKey, String> {
             fetcher {
-                val call = ++calls
-                if (call == 2) {
-                    refreshStarted.complete(Unit)
-                    releaseRefresh.await()
+                when (++calls) {
+                    1 -> "v1"
+                    2 -> {
+                        refreshStarted.complete(Unit)
+                        releaseRefresh.await()
+                        "v2"
+                    }
+                    else -> error("unexpected fetch call $calls")
                 }
-                "v$call"
             }
         }
 
         try {
-            store.stream(TestKey("1")).test {
+            val key = TestKey("1")
+            val seedReader =
+                store.awaitLocalOnlyMissingReaderBarrier(key, backgroundScope)
+            assertEquals(0, calls)
+            awaitCurrentReaderFirstDelivery(key)
+
+            store.stream(key).test {
                 assertIs<StoreResult.Loading>(awaitItem())
                 assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+                seedReader.cancel()
 
                 store.invalidateAll()
                 refreshStarted.awaitFromDefault()
@@ -329,7 +555,7 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             }
         } finally {
             releaseRefresh.complete(Unit)
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 
@@ -353,32 +579,43 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             assertEquals("v3", store.get(keyA))
             assertEquals(3, calls)
         } finally {
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun clear_thenNewStreamEmitsLoadingNeverStaleReplay() = runTest {
         var calls = 0
         val refetchStarted = CompletableDeferred<Unit>()
         val releaseRefetch = CompletableDeferred<Unit>()
+        val key = TestKey("1")
         val store = testStore<TestKey, String> {
             fetcher {
-                val call = ++calls
-                if (call == 2) {
-                    refetchStarted.complete(Unit)
-                    releaseRefetch.await()
+                when (++calls) {
+                    1 -> "v1"
+                    2 -> {
+                        refetchStarted.complete(Unit)
+                        releaseRefetch.await()
+                        "v2"
+                    }
+                    else -> error("unexpected fetch call $calls")
                 }
-                "v$call"
             }
         }
 
         try {
-            assertEquals("v1", store.get(TestKey("1")))
-            store.clear(TestKey("1"))
-            store.stream(TestKey("1")).test {
+            assertEquals("v1", store.get(key))
+            prepareNextReaderDelivery(key)
+            store.clear(key)
+            store.stream(key).test {
                 assertIs<StoreResult.Loading>(awaitItem())
                 refetchStarted.awaitFromDefault()
+                // The initial Loading precedes ticket-watcher enrollment. Drain that continuation
+                // while fetch 2 remains gated so post-clear demand joins before the outcome settles.
+                runCurrent()
+                awaitCurrentReaderFirstDelivery(key)
+                assertEquals(2, calls)
                 releaseRefetch.complete(Unit)
                 awaitDataValue(expected = "v2")
                 cancelAndIgnoreRemainingEvents()
@@ -386,10 +623,45 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             assertEquals(2, calls)
         } finally {
             releaseRefetch.complete(Unit)
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 
+    @Test
+    fun clearNamespace_activeLocalOnlyStreamObservesMissingWithoutRefetch() = runTest {
+        var calls = 0
+        val key = NamespacedTestKey("a", "1")
+        val store =
+            testStore<NamespacedTestKey, String> {
+                fetcher { "v${++calls}" }
+            }
+
+        try {
+            assertEquals("v1", store.get(key))
+            turbineScope {
+                val collector =
+                    store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
+                val resident = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                assertEquals("v1", resident.value)
+                assertFalse(resident.isStale)
+                assertFalse(resident.refreshing)
+                awaitCurrentReaderFirstDelivery(key)
+
+                store.clearNamespace(StoreNamespace("a"))
+
+                assertIs<StoreResult.Loading>(collector.awaitItem())
+                val missing = assertIs<StoreResult.Error>(collector.awaitItem())
+                assertIs<StoreError.Missing>(missing.error)
+                assertFalse(missing.servedStale)
+                assertEquals(1, calls)
+                collector.cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            store.closeAndSettleForTest()
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun clearNamespace_thenNewStreamEmitsLoadingNeverPreClearData() = runTest {
         var calls = 0
@@ -398,34 +670,56 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
         val key = NamespacedTestKey("a", "1")
         val store = testStore<NamespacedTestKey, String> {
             fetcher {
-                val call = ++calls
-                if (call == 2) {
-                    refetchStarted.complete(Unit)
-                    releaseRefetch.await()
+                when (++calls) {
+                    1 -> "v1"
+                    2 -> {
+                        refetchStarted.complete(Unit)
+                        releaseRefetch.await()
+                        "v2"
+                    }
+                    else -> error("unexpected fetch call $calls")
                 }
-                "v$call"
             }
         }
 
         try {
-            store.stream(key).test {
-                assertIs<StoreResult.Loading>(awaitItem())
-                assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+            assertEquals("v1", store.get(key))
+            turbineScope {
+                // No shared reader is active during the two bulk-clear sweeps. A retained
+                // post-clear LocalOnly observer then starts directly from the final generation,
+                // making its downstream null-delivery acknowledgement unambiguous.
                 store.clearNamespace(StoreNamespace("a"))
+                assertEquals(1, calls)
+                val postClearReader =
+                    store.awaitLocalOnlyMissingReaderBarrier(key, backgroundScope)
+                assertEquals(1, calls)
+                awaitCurrentReaderFirstDelivery(key)
 
-                store.stream(key).test {
-                    assertIs<StoreResult.Loading>(awaitItem())
-                    refetchStarted.awaitFromDefault()
-                    releaseRefetch.complete(Unit)
-                    awaitFreshDataAfterClear(forbidden = "v1")
-                    cancelAndIgnoreRemainingEvents()
-                }
-                cancelAndIgnoreRemainingEvents()
+                val collector = store.stream(key).testIn(backgroundScope)
+                assertIs<StoreResult.Loading>(collector.awaitItem())
+                refetchStarted.awaitFromDefault()
+                // The new collector's initial Loading is sent before StreamDelivery.start installs
+                // its ticket watcher. Drain that continuation while fetch 2 remains gated so its
+                // post-clear demand is enrolled before the shared outcome can settle.
+                runCurrent()
+                assertEquals(2, calls)
+                releaseRefetch.complete(Unit)
+                val fresh = collector.awaitFreshDataAfterClear(forbidden = "v1")
+                assertEquals("v2", fresh.value)
+                assertFalse(fresh.isStale)
+                assertFalse(fresh.refreshing)
+                collector.expectNoEvents()
+                val localFresh = assertIs<StoreResult.Data<String>>(postClearReader.receive())
+                assertEquals("v2", localFresh.value)
+                assertFalse(localFresh.isStale)
+                assertFalse(localFresh.refreshing)
+                postClearReader.cancel()
+                collector.cancelAndIgnoreRemainingEvents()
             }
-            assertTrue(calls >= 2)
+            assertEquals(2, calls)
         } finally {
             releaseRefetch.complete(Unit)
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 
@@ -433,30 +727,38 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
     fun clearAll_dropsResidenceForEveryKey() = runTest {
         var calls = 0
         val store = testStore<NamespacedTestKey, String> { fetcher { "v${++calls}" } }
-        assertEquals("v1", store.get(NamespacedTestKey("a", "1")))
-        assertEquals("v2", store.get(NamespacedTestKey("b", "2")))
 
-        store.clearAll()
+        try {
+            assertEquals("v1", store.get(NamespacedTestKey("a", "1")))
+            assertEquals("v2", store.get(NamespacedTestKey("b", "2")))
 
-        // Residence is gone: both keys refetch.
-        assertEquals("v3", store.get(NamespacedTestKey("a", "1")))
-        assertEquals("v4", store.get(NamespacedTestKey("b", "2")))
-        store.close()
+            store.clearAll()
+
+            // Residence is gone: both keys refetch.
+            assertEquals("v3", store.get(NamespacedTestKey("a", "1")))
+            assertEquals("v4", store.get(NamespacedTestKey("b", "2")))
+        } finally {
+            store.closeAndSettleForTest()
+        }
     }
 
     @Test
     fun maintenanceAfterClose_failsFastWithDeterministicException() = runTest {
         val store = testStore<TestKey, String> { fetcher { "v" } }
-        store.close()
+        try {
+            store.close()
 
-        assertEquals(
-            "Store is closed.",
-            assertFailsWith<IllegalStateException> { store.invalidate(TestKey("1")) }.message,
-        )
-        assertEquals(
-            "Store is closed.",
-            assertFailsWith<IllegalStateException> { store.clearAll() }.message,
-        )
+            assertEquals(
+                "Store is closed.",
+                assertFailsWith<IllegalStateException> { store.invalidate(TestKey("1")) }.message,
+            )
+            assertEquals(
+                "Store is closed.",
+                assertFailsWith<IllegalStateException> { store.clearAll() }.message,
+            )
+        } finally {
+            store.closeAndSettleForTest()
+        }
     }
 
     private suspend fun app.cash.turbine.ReceiveTurbine<StoreResult<String>>.awaitDataValue(
@@ -469,7 +771,13 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                     return
                 }
                 is StoreResult.Loading -> Unit
-                is StoreResult.Error -> throw AssertionError("unexpected clear-cycle error: ${item.error}")
+                is StoreResult.Error -> {
+                    val cause = (item.error as? StoreError.Fetch)?.cause
+                    throw AssertionError(
+                        "unexpected clear-cycle error: ${item.error}; cause=${cause?.message}",
+                        cause,
+                    )
+                }
                 is StoreResult.Revalidated -> throw AssertionError("clear must not revalidate")
             }
         }
@@ -485,11 +793,28 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                     if (!item.isStale && !item.refreshing) return item
                 }
                 is StoreResult.Loading -> Unit
-                is StoreResult.Error -> throw AssertionError("unexpected clear-cycle error: ${item.error}")
+                is StoreResult.Error -> {
+                    val cause = (item.error as? StoreError.Fetch)?.cause
+                    throw AssertionError(
+                        "unexpected clear-cycle error: ${item.error}; cause=${cause?.message}",
+                        cause,
+                    )
+                }
                 is StoreResult.Revalidated -> throw AssertionError("clear must not revalidate")
             }
         }
     }
+}
+
+private suspend fun <K : StoreKey> Store<K, String>.awaitLocalOnlyMissingReaderBarrier(
+    key: K,
+    scope: kotlinx.coroutines.CoroutineScope,
+): ReceiveChannel<StoreResult<String>> {
+    val collector = stream(key, Freshness.LocalOnly).produceIn(scope)
+    val missing = assertIs<StoreResult.Error>(collector.receive())
+    assertIs<StoreError.Missing>(missing.error)
+    assertFalse(missing.servedStale)
+    return collector
 }
 
 private suspend fun <T> CompletableDeferred<T>.awaitFromDefault(): T =

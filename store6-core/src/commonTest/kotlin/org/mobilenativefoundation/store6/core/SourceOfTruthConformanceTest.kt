@@ -15,6 +15,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.internal.SharedFlowSourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import kotlin.test.Test
@@ -29,15 +30,40 @@ class SourceOfTruthConformanceTest {
     // C-05 shape: values arriving via fetch commit are attributed FETCHER.
     @Test
     fun originHonesty_fetchCommit_emitsFetcher() = runTest {
-        val store = store<TestKey, String> { fetcher { "v" } }
-        store.stream(TestKey("1")).test {
-            assertIs<StoreResult.Loading>(awaitItem())
-            val data = assertIs<StoreResult.Data<String>>(awaitItem())
-            assertEquals(Origin.FETCHER, data.origin)
-            assertFalse(data.isStale)
-            cancelAndIgnoreRemainingEvents()
+        var calls = 0
+        val key = TestKey("1")
+        val readerProbe =
+            ReaderDeliveryProbeSourceOfTruth<TestKey, String>(InMemorySourceOfTruth())
+        val store =
+            store<TestKey, String> {
+                fetcher { calls += 1; "v" }
+                persistence(readerProbe)
+            }
+        try {
+            turbineScope {
+                // Loading precedes shared-reader enrollment. Keep a public LocalOnly observer live,
+                // then close the engine-facing delivery edge with the test-only probe.
+                val seedReader =
+                    store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
+                val missing = assertIs<StoreResult.Error>(seedReader.awaitItem())
+                assertIs<StoreError.Missing>(missing.error)
+                assertFalse(missing.servedStale)
+                assertEquals(0, calls)
+                readerProbe.awaitCurrentReaderFirstDelivery(key)
+
+                val collector = store.stream(key).testIn(backgroundScope)
+                assertIs<StoreResult.Loading>(collector.awaitItem())
+                val data = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                assertEquals(Origin.FETCHER, data.origin)
+                assertFalse(data.isStale)
+                assertFalse(data.refreshing)
+                assertEquals(1, calls)
+                seedReader.cancelAndIgnoreRemainingEvents()
+                collector.cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            store.closeAndSettleForTest()
         }
-        store.close()
     }
 
     // C-06 shape: external data is delivered as SOT/stale before its one active-demand revalidation.

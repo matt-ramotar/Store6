@@ -48,6 +48,17 @@ jobs:
       - name: Build and Test with Coverage
         run: ./gradlew clean build koverXmlReport --stacktrace
 
+      - name: Upload test reports
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-root-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            **/build/test-results/**/*.xml
+            **/build/reports/tests/**
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Upload Coverage to Codecov
         # The development fork has no Codecov token. Keep coverage generation required there,
         # while enforcing uploads for same-repo PRs and pushes in the upstream repository.
