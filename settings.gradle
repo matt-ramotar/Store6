@@ -28,3 +28,6 @@ include ':store6-swift-dumps-skie'
 project(':store6-swift-dumps-skie').projectDir = file('store6-swift-dumps/skie')
 include ':store6-extension-probe'
 include ':store6-testing'
+include ':store6-sqldelight'
+include ':store6-sqldelight-sample'
+project(':store6-sqldelight-sample').projectDir = file('store6-sqldelight/sample')
