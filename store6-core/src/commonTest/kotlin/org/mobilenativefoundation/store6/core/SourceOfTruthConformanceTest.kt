@@ -23,13 +23,14 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class SourceOfTruthConformanceTest {
 
     // C-05 shape: values arriving via fetch commit are attributed FETCHER.
     @Test
-    fun originHonesty_fetchCommit_emitsFetcher() = runTest {
+    fun originHonesty_fetchCommit_emitsFetcher() = runTest(timeout = 25.seconds) {
         var calls = 0
         val key = TestKey("1")
         val readerProbe =

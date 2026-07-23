@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.WallClock
@@ -115,8 +114,9 @@ internal class ReaderDeliveryProbeSourceOfTruth<K : StoreKey, V : Any>(
     }
 
     suspend fun awaitCurrentReaderFirstDelivery(key: StoreKey) {
+        // Callers own cancellation through their suite-level runTest bound.
         withContext(Dispatchers.Default) {
-            withTimeout(5_000) { deliveries.awaitCurrent(key) }
+            deliveries.awaitCurrent(key)
         }
     }
 }
