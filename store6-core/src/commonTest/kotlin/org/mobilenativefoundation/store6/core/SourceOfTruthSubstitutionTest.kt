@@ -12,6 +12,12 @@ import org.mobilenativefoundation.store6.core.seam.WallClock
 abstract class SourceOfTruthSubstitutionTest {
     protected open fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) = Unit
 
+    /**
+     * Test-fixture acknowledgement for adversarial reader decorators. Default and ordinary
+     * substitution runs have no extra reader hop, so their acknowledgement is immediate.
+     */
+    protected open suspend fun awaitCurrentReaderFirstDelivery(key: StoreKey) = Unit
+
     protected fun <K : StoreKey, V : Any> testStore(
         configure: StoreBuilder<K, V>.() -> Unit,
     ): Store<K, V> =

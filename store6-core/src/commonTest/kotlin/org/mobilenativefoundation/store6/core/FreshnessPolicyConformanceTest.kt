@@ -5,8 +5,11 @@ import app.cash.turbine.testIn
 import app.cash.turbine.turbineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -37,7 +40,7 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
             )
             assertEquals(1, calls)
         } finally {
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 
@@ -70,13 +73,14 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                     store.get(TestKey("1"), Freshness.MaxAge(notOlderThan = 5.minutes))
                 }
             assertFalse(fresh.isCompleted)
-            secondStarted.await()
+            secondStarted.awaitFromDefault()
             secondGate.complete(Unit)
 
             assertEquals("v2", fresh.await())
             assertEquals(2, calls)
         } finally {
-            store.close()
+            secondGate.complete(Unit)
+            store.closeAndSettleForTest()
         }
     }
 
@@ -84,12 +88,18 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
     fun maxAgeOverBoundStreamWithholdsResidentUntilFreshValue() = runTest {
         val clock = FakeWallClock(now = 0L)
         var calls = 0
+        val firstStarted = CompletableDeferred<Unit>()
+        val firstGate = CompletableDeferred<Unit>()
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
         val store = testStoreWith<TestKey, String>(clock = clock) {
             fetcher {
                 when (++calls) {
-                    1 -> "v1"
+                    1 -> {
+                        firstStarted.complete(Unit)
+                        firstGate.await()
+                        "v1"
+                    }
                     2 -> {
                         secondStarted.complete(Unit)
                         secondGate.await()
@@ -105,10 +115,16 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
             turbineScope {
                 val initialCollector = store.stream(key).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(initialCollector.awaitItem())
-                assertEquals(
-                    "v1",
-                    assertIs<StoreResult.Data<String>>(initialCollector.awaitItem()).value,
-                )
+                firstStarted.awaitFromDefault()
+                awaitCurrentReaderFirstDelivery(key)
+                assertEquals(1, calls)
+                firstGate.complete(Unit)
+
+                val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
+                assertEquals("v1", initial.value)
+                assertFalse(initial.isStale)
+                assertFalse(initial.refreshing)
+                assertEquals(1, calls)
                 clock.now = 600.seconds.inWholeMilliseconds
 
                 val collector =
@@ -117,7 +133,7 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                         Freshness.MaxAge(notOlderThan = 5.minutes),
                     ).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(collector.awaitItem())
-                secondStarted.await()
+                secondStarted.awaitFromDefault()
                 secondGate.complete(Unit)
 
                 val fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
@@ -131,7 +147,9 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
             }
             assertEquals(2, calls)
         } finally {
-            store.close()
+            firstGate.complete(Unit)
+            secondGate.complete(Unit)
+            store.closeAndSettleForTest()
         }
     }
 
@@ -140,9 +158,26 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
         val clock = FakeWallClock(now = 0L)
         val boom = IllegalStateException("boom")
         var calls = 0
+        val secondStarted = CompletableDeferred<Unit>()
+        val secondGate = CompletableDeferred<Unit>()
+        val thirdStarted = CompletableDeferred<Unit>()
+        val thirdGate = CompletableDeferred<Unit>()
         val store = testStoreWith<TestKey, String>(clock = clock) {
             fetcher {
-                if (++calls == 1) "v1" else throw boom
+                when (++calls) {
+                    1 -> "v1"
+                    2 -> {
+                        secondStarted.complete(Unit)
+                        secondGate.await()
+                        throw boom
+                    }
+                    3 -> {
+                        thirdStarted.complete(Unit)
+                        thirdGate.await()
+                        throw boom
+                    }
+                    else -> error("unexpected fetch call $calls")
+                }
             }
         }
 
@@ -150,10 +185,17 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
             assertEquals("v1", store.get(TestKey("1")))
             clock.now = 600.seconds.inWholeMilliseconds
 
-            val getFailure =
-                assertFailsWith<StoreException> {
-                    store.get(TestKey("1"), Freshness.MaxAge(notOlderThan = 5.minutes))
+            val get =
+                backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                    runCatching {
+                        store.get(TestKey("1"), Freshness.MaxAge(notOlderThan = 5.minutes))
+                    }
                 }
+            assertFalse(get.isCompleted)
+            secondStarted.awaitFromDefault()
+            secondGate.complete(Unit)
+
+            val getFailure = assertIs<StoreException>(get.await().exceptionOrNull())
             val getFetch = assertIs<StoreError.Fetch>(getFailure.error)
             assertTrue(getFetch.cause === boom)
 
@@ -162,6 +204,9 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                 Freshness.MaxAge(notOlderThan = 5.minutes),
             ).test {
                 assertIs<StoreResult.Loading>(awaitItem())
+                thirdStarted.awaitFromDefault()
+                thirdGate.complete(Unit)
+
                 val failure = assertIs<StoreResult.Error>(awaitItem())
                 val streamFetch = assertIs<StoreError.Fetch>(failure.error)
                 assertTrue(streamFetch.cause === boom)
@@ -169,8 +214,11 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                 expectNoEvents()
                 cancelAndIgnoreRemainingEvents()
             }
+            assertEquals(3, calls)
         } finally {
-            store.close()
+            secondGate.complete(Unit)
+            thirdGate.complete(Unit)
+            store.closeAndSettleForTest()
         }
     }
 
@@ -186,7 +234,7 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
             assertEquals("v2", store.get(TestKey("1"), Freshness.MustBeFresh))
             assertEquals(2, calls)
         } finally {
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 
@@ -219,7 +267,7 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                 awaitComplete()
             }
         } finally {
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 
@@ -252,13 +300,14 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                     store.get(TestKey("1"), Freshness.StaleIfError)
                 }
             assertFalse(fallback.isCompleted)
-            secondStarted.await()
+            secondStarted.awaitFromDefault()
             secondGate.complete(Unit)
 
             assertEquals("v1", fallback.await())
             assertEquals(2, calls)
         } finally {
-            store.close()
+            secondGate.complete(Unit)
+            store.closeAndSettleForTest()
         }
     }
 
@@ -282,7 +331,7 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
             assertTrue(fetch.cause === boom)
             assertEquals(1, calls)
         } finally {
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 
@@ -316,10 +365,23 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                 assertTrue(stale.isStale)
                 assertTrue(stale.refreshing)
 
-                secondStarted.await()
+                secondStarted.awaitFromDefault()
                 secondGate.complete(Unit)
 
-                val failure = assertIs<StoreResult.Error>(awaitItem())
+                var terminal = awaitItem()
+                var queuedStaleReplays = 0
+                while (terminal is StoreResult.Data<*>) {
+                    queuedStaleReplays += 1
+                    assertTrue(
+                        queuedStaleReplays <= QUEUED_STALE_REPLAY_BOUND,
+                        "queued stale replays exceeded the ratified bound",
+                    )
+                    assertEquals("v1", terminal.value)
+                    assertTrue(terminal.isStale)
+                    assertTrue(terminal.refreshing)
+                    terminal = awaitItem()
+                }
+                val failure = assertIs<StoreResult.Error>(terminal)
                 val fetch = assertIs<StoreError.Fetch>(failure.error)
                 assertTrue(fetch.cause === boom)
                 assertTrue(failure.servedStale)
@@ -328,7 +390,8 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
             }
             assertEquals(2, calls)
         } finally {
-            store.close()
+            secondGate.complete(Unit)
+            store.closeAndSettleForTest()
         }
     }
 
@@ -359,7 +422,7 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
             }
             assertEquals(0, calls)
         } finally {
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 
@@ -384,7 +447,7 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                 cancelAndIgnoreRemainingEvents()
             }
         } finally {
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 
@@ -405,7 +468,14 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                 cancelAndIgnoreRemainingEvents()
             }
         } finally {
-            store.close()
+            store.closeAndSettleForTest()
         }
     }
 }
+
+private const val QUEUED_STALE_REPLAY_BOUND = 1
+
+private suspend fun <T> CompletableDeferred<T>.awaitFromDefault(): T =
+    withContext(Dispatchers.Default) {
+        withTimeout(5_000) { await() }
+    }
