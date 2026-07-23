@@ -19,20 +19,12 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
     @Test
     fun ac1a_staleWhileRevalidate_successEmitsStaleThenExactlyOneFreshData() = runTest {
         var calls = 0
-        val firstStarted = CompletableDeferred<Unit>()
-        val firstGate = CompletableDeferred<Unit>()
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
         val store = testStore<TestKey, String> {
             fetcher {
                 when (++calls) {
-                    1 -> {
-                        if (requiresInitialReaderDeliveryFence) {
-                            firstStarted.complete(Unit)
-                            firstGate.await()
-                        }
-                        "v1"
-                    }
+                    1 -> "v1"
                     2 -> {
                         secondStarted.complete(Unit)
                         secondGate.await()
@@ -46,23 +38,27 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
         try {
             val key = TestKey("1")
             turbineScope {
-                // Keep a live seed collector. Ordinary subjects retain the original immediate
-                // fetch; only post-capture reader-hop subjects park it until their startup reader
-                // acknowledges delivery, preventing delayed pre-write absence from becoming
-                // post-write authority.
+                // A retained LocalOnly observer makes the empty-reader boundary public and
+                // byte-identical across every substituted SourceOfTruth.
+                val localCollector =
+                    store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
+                val missing = assertIs<StoreResult.Error>(localCollector.awaitItem())
+                assertIs<StoreError.Missing>(missing.error)
+                assertFalse(missing.servedStale)
+                assertEquals(0, calls)
+                awaitCurrentReaderFirstDelivery(key)
+
                 val initialCollector = store.stream(key).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(initialCollector.awaitItem())
-                if (requiresInitialReaderDeliveryFence) {
-                    firstStarted.awaitFromDefault()
-                    awaitCurrentReaderFirstDelivery(key)
-                    assertEquals(1, calls)
-                    firstGate.complete(Unit)
-                }
                 val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
                 assertEquals("v1", initial.value)
                 assertFalse(initial.isStale)
                 assertFalse(initial.refreshing)
                 assertEquals(1, calls)
+                val localInitial = assertIs<StoreResult.Data<String>>(localCollector.awaitItem())
+                assertEquals("v1", localInitial.value)
+                assertFalse(localInitial.isStale)
+                assertFalse(localInitial.refreshing)
 
                 store.invalidate(key)
                 // Prove the retained seed collector has processed invalidation and registered
@@ -97,11 +93,11 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
                 assertFalse(fresh.refreshing)
                 collector.expectNoEvents()
                 assertEquals(2, calls)
+                localCollector.cancelAndIgnoreRemainingEvents()
                 initialCollector.cancelAndIgnoreRemainingEvents()
                 collector.cancelAndIgnoreRemainingEvents()
             }
         } finally {
-            firstGate.complete(Unit)
             secondGate.complete(Unit)
             store.closeAndSettleForTest()
         }
@@ -228,21 +224,13 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
     @Test
     fun ac1d_notModifiedEmitsExactlyOneRevalidatedWithoutFreshData() = runTest {
         var calls = 0
-        val firstStarted = CompletableDeferred<Unit>()
-        val firstGate = CompletableDeferred<Unit>()
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
         val key = TestKey("1")
         val store = testStore<TestKey, String> {
             fetcherOfResult {
                 when (++calls) {
-                    1 -> {
-                        if (requiresInitialReaderDeliveryFence) {
-                            firstStarted.complete(Unit)
-                            firstGate.await()
-                        }
-                        FetcherResult.Success("v1", etag = "e1")
-                    }
+                    1 -> FetcherResult.Success("v1", etag = "e1")
                     2 -> {
                         secondStarted.complete(Unit)
                         secondGate.await()
@@ -255,22 +243,27 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
 
         try {
             turbineScope {
-                // Ordinary subjects retain the original immediate fetch. Only post-capture
-                // reader-hop subjects fence fetch 1 so the retained seed cannot mistake a delayed
-                // pre-write absence for post-write authority.
+                // A retained LocalOnly observer makes the empty-reader boundary public and
+                // byte-identical across every substituted SourceOfTruth.
+                val localCollector =
+                    store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
+                val missing = assertIs<StoreResult.Error>(localCollector.awaitItem())
+                assertIs<StoreError.Missing>(missing.error)
+                assertFalse(missing.servedStale)
+                assertEquals(0, calls)
+                awaitCurrentReaderFirstDelivery(key)
+
                 val initialCollector = store.stream(key).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(initialCollector.awaitItem())
-                if (requiresInitialReaderDeliveryFence) {
-                    firstStarted.awaitFromDefault()
-                    awaitCurrentReaderFirstDelivery(key)
-                    assertEquals(1, calls)
-                    firstGate.complete(Unit)
-                }
                 val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
                 assertEquals("v1", initial.value)
                 assertFalse(initial.isStale)
                 assertFalse(initial.refreshing)
                 assertEquals(1, calls)
+                val localInitial = assertIs<StoreResult.Data<String>>(localCollector.awaitItem())
+                assertEquals("v1", localInitial.value)
+                assertFalse(localInitial.isStale)
+                assertFalse(localInitial.refreshing)
 
                 store.invalidate(key)
                 secondStarted.awaitFromDefault()
@@ -300,11 +293,11 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
                 assertIs<StoreResult.Revalidated>(terminal)
                 collector.expectNoEvents()
                 assertEquals(2, calls)
+                localCollector.cancelAndIgnoreRemainingEvents()
                 initialCollector.cancelAndIgnoreRemainingEvents()
                 collector.cancelAndIgnoreRemainingEvents()
             }
         } finally {
-            firstGate.complete(Unit)
             secondGate.complete(Unit)
             store.closeAndSettleForTest()
         }

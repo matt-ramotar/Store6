@@ -13,14 +13,14 @@ class StoreConformanceAgainstSharedFlowSotTest : StoreConformanceTest() {
 @OptIn(ExperimentalStoreApi::class)
 class StoreInvalidationConformanceAgainstSharedFlowSotTest : StoreInvalidationConformanceTest() {
     override fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) {
-        builder.persistence(SharedFlowSourceOfTruth())
+        builder.persistence(trackedSot(SharedFlowSourceOfTruth()))
     }
 }
 
 @OptIn(ExperimentalStoreApi::class)
 class EmissionSequenceConformanceAgainstSharedFlowSotTest : EmissionSequenceConformanceTest() {
     override fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) {
-        builder.persistence(SharedFlowSourceOfTruth())
+        builder.persistence(trackedSot(SharedFlowSourceOfTruth()))
     }
 }
 
@@ -34,7 +34,7 @@ class SingleFlightConformanceAgainstSharedFlowSotTest : SingleFlightConformanceT
 @OptIn(ExperimentalStoreApi::class)
 class FreshnessPolicyConformanceAgainstSharedFlowSotTest : FreshnessPolicyConformanceTest() {
     override fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) {
-        builder.persistence(SharedFlowSourceOfTruth())
+        builder.persistence(trackedSot(SharedFlowSourceOfTruth()))
     }
 }
 

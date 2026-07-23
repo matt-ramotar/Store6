@@ -88,20 +88,12 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
     fun maxAgeOverBoundStreamWithholdsResidentUntilFreshValue() = runTest {
         val clock = FakeWallClock(now = 0L)
         var calls = 0
-        val firstStarted = CompletableDeferred<Unit>()
-        val firstGate = CompletableDeferred<Unit>()
         val secondStarted = CompletableDeferred<Unit>()
         val secondGate = CompletableDeferred<Unit>()
         val store = testStoreWith<TestKey, String>(clock = clock) {
             fetcher {
                 when (++calls) {
-                    1 -> {
-                        if (requiresInitialReaderDeliveryFence) {
-                            firstStarted.complete(Unit)
-                            firstGate.await()
-                        }
-                        "v1"
-                    }
+                    1 -> "v1"
                     2 -> {
                         secondStarted.complete(Unit)
                         secondGate.await()
@@ -115,18 +107,30 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
         try {
             val key = TestKey("1")
             turbineScope {
+                // A retained LocalOnly observer makes the empty-reader boundary public and
+                // byte-identical across every substituted SourceOfTruth.
+                val localCollector =
+                    store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
+                val missing = assertIs<StoreResult.Error>(localCollector.awaitItem())
+                assertIs<StoreError.Missing>(missing.error)
+                assertFalse(missing.servedStale)
+                assertEquals(0, calls)
+                awaitCurrentReaderFirstDelivery(key)
+
                 val initialCollector = store.stream(key).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(initialCollector.awaitItem())
-                if (requiresInitialReaderDeliveryFence) {
-                    firstStarted.awaitFromDefault()
-                    awaitCurrentReaderFirstDelivery(key)
-                    assertEquals(1, calls)
-                    firstGate.complete(Unit)
-                }
-
                 val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
                 assertEquals("v1", initial.value)
+                assertFalse(initial.isStale, "seed frame must not be stale: $initial")
+                assertFalse(
+                    initial.refreshing,
+                    "seed frame must not remain refreshing: $initial",
+                )
                 assertEquals(1, calls)
+                val localInitial = assertIs<StoreResult.Data<String>>(localCollector.awaitItem())
+                assertEquals("v1", localInitial.value)
+                assertFalse(localInitial.isStale)
+                assertFalse(localInitial.refreshing)
                 clock.now = 600.seconds.inWholeMilliseconds
 
                 val collector =
@@ -147,12 +151,12 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
                     "fresh terminal must not remain refreshing: $fresh",
                 )
                 collector.expectNoEvents()
+                localCollector.cancelAndIgnoreRemainingEvents()
                 initialCollector.cancelAndIgnoreRemainingEvents()
                 collector.cancelAndIgnoreRemainingEvents()
             }
             assertEquals(2, calls)
         } finally {
-            firstGate.complete(Unit)
             secondGate.complete(Unit)
             store.closeAndSettleForTest()
         }
