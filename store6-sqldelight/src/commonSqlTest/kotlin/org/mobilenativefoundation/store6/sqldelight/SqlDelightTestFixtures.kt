@@ -1,10 +1,12 @@
 package org.mobilenativefoundation.store6.sqldelight
 
 import app.cash.sqldelight.Query
+import kotlinx.coroutines.Dispatchers
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.WallClock
+import kotlin.coroutines.CoroutineContext
 
 internal data class SqlTestKey(
     val ns: String,
@@ -23,6 +25,7 @@ internal data class SqlTestKey(
 internal fun <K : StoreKey, V : Any> sqlDelightTestSot(
     harness: SqlHarness,
     clock: WallClock? = null,
+    readContext: CoroutineContext = Dispatchers.Default,
 ): SqlDelightSourceOfTruth<K, V> =
     SqlDelightSourceOfTruth(
         driver = harness.driver,
@@ -42,4 +45,5 @@ internal fun <K : StoreKey, V : Any> sqlDelightTestSot(
         },
         deleteAllRows = harness::deleteAll,
         wallClock = clock,
+        readContext = readContext,
     )
