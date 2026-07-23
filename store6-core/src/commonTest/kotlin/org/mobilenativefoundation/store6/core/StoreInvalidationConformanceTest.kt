@@ -84,6 +84,7 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
     }
 
     // Pinned SWR posture: get on a stale resident serves stale now and refetches in background.
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun getOnStaleResident_servesStaleThenRefetchesInBackground() = runTest {
         var calls = 0
@@ -128,6 +129,9 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                 assertTrue(stale.isStale)
                 assertTrue(stale.refreshing)
 
+                // The stale frame precedes this collector's ticket-watcher enrollment. Drain its
+                // continuation while fetch 2 is gated so the collector joins before settlement.
+                runCurrent()
                 releaseSecondFetch.complete(Unit)
                 var fresh = assertIs<StoreResult.Data<String>>(collector.awaitItem())
                 var queuedStaleReplays = 0
