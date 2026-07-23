@@ -27,8 +27,10 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
             fetcher {
                 when (++calls) {
                     1 -> {
-                        firstStarted.complete(Unit)
-                        firstGate.await()
+                        if (requiresInitialReaderDeliveryFence) {
+                            firstStarted.complete(Unit)
+                            firstGate.await()
+                        }
                         "v1"
                     }
                     2 -> {
@@ -44,15 +46,18 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
         try {
             val key = TestKey("1")
             turbineScope {
-                // Keep a live seed collector, and fence its startup reader before fetch 1 writes.
-                // This prevents a pre-write absence delayed by the adversarial reader hop from
-                // becoming post-write authority and launching the refetch before invalidation.
+                // Keep a live seed collector. Ordinary subjects retain the original immediate
+                // fetch; only post-capture reader-hop subjects park it until their startup reader
+                // acknowledges delivery, preventing delayed pre-write absence from becoming
+                // post-write authority.
                 val initialCollector = store.stream(key).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(initialCollector.awaitItem())
-                firstStarted.awaitFromDefault()
-                awaitCurrentReaderFirstDelivery(key)
-                assertEquals(1, calls)
-                firstGate.complete(Unit)
+                if (requiresInitialReaderDeliveryFence) {
+                    firstStarted.awaitFromDefault()
+                    awaitCurrentReaderFirstDelivery(key)
+                    assertEquals(1, calls)
+                    firstGate.complete(Unit)
+                }
                 val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
                 assertEquals("v1", initial.value)
                 assertFalse(initial.isStale)
@@ -232,8 +237,10 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
             fetcherOfResult {
                 when (++calls) {
                     1 -> {
-                        firstStarted.complete(Unit)
-                        firstGate.await()
+                        if (requiresInitialReaderDeliveryFence) {
+                            firstStarted.complete(Unit)
+                            firstGate.await()
+                        }
                         FetcherResult.Success("v1", etag = "e1")
                     }
                     2 -> {
@@ -248,14 +255,17 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
 
         try {
             turbineScope {
-                // Fence the startup reader before fetch 1 writes so the retained seed cannot
-                // mistake a delayed pre-write absence for post-write authority.
+                // Ordinary subjects retain the original immediate fetch. Only post-capture
+                // reader-hop subjects fence fetch 1 so the retained seed cannot mistake a delayed
+                // pre-write absence for post-write authority.
                 val initialCollector = store.stream(key).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(initialCollector.awaitItem())
-                firstStarted.awaitFromDefault()
-                awaitCurrentReaderFirstDelivery(key)
-                assertEquals(1, calls)
-                firstGate.complete(Unit)
+                if (requiresInitialReaderDeliveryFence) {
+                    firstStarted.awaitFromDefault()
+                    awaitCurrentReaderFirstDelivery(key)
+                    assertEquals(1, calls)
+                    firstGate.complete(Unit)
+                }
                 val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
                 assertEquals("v1", initial.value)
                 assertFalse(initial.isStale)

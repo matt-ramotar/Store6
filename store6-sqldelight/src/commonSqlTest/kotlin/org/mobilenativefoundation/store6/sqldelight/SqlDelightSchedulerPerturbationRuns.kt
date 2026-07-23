@@ -33,6 +33,8 @@ class StoreInvalidationConformanceAgainstHoppingSqlDelightSotTest :
     private val installer = BorrowedSotInstaller()
     private lateinit var sourceOfTruth: PostCaptureReaderHopSourceOfTruth<*, *>
 
+    override val requiresInitialReaderDeliveryFence: Boolean = true
+
     override fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) {
         sourceOfTruth = installer.installHopping(builder)
     }
@@ -52,6 +54,8 @@ class EmissionSequenceConformanceAgainstHoppingSqlDelightSotTest :
     private val installer = BorrowedSotInstaller()
     private lateinit var sourceOfTruth: PostCaptureReaderHopSourceOfTruth<*, *>
 
+    override val requiresInitialReaderDeliveryFence: Boolean = true
+
     override fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) {
         sourceOfTruth = installer.installHopping(builder)
     }
@@ -70,6 +74,8 @@ class FreshnessPolicyConformanceAgainstHoppingSqlDelightSotTest :
     FreshnessPolicyConformanceTest() {
     private val installer = BorrowedSotInstaller()
     private lateinit var sourceOfTruth: PostCaptureReaderHopSourceOfTruth<*, *>
+
+    override val requiresInitialReaderDeliveryFence: Boolean = true
 
     override fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) {
         sourceOfTruth = installer.installHopping(builder)

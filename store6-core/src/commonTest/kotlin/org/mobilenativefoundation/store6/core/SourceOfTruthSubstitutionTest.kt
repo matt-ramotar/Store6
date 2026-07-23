@@ -13,6 +13,12 @@ abstract class SourceOfTruthSubstitutionTest {
     protected open fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) = Unit
 
     /**
+     * True only for substitutions that deliberately delay a captured reader value and therefore
+     * need fetch 1 held until [awaitCurrentReaderFirstDelivery] acknowledges that extra hop.
+     */
+    protected open val requiresInitialReaderDeliveryFence: Boolean = false
+
+    /**
      * Test-fixture acknowledgement for adversarial reader decorators. Default and ordinary
      * substitution runs have no extra reader hop, so their acknowledgement is immediate.
      */

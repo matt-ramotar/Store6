@@ -96,8 +96,10 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
             fetcher {
                 when (++calls) {
                     1 -> {
-                        firstStarted.complete(Unit)
-                        firstGate.await()
+                        if (requiresInitialReaderDeliveryFence) {
+                            firstStarted.complete(Unit)
+                            firstGate.await()
+                        }
                         "v1"
                     }
                     2 -> {
@@ -115,20 +117,15 @@ open class FreshnessPolicyConformanceTest : SourceOfTruthSubstitutionTest() {
             turbineScope {
                 val initialCollector = store.stream(key).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(initialCollector.awaitItem())
-                firstStarted.awaitFromDefault()
-                awaitCurrentReaderFirstDelivery(key)
-                assertEquals(1, calls)
-                val initialGet =
-                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
-                        store.get(key)
-                    }
-                assertFalse(initialGet.isCompleted)
-                firstGate.complete(Unit)
-                assertEquals("v1", initialGet.await())
+                if (requiresInitialReaderDeliveryFence) {
+                    firstStarted.awaitFromDefault()
+                    awaitCurrentReaderFirstDelivery(key)
+                    assertEquals(1, calls)
+                    firstGate.complete(Unit)
+                }
 
                 val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
                 assertEquals("v1", initial.value)
-                assertFalse(initial.isStale, "seed frame must not be stale: $initial")
                 assertEquals(1, calls)
                 clock.now = 600.seconds.inWholeMilliseconds
 

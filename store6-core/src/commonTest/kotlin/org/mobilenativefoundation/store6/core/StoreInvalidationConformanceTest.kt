@@ -33,8 +33,10 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             fetcher {
                 when (++calls) {
                     1 -> {
-                        firstFetchStarted.complete(Unit)
-                        releaseFirstFetch.await()
+                        if (requiresInitialReaderDeliveryFence) {
+                            firstFetchStarted.complete(Unit)
+                            releaseFirstFetch.await()
+                        }
                         "v1"
                     }
                     2 -> {
@@ -50,10 +52,12 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
         try {
             store.stream(key).test {
                 assertIs<StoreResult.Loading>(awaitItem())
-                firstFetchStarted.awaitFromDefault()
-                awaitCurrentReaderFirstDelivery(key)
-                assertEquals(1, calls)
-                releaseFirstFetch.complete(Unit)
+                if (requiresInitialReaderDeliveryFence) {
+                    firstFetchStarted.awaitFromDefault()
+                    awaitCurrentReaderFirstDelivery(key)
+                    assertEquals(1, calls)
+                    releaseFirstFetch.complete(Unit)
+                }
                 val initial = assertIs<StoreResult.Data<String>>(awaitItem())
                 assertEquals("v1", initial.value)
                 assertFalse(initial.isStale)
@@ -99,8 +103,10 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             fetcher {
                 when (++calls) {
                     1 -> {
-                        firstFetchStarted.complete(Unit)
-                        releaseFirstFetch.await()
+                        if (requiresInitialReaderDeliveryFence) {
+                            firstFetchStarted.complete(Unit)
+                            releaseFirstFetch.await()
+                        }
                         "v1"
                     }
                     2 -> {
@@ -116,10 +122,12 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             turbineScope {
                 val initialCollector = store.stream(key).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(initialCollector.awaitItem())
-                firstFetchStarted.awaitFromDefault()
-                awaitCurrentReaderFirstDelivery(key)
-                assertEquals(1, calls)
-                releaseFirstFetch.complete(Unit)
+                if (requiresInitialReaderDeliveryFence) {
+                    firstFetchStarted.awaitFromDefault()
+                    awaitCurrentReaderFirstDelivery(key)
+                    assertEquals(1, calls)
+                    releaseFirstFetch.complete(Unit)
+                }
                 val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
                 assertEquals("v1", initial.value)
                 assertFalse(initial.isStale)
@@ -173,8 +181,10 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             fetcher {
                 when (++calls) {
                     1 -> {
-                        firstStarted.complete(Unit)
-                        firstGate.await()
+                        if (requiresInitialReaderDeliveryFence) {
+                            firstStarted.complete(Unit)
+                            firstGate.await()
+                        }
                         "v1"
                     }
                     2 -> {
@@ -192,10 +202,12 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             turbineScope {
                 val initialCollector = store.stream(key).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(initialCollector.awaitItem())
-                firstStarted.awaitFromDefault()
-                awaitCurrentReaderFirstDelivery(key)
-                assertEquals(1, calls)
-                firstGate.complete(Unit)
+                if (requiresInitialReaderDeliveryFence) {
+                    firstStarted.awaitFromDefault()
+                    awaitCurrentReaderFirstDelivery(key)
+                    assertEquals(1, calls)
+                    firstGate.complete(Unit)
+                }
                 val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
                 assertEquals("v1", initial.value)
                 assertFalse(initial.isStale)
@@ -250,8 +262,10 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             fetcher {
                 when (++calls) {
                     1 -> {
-                        firstFetchStarted.complete(Unit)
-                        releaseFirstFetch.await()
+                        if (requiresInitialReaderDeliveryFence) {
+                            firstFetchStarted.complete(Unit)
+                            releaseFirstFetch.await()
+                        }
                         "v1"
                     }
                     2 -> {
@@ -267,10 +281,12 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
         try {
             store.stream(key).test {
                 assertIs<StoreResult.Loading>(awaitItem())
-                firstFetchStarted.awaitFromDefault()
-                awaitCurrentReaderFirstDelivery(key)
-                assertEquals(1, calls)
-                releaseFirstFetch.complete(Unit)
+                if (requiresInitialReaderDeliveryFence) {
+                    firstFetchStarted.awaitFromDefault()
+                    awaitCurrentReaderFirstDelivery(key)
+                    assertEquals(1, calls)
+                    releaseFirstFetch.complete(Unit)
+                }
                 assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
 
                 store.clear(key)
@@ -383,8 +399,10 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                 if (key.namespace.value == "a") {
                     when (++aCalls) {
                         1 -> {
-                            a1Started.complete(Unit)
-                            a1Gate.await()
+                            if (requiresInitialReaderDeliveryFence) {
+                                a1Started.complete(Unit)
+                                a1Gate.await()
+                            }
                             "a1"
                         }
                         2 -> {
@@ -407,10 +425,12 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             turbineScope {
                 val initialCollector = store.stream(keyA).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(initialCollector.awaitItem())
-                a1Started.awaitFromDefault()
-                awaitCurrentReaderFirstDelivery(keyA)
-                assertEquals(1, aCalls)
-                a1Gate.complete(Unit)
+                if (requiresInitialReaderDeliveryFence) {
+                    a1Started.awaitFromDefault()
+                    awaitCurrentReaderFirstDelivery(keyA)
+                    assertEquals(1, aCalls)
+                    a1Gate.complete(Unit)
+                }
                 val initial = assertIs<StoreResult.Data<String>>(initialCollector.awaitItem())
                 assertEquals("a1", initial.value)
                 assertFalse(initial.isStale)
@@ -471,8 +491,10 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                 if (key.namespace.value == "a") {
                     when (++aCalls) {
                         1 -> {
-                            aInitialStarted.complete(Unit)
-                            releaseAInitial.await()
+                            if (requiresInitialReaderDeliveryFence) {
+                                aInitialStarted.complete(Unit)
+                                releaseAInitial.await()
+                            }
                             "a1"
                         }
                         2 -> {
@@ -485,8 +507,10 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                 } else {
                     when (++bCalls) {
                         1 -> {
-                            bInitialStarted.complete(Unit)
-                            releaseBInitial.await()
+                            if (requiresInitialReaderDeliveryFence) {
+                                bInitialStarted.complete(Unit)
+                                releaseBInitial.await()
+                            }
                             "b1"
                         }
                         else -> error("unexpected namespace-b fetch call $bCalls")
@@ -500,16 +524,20 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
                 val aCollector = store.stream(keyA).testIn(backgroundScope)
                 val bCollector = store.stream(keyB).testIn(backgroundScope)
                 assertIs<StoreResult.Loading>(aCollector.awaitItem())
-                aInitialStarted.awaitFromDefault()
-                awaitCurrentReaderFirstDelivery(keyA)
-                assertEquals(1, aCalls)
-                releaseAInitial.complete(Unit)
+                if (requiresInitialReaderDeliveryFence) {
+                    aInitialStarted.awaitFromDefault()
+                    awaitCurrentReaderFirstDelivery(keyA)
+                    assertEquals(1, aCalls)
+                    releaseAInitial.complete(Unit)
+                }
                 assertEquals("a1", assertIs<StoreResult.Data<String>>(aCollector.awaitItem()).value)
                 assertIs<StoreResult.Loading>(bCollector.awaitItem())
-                bInitialStarted.awaitFromDefault()
-                awaitCurrentReaderFirstDelivery(keyB)
-                assertEquals(1, bCalls)
-                releaseBInitial.complete(Unit)
+                if (requiresInitialReaderDeliveryFence) {
+                    bInitialStarted.awaitFromDefault()
+                    awaitCurrentReaderFirstDelivery(keyB)
+                    assertEquals(1, bCalls)
+                    releaseBInitial.complete(Unit)
+                }
                 assertEquals("b1", assertIs<StoreResult.Data<String>>(bCollector.awaitItem()).value)
 
                 store.invalidateNamespace(StoreNamespace("a"))
@@ -547,8 +575,10 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             fetcher {
                 when (++calls) {
                     1 -> {
-                        initialStarted.complete(Unit)
-                        releaseInitial.await()
+                        if (requiresInitialReaderDeliveryFence) {
+                            initialStarted.complete(Unit)
+                            releaseInitial.await()
+                        }
                         "v1"
                     }
                     2 -> {
@@ -565,10 +595,12 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
             val key = TestKey("1")
             store.stream(key).test {
                 assertIs<StoreResult.Loading>(awaitItem())
-                initialStarted.awaitFromDefault()
-                awaitCurrentReaderFirstDelivery(key)
-                assertEquals(1, calls)
-                releaseInitial.complete(Unit)
+                if (requiresInitialReaderDeliveryFence) {
+                    initialStarted.awaitFromDefault()
+                    awaitCurrentReaderFirstDelivery(key)
+                    assertEquals(1, calls)
+                    releaseInitial.complete(Unit)
+                }
                 assertEquals("v1", assertIs<StoreResult.Data<String>>(awaitItem()).value)
 
                 store.invalidateAll()
