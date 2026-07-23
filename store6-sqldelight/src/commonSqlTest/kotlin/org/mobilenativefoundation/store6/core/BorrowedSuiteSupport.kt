@@ -18,3 +18,13 @@ internal fun <K : StoreKey, V : Any> storeWith(
     bookkeeper?.let { this.bookkeeper(it) }
     configure()
 }
+
+/**
+ * Re-derivation of core's test-support shutdown for the borrowed compilation. This module cannot
+ * reference core internals (CI guard + module visibility), so settle is close() only: engine
+ * coroutines are cancelled but not joined. Cleanup-only; the borrowed scenarios' assertions never
+ * depend on joined shutdown.
+ */
+internal suspend fun Store<*, *>.closeAndSettleForTest() {
+    close()
+}
