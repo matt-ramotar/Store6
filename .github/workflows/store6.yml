@@ -45,13 +45,16 @@ jobs:
 
       - name: Build Store6 core
         run: >
-          ./gradlew :store6-core:build :store6-testing:build
+          ./gradlew :store6-core:build :store6-testing:build :store6-sqldelight:build
           -Pkotlin.native.enableKlibsCrossCompilation=true
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
 
       - name: Run Store6 quickstart
         run: ./gradlew :store6-quickstart:run --stacktrace
+
+      - name: Run Store6 sqldelight sample
+        run: ./gradlew :store6-sqldelight-sample:run --stacktrace
 
       - name: Build Store6 extension probe (seam-only consumer)
         run: >
@@ -65,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
           status=0
-          for module in store6-extension-probe store6-testing; do
+          for module in store6-extension-probe store6-testing store6-sqldelight; do
             source_dir="${module}/src"
             if [[ ! -d "${source_dir}" ]]; then
               echo "ERROR: expected extension source directory is missing: ${source_dir}" >&2
@@ -116,7 +119,7 @@ jobs:
           status=0
           banned_regex='(^|[^[:alnum:]_])(runBlocking|GlobalScope|atomicfu|Channel|actor)([^[:alnum:]_]|$)|kotlinx[.]coroutines[.]channels[.][*]'
           shopt -s nullglob
-          production_source_dirs=(store6-core/src/*Main store6-testing/src/*Main)
+          production_source_dirs=(store6-core/src/*Main store6-testing/src/*Main store6-sqldelight/src/*Main)
           for source_dir in "${production_source_dirs[@]}"; do
             [[ -d "${source_dir}" ]] || continue
             if grep -rnE --include='*.kt' "${banned_regex}" "${source_dir}"; then
@@ -300,6 +303,8 @@ jobs:
             :store6-extension-probe:macosArm64Test \
             :store6-testing:iosSimulatorArm64Test \
             :store6-testing:macosArm64Test \
+            :store6-sqldelight:iosSimulatorArm64Test \
+            :store6-sqldelight:macosArm64Test \
             "-Pstore6.iosSimulatorDevice=${STORE6_IOS_SIMULATOR_DEVICE}" \
             --stacktrace
 
@@ -379,7 +384,7 @@ jobs:
 
       - name: Publish Store6 core to Maven local without signing
         run: >
-          ./gradlew :store6-core:publishToMavenLocal :store6-testing:publishToMavenLocal
+          ./gradlew :store6-core:publishToMavenLocal :store6-testing:publishToMavenLocal :store6-sqldelight:publishToMavenLocal
           -Pkotlin.native.enableKlibsCrossCompilation=true
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
@@ -391,7 +396,7 @@ jobs:
           version="6.0.0-SNAPSHOT"
           repository="${HOME}/.m2/repository/org/mobilenativefoundation/store"
 
-          modules=(store6-core store6-testing)
+          modules=(store6-core store6-testing store6-sqldelight)
           suffixes=(
             ""
             -android

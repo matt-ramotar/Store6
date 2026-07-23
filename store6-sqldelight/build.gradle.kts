@@ -1,5 +1,6 @@
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable
+import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest
 import org.jetbrains.kotlin.gradle.tasks.KotlinNativeLink
 import org.jetbrains.kotlin.konan.target.Family
 import org.jetbrains.kotlin.konan.target.HostManager
@@ -117,6 +118,29 @@ tasks.withType<KotlinNativeLink>().configureEach {
             val hostFamily = HostManager.host.family
             targetFamily == hostFamily ||
                 (hostFamily.isAppleFamily && targetFamily.isAppleFamily)
+        }
+    }
+}
+
+tasks.withType<KotlinNativeTest>().configureEach {
+    // KGP 2.1.21 can race native-test stdout/stderr handlers and corrupt Gradle
+    // 8.11.1's captured-output index after an executable succeeds. Keep JUnit
+    // testcase/failure XML, but do not read the affected output index.
+    reports.html.required.set(false)
+    reports.junitXml.apply {
+        isOutputPerTestCase = false
+        includeSystemOutLog.set(false)
+        includeSystemErrLog.set(false)
+    }
+
+    doLast {
+        // allTests aggregates binary test results and would reopen the same index.
+        // Preserve results.bin while omitting only captured output from its report.
+        listOf("output.bin", "output.bin.idx").forEach { fileName ->
+            val outputFile = binaryResultsDirectory.file(fileName).get().asFile
+            check(!outputFile.exists() || outputFile.delete()) {
+                "Could not remove corrupt Gradle test-output file: $outputFile"
+            }
         }
     }
 }
