@@ -26,60 +26,66 @@ import org.mobilenativefoundation.store6.core.StoreInvalidationConformanceTest
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import kotlin.test.AfterTest
 
 class StoreInvalidationConformanceAgainstHoppingSqlDelightSotTest :
     StoreInvalidationConformanceTest() {
+    private val installer = BorrowedSotInstaller()
     private lateinit var sourceOfTruth: PostCaptureReaderHopSourceOfTruth<*, *>
 
     override fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) {
-        sourceOfTruth = builder.installHoppingSqlDelightSot()
+        sourceOfTruth = installer.installHopping(builder)
     }
 
     override suspend fun awaitCurrentReaderFirstDelivery(key: StoreKey) {
         sourceOfTruth.awaitCurrentReaderFirstDelivery(key)
+    }
+
+    @AfterTest
+    fun closeHarnesses() {
+        installer.closeAll()
     }
 }
 
 class EmissionSequenceConformanceAgainstHoppingSqlDelightSotTest :
     EmissionSequenceConformanceTest() {
+    private val installer = BorrowedSotInstaller()
     private lateinit var sourceOfTruth: PostCaptureReaderHopSourceOfTruth<*, *>
 
     override fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) {
-        sourceOfTruth = builder.installHoppingSqlDelightSot()
+        sourceOfTruth = installer.installHopping(builder)
     }
 
     override suspend fun awaitCurrentReaderFirstDelivery(key: StoreKey) {
         sourceOfTruth.awaitCurrentReaderFirstDelivery(key)
+    }
+
+    @AfterTest
+    fun closeHarnesses() {
+        installer.closeAll()
     }
 }
 
 class FreshnessPolicyConformanceAgainstHoppingSqlDelightSotTest :
     FreshnessPolicyConformanceTest() {
+    private val installer = BorrowedSotInstaller()
     private lateinit var sourceOfTruth: PostCaptureReaderHopSourceOfTruth<*, *>
 
     override fun <K : StoreKey, V : Any> installSot(builder: StoreBuilder<K, V>) {
-        sourceOfTruth = builder.installHoppingSqlDelightSot()
+        sourceOfTruth = installer.installHopping(builder)
     }
 
     override suspend fun awaitCurrentReaderFirstDelivery(key: StoreKey) {
         sourceOfTruth.awaitCurrentReaderFirstDelivery(key)
     }
+
+    @AfterTest
+    fun closeHarnesses() {
+        installer.closeAll()
+    }
 }
 
-private fun <K : StoreKey, V : Any> StoreBuilder<K, V>.installHoppingSqlDelightSot():
-    PostCaptureReaderHopSourceOfTruth<K, V> {
-    val sourceOfTruth =
-        PostCaptureReaderHopSourceOfTruth<K, V>(
-            sqlDelightTestSot(
-                harness = freshHarness(),
-                readContext = Dispatchers.Default,
-            ),
-        )
-    persistence(sourceOfTruth)
-    return sourceOfTruth
-}
-
-private class PostCaptureReaderHopSourceOfTruth<K : StoreKey, V : Any>(
+internal class PostCaptureReaderHopSourceOfTruth<K : StoreKey, V : Any>(
     private val delegate: SourceOfTruth<K, V>,
 ) : SourceOfTruth<K, V> {
     private val readerDeliveries = PostCaptureReaderFirstDeliveries()
