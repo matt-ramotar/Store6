@@ -3,18 +3,17 @@
 package org.mobilenativefoundation.store6.room
 
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.test.TestResult
-import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.runTest as coroutineRunTest
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import org.mobilenativefoundation.store6.testing.SourceOfTruthContractKit
-import kotlin.time.Duration.Companion.seconds
+import kotlin.test.AfterTest
 
 internal class RoomSourceOfTruthContractTest :
     SourceOfTruthContractKit<RoomKitKey, String>() {
+    private val databases = mutableListOf<Store6RoomTestDatabase>()
+
     override fun createSourceOfTruth(): SourceOfTruth<RoomKitKey, String> {
-        val database = createTestDatabase()
+        val database = createTestDatabase().also { databases += it }
         val dao = database.kitRowDao()
         return RoomSourceOfTruth(
             database = database,
@@ -41,7 +40,18 @@ internal class RoomSourceOfTruthContractTest :
     override val keyOtherNamespace: RoomKitKey = RoomKitKey(StoreNamespace("teams"), "a")
 
     override fun value(index: Int): String = "value-$index"
-}
 
-private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
-    coroutineRunTest(timeout = 25.seconds, testBody = testBody)
+    @AfterTest
+    fun closeDatabases() {
+        var firstFailure: Throwable? = null
+        databases.forEach { database ->
+            try {
+                database.close()
+            } catch (failure: Throwable) {
+                if (firstFailure == null) firstFailure = failure
+            }
+        }
+        databases.clear()
+        firstFailure?.let { throw it }
+    }
+}

@@ -13,6 +13,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -22,11 +23,13 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.StoreNamespace
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 internal class RoomSourceOfTruthReaderSemanticsTest {
@@ -160,31 +163,208 @@ internal class RoomSourceOfTruthReaderSemanticsTest {
     }
 
     @Test
-    fun outerTransaction_nestedAndConcurrentWrites_doNotInvertLocks(): TestResult = runTest {
+    fun explicitCancellationFromMutation_rollsBackAndThrows(): TestResult = runTest {
         val database = createTestDatabase()
         try {
             val dao = database.kitRowDao()
-            val sourceOfTruth = sourceOfTruth(database)
-            lateinit var concurrentWrite: Deferred<Unit>
+            val cancellation = CancellationException("mutation cancelled itself")
+            val sourceOfTruth =
+                sourceOfTruth(database) { key, value ->
+                    dao.upsert(row(key, value))
+                    throw cancellation
+                }
 
-            sourceOfTruth.withTransaction {
-                concurrentWrite =
-                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
-                        sourceOfTruth.write(keyB, "concurrent")
-                    }
-                sourceOfTruth.write(keyA, "nested")
+            assertFailsWith<CancellationException> {
+                sourceOfTruth.write(keyA, "rolled-back")
             }
-            concurrentWrite.await()
+            assertNull(dao.row(keyA.namespace.value, keyA.canonicalId()).first())
+        } finally {
+            database.close()
+        }
+    }
 
+    @Test
+    fun twoAdaptersOnSameDatabase_nestedAndCompetingWrites_doNotInvertLocks(): TestResult =
+        runTest {
+            val database = createTestDatabase()
+            val allowNestedWrite = CompletableDeferred<Unit>()
+            var outerTransaction: Deferred<Unit>? = null
+            var competingWrite: Deferred<Unit>? = null
+            try {
+                val dao = database.kitRowDao()
+                val adapterA = sourceOfTruth(database)
+                val adapterB = sourceOfTruth(database)
+                val outerHasWriter = CompletableDeferred<Unit>()
+
+                outerTransaction =
+                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                        adapterA.withTransaction {
+                            outerHasWriter.complete(Unit)
+                            allowNestedWrite.await()
+                            adapterB.write(keyA, "nested")
+                        }
+                    }
+                outerHasWriter.await()
+
+                competingWrite =
+                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                        adapterB.write(keyB, "competing")
+                    }
+                allowNestedWrite.complete(Unit)
+
+                outerTransaction.await()
+                competingWrite.await()
+
+                assertEquals(
+                    "nested",
+                    dao.row(keyA.namespace.value, keyA.canonicalId()).first()?.payload,
+                )
+                assertEquals(
+                    "competing",
+                    dao.row(keyB.namespace.value, keyB.canonicalId()).first()?.payload,
+                )
+            } finally {
+                allowNestedWrite.complete(Unit)
+                outerTransaction?.cancel()
+                competingWrite?.cancel()
+                outerTransaction?.join()
+                competingWrite?.join()
+                database.close()
+            }
+        }
+
+    @Test
+    fun readerJoiningFailedAllocation_equalRewriteEmitsExactlyOnce(): TestResult = runTest {
+        val database = createTestDatabase()
+        val releaseFailure = CompletableDeferred<Unit>()
+        var failedWrite: Deferred<Result<Unit>>? = null
+        try {
+            val failedWriterEntered = CompletableDeferred<Unit>()
+            val rows = MutableStateFlow<String?>("same")
+            val sourceOfTruth =
+                flowProbeSourceOfTruth(database, rows) { _, value ->
+                    if (value == "fail") {
+                        failedWriterEntered.complete(Unit)
+                        releaseFailure.await()
+                        error("allocation failed")
+                    }
+                }
+
+            sourceOfTruth.reader(keyA).test {
+                assertEquals("same", awaitItem())
+
+                failedWrite =
+                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                        runCatching { sourceOfTruth.write(keyA, "fail") }
+                    }
+                failedWriterEntered.await()
+
+                sourceOfTruth.reader(keyA).test {
+                    assertEquals("same", awaitItem())
+
+                    releaseFailure.complete(Unit)
+                    assertTrue(checkNotNull(failedWrite).await().isFailure)
+                    runCurrent()
+                    expectNoEvents()
+
+                    sourceOfTruth.write(keyA, "same")
+                    assertEquals("same", awaitItem())
+                    expectNoEvents()
+
+                    cancelAndIgnoreRemainingEvents()
+                }
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            releaseFailure.complete(Unit)
+            failedWrite?.cancel()
+            failedWrite?.join()
+            database.close()
+        }
+    }
+
+    @Test
+    fun readerJoiningSuccessfulAllocation_equalRewriteEmitsExactlyOnce(): TestResult = runTest {
+        val database = createTestDatabase()
+        val releaseWrite = CompletableDeferred<Unit>()
+        var equalRewrite: Deferred<Result<Unit>>? = null
+        try {
+            val writerEntered = CompletableDeferred<Unit>()
+            val rows = MutableStateFlow<String?>("same")
+            val sourceOfTruth =
+                flowProbeSourceOfTruth(database, rows) { _, _ ->
+                    writerEntered.complete(Unit)
+                    releaseWrite.await()
+                }
+
+            sourceOfTruth.reader(keyA).test {
+                assertEquals("same", awaitItem())
+
+                equalRewrite =
+                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                        runCatching { sourceOfTruth.write(keyA, "same") }
+                    }
+                writerEntered.await()
+
+                sourceOfTruth.reader(keyA).test {
+                    assertEquals("same", awaitItem())
+
+                    releaseWrite.complete(Unit)
+                    assertTrue(checkNotNull(equalRewrite).await().isSuccess)
+                    assertEquals("same", awaitItem())
+                    expectNoEvents()
+
+                    cancelAndIgnoreRemainingEvents()
+                }
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            releaseWrite.complete(Unit)
+            equalRewrite?.cancel()
+            equalRewrite?.join()
+            database.close()
+        }
+    }
+
+    @Test
+    fun cancellationWhileAdmittedAfterDaoWrite_commitsAndReturnsNormally(): TestResult = runTest {
+        val database = createTestDatabase()
+        val releaseWriter = CompletableDeferred<Unit>()
+        var write: Deferred<Unit>? = null
+        val boundary = CompletableDeferred<Result<Unit>>()
+        try {
+            val dao = database.kitRowDao()
+            val daoWriteCompleted = CompletableDeferred<Unit>()
+            val sourceOfTruth =
+                sourceOfTruth(database) { key, value ->
+                    dao.upsert(row(key, value))
+                    daoWriteCompleted.complete(Unit)
+                    releaseWriter.await()
+                }
+
+            write =
+                backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                    boundary.complete(
+                        runCatching { sourceOfTruth.write(keyA, "committed") },
+                    )
+                }
+            daoWriteCompleted.await()
+            write.cancel()
+            releaseWriter.complete(Unit)
+
+            write.join()
+            assertTrue(
+                boundary.await().isSuccess,
+                "cancellation after admission must not escape a committed write",
+            )
             assertEquals(
-                "nested",
+                "committed",
                 dao.row(keyA.namespace.value, keyA.canonicalId()).first()?.payload,
             )
-            assertEquals(
-                "concurrent",
-                dao.row(keyB.namespace.value, keyB.canonicalId()).first()?.payload,
-            )
         } finally {
+            releaseWriter.complete(Unit)
+            write?.cancel()
+            write?.join()
             database.close()
         }
     }
@@ -200,6 +380,7 @@ internal class RoomSourceOfTruthReaderSemanticsTest {
         var releaseWrite: Deferred<Unit>? = null
         var queuedWrite: Deferred<Unit>? = null
         var candidateWrite: Deferred<Unit>? = null
+        val candidateBoundary = CompletableDeferred<Result<Unit>>()
         try {
             val dao = database.kitRowDao()
             val externalDao = externalDatabase.kitRowDao()
@@ -262,7 +443,9 @@ internal class RoomSourceOfTruthReaderSemanticsTest {
                 }
             candidateWrite =
                 backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
-                    sourceOfTruth.write(keyA, candidateValue)
+                    candidateBoundary.complete(
+                        runCatching { sourceOfTruth.write(keyA, candidateValue) },
+                    )
                 }
             externalCandidateObservation.await()
             runCurrent()
@@ -285,6 +468,10 @@ internal class RoomSourceOfTruthReaderSemanticsTest {
             releaseWrite.await()
             candidateEchoObserved.await()
             candidateWrite.join()
+            assertTrue(
+                candidateBoundary.await().isSuccess,
+                "cancellation after the durable commit must not throw from write",
+            )
             assertEquals(
                 "candidate",
                 dao.row(keyA.namespace.value, keyA.canonicalId()).first()?.payload,
@@ -342,6 +529,20 @@ internal class RoomSourceOfTruthReaderSemanticsTest {
             },
         )
     }
+
+    private fun flowProbeSourceOfTruth(
+        database: Store6RoomTestDatabase,
+        rows: MutableStateFlow<String?>,
+        rowWriter: suspend (RoomKitKey, String) -> Unit,
+    ): RoomSourceOfTruth<RoomKitKey, String> =
+        RoomSourceOfTruth(
+            database = database,
+            rowReader = { rows },
+            rowWriter = rowWriter,
+            rowDeleter = {},
+            namespaceDeleter = {},
+            allDeleter = {},
+        )
 
     private fun backpressureProbeSourceOfTruth(
         database: Store6RoomTestDatabase,
