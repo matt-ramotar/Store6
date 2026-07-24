@@ -1,14 +1,18 @@
 package org.mobilenativefoundation.store6.room
 
 import androidx.room.Room
-import androidx.sqlite.driver.bundled.BundledSQLiteDriver
-import kotlinx.coroutines.Dispatchers
+import androidx.room.RoomDatabase
+import java.io.File
 
-internal actual fun createTestDatabase(): TestDatabase =
-    Room.databaseBuilder<TestDatabase>(name = testDatabasePath())
-        .setDriver(BundledSQLiteDriver())
-        .setQueryCoroutineContext(Dispatchers.Default)
-        .build()
+internal actual fun inMemoryTestDatabaseBuilder(): RoomDatabase.Builder<Store6RoomTestDatabase> =
+    Room.inMemoryDatabaseBuilder<Store6RoomTestDatabase>()
 
-private fun testDatabasePath(): String =
-    "${System.getProperty("java.io.tmpdir")}/store6-room-kmp-spike.db"
+internal actual fun fileTestDatabaseBuilder(
+    path: String,
+): RoomDatabase.Builder<Store6RoomTestDatabase> =
+    Room.databaseBuilder<Store6RoomTestDatabase>(name = path)
+
+internal actual fun newTempDatabasePath(): String =
+    File.createTempFile("store6-room-", ".db")
+        .also { it.delete() }
+        .absolutePath

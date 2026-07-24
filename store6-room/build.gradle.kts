@@ -40,20 +40,25 @@ kotlin {
         val nativeTest by getting {
             dependsOn(hostTest)
         }
+        listOf(
+            "jvmTest",
+            "iosX64Test",
+            "iosArm64Test",
+            "iosSimulatorArm64Test",
+            "macosArm64Test",
+            "watchosArm64Test",
+            "tvosArm64Test",
+            "linuxX64Test",
+        ).forEach { sourceSetName ->
+            getByName(sourceSetName)
+                .languageSettings
+                .optIn("org.mobilenativefoundation.store6.core.ExperimentalStoreApi")
+        }
     }
 }
 
 dependencies {
     listOf(
-        "kspAndroid",
-        "kspJvm",
-        "kspIosX64",
-        "kspIosArm64",
-        "kspIosSimulatorArm64",
-        "kspMacosArm64",
-        "kspWatchosArm64",
-        "kspTvosArm64",
-        "kspLinuxX64",
         "kspJvmTest",
         "kspIosX64Test",
         "kspIosArm64Test",
