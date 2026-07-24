@@ -58,10 +58,48 @@ internal abstract class Store6RoomTestDatabase : RoomDatabase() {
     abstract fun store6BookkeeperDao(): Store6BookkeeperDao
 }
 
+@Database(
+    entities = [KitRowEntity::class],
+    version = 1,
+    exportSchema = false,
+)
+@ConstructedBy(MigrationV1DatabaseConstructor::class)
+internal abstract class MigrationV1Database : RoomDatabase() {
+    abstract fun kitRowDao(): KitRowDao
+}
+
+@Database(
+    entities = [
+        KitRowEntity::class,
+        Store6BookkeepingEntity::class,
+        Store6WatermarkEntity::class,
+    ],
+    version = 2,
+    exportSchema = false,
+)
+@ConstructedBy(MigrationV2DatabaseConstructor::class)
+internal abstract class MigrationV2Database : RoomDatabase() {
+    abstract fun kitRowDao(): KitRowDao
+
+    abstract fun store6BookkeeperDao(): Store6BookkeeperDao
+}
+
 @Suppress("NO_ACTUAL_FOR_EXPECT")
 internal expect object Store6RoomTestDatabaseConstructor :
     RoomDatabaseConstructor<Store6RoomTestDatabase> {
     override fun initialize(): Store6RoomTestDatabase
+}
+
+@Suppress("NO_ACTUAL_FOR_EXPECT")
+internal expect object MigrationV1DatabaseConstructor :
+    RoomDatabaseConstructor<MigrationV1Database> {
+    override fun initialize(): MigrationV1Database
+}
+
+@Suppress("NO_ACTUAL_FOR_EXPECT")
+internal expect object MigrationV2DatabaseConstructor :
+    RoomDatabaseConstructor<MigrationV2Database> {
+    override fun initialize(): MigrationV2Database
 }
 
 internal expect fun inMemoryTestDatabaseBuilder(): RoomDatabase.Builder<Store6RoomTestDatabase>
@@ -70,17 +108,25 @@ internal expect fun fileTestDatabaseBuilder(
     path: String,
 ): RoomDatabase.Builder<Store6RoomTestDatabase>
 
+internal expect fun migrationV1DatabaseBuilder(
+    path: String,
+): RoomDatabase.Builder<MigrationV1Database>
+
+internal expect fun migrationV2DatabaseBuilder(
+    path: String,
+): RoomDatabase.Builder<MigrationV2Database>
+
 internal expect fun newTempDatabasePath(): String
 
 internal fun createTestDatabase(): Store6RoomTestDatabase =
-    configure(inMemoryTestDatabaseBuilder())
+    configureTestDatabase(inMemoryTestDatabaseBuilder())
 
 internal fun openTestDatabase(path: String): Store6RoomTestDatabase =
-    configure(fileTestDatabaseBuilder(path))
+    configureTestDatabase(fileTestDatabaseBuilder(path))
 
-private fun configure(
-    builder: RoomDatabase.Builder<Store6RoomTestDatabase>,
-): Store6RoomTestDatabase =
+internal fun <T : RoomDatabase> configureTestDatabase(
+    builder: RoomDatabase.Builder<T>,
+): T =
     builder
         .setDriver(BundledSQLiteDriver())
         .setQueryCoroutineContext(Dispatchers.Default)
