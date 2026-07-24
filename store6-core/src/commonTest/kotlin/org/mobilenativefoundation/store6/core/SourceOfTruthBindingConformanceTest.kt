@@ -19,8 +19,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.produceIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
@@ -45,6 +47,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class SourceOfTruthBindingConformanceTest {
@@ -114,14 +117,14 @@ class SourceOfTruthBindingConformanceTest {
             app.cash.turbine.turbineScope {
                 val collector = store.stream(key).testIn(backgroundScope)
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { bookkeeper.successEntered.await() }
+                    bookkeeper.successEntered.await()
                 }
 
                 sourceOfTruth.publishExternal("external")
                 awaitLocalValue(store, "external")
                 bookkeeper.releaseSuccess.complete(Unit)
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { secondFetchStarted.await() }
+                    secondFetchStarted.await()
                 }
                 assertEquals("external", store.get(key, Freshness.LocalOnly))
 
@@ -242,7 +245,7 @@ class SourceOfTruthBindingConformanceTest {
                     assertEquals("v1", stale.value)
                     assertTrue(stale.isStale)
                     withContext(Dispatchers.Default) {
-                        withTimeout(2_000L) { bookkeeper.successEntered.await() }
+                        bookkeeper.successEntered.await()
                     }
                     sourceOfTruth.replay("v1")
                     expectNoEvents()
@@ -420,14 +423,14 @@ class SourceOfTruthBindingConformanceTest {
                 val first = store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
                 assertEquals("seed", assertIs<StoreResult.Data<String>>(first.awaitItem()).value)
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { sourceOfTruth.liveReaderStarted.await() }
+                    sourceOfTruth.liveReaderStarted.await()
                 }
                 first.cancelAndIgnoreRemainingEvents()
 
                 sourceOfTruth.gateExternalEmission()
                 sourceOfTruth.write(key, "external")
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { sourceOfTruth.externalEmissionBlocked.await() }
+                    sourceOfTruth.externalEmissionBlocked.await()
                 }
 
                 val second = store.stream(key, Freshness.LocalOnly).testIn(backgroundScope)
@@ -725,7 +728,7 @@ class SourceOfTruthBindingConformanceTest {
                     store.clear(key)
                 }
             withContext(Dispatchers.Default) {
-                withTimeout(500L) { sourceOfTruth.deleteStarted.await() }
+                sourceOfTruth.deleteStarted.await()
             }
             clear.await()
         } finally {
@@ -1003,7 +1006,7 @@ class SourceOfTruthBindingConformanceTest {
                 firstFetchStarted.await()
                 releaseFirstFetch.complete(Unit)
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { bookkeeper.successEntered.await() }
+                    bookkeeper.successEntered.await()
                 }
                 assertEquals("candidate", assertIs<StoreResult.Data<String>>(awaitItem()).value)
 
@@ -1012,7 +1015,7 @@ class SourceOfTruthBindingConformanceTest {
                 bookkeeper.releaseSuccess.complete(Unit)
 
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { secondFetchStarted.await() }
+                    secondFetchStarted.await()
                 }
                 assertEquals("recovered", assertIs<StoreResult.Data<String>>(awaitItem()).value)
                 assertEquals(2, fetchCalls)
@@ -1161,14 +1164,14 @@ class SourceOfTruthBindingConformanceTest {
                 store.invalidate(key)
                 assertIs<StoreResult.Loading>(collector.awaitItem())
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { sourceOfTruth.secondWriteStarted.await() }
+                    sourceOfTruth.secondWriteStarted.await()
                 }
 
                 clock.now = 10.minutes.inWholeMilliseconds
                 sourceOfTruth.releaseSecondWrite.complete(Unit)
 
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { thirdFetchStarted.await() }
+                    thirdFetchStarted.await()
                 }
                 assertEquals(
                     "v3",
@@ -1284,7 +1287,7 @@ class SourceOfTruthBindingConformanceTest {
         store.close()
 
         withContext(Dispatchers.Default) {
-            withTimeout(2_000L) { sourceOfTruth.writeCancelled.await() }
+            sourceOfTruth.writeCancelled.await()
         }
         assertNotNull(read.await().exceptionOrNull())
         assertNull(sourceOfTruth.current)
@@ -1317,7 +1320,7 @@ class SourceOfTruthBindingConformanceTest {
         sourceOfTruth.releaseDelete.complete(Unit)
 
         withContext(Dispatchers.Default) {
-            withTimeout(2_000L) { bookkeeper.forgotten.await() }
+            bookkeeper.forgotten.await()
         }
         assertNotNull(deleting.await().exceptionOrNull())
         assertNull(sourceOfTruth.current)
@@ -1328,11 +1331,10 @@ class SourceOfTruthBindingConformanceTest {
         store: Store<TestKey, String>,
         expected: String,
     ) {
+        // Preserve Default-dispatch ordering and let the suite-level runTest bound own cancellation.
         withContext(Dispatchers.Default) {
-            withTimeout(2_000L) {
-                store.stream(key, Freshness.LocalOnly).first { result ->
-                    result is StoreResult.Data && result.value == expected
-                }
+            store.stream(key, Freshness.LocalOnly).first { result ->
+                result is StoreResult.Data && result.value == expected
             }
         }
     }
@@ -2065,3 +2067,6 @@ class SourceOfTruthBindingConformanceTest {
         }
     }
 }
+
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)

@@ -10,7 +10,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
@@ -93,8 +92,9 @@ abstract class StoreInvalidationStressConformance : SourceOfTruthSubstitutionTes
                 }
             } finally {
                 releaseFinalFetch.complete(Unit)
-                burstCollector.cancelAndJoin()
+                burstCollector.cancel()
                 store.close()
+                burstCollector.join()
             }
         }
 }
@@ -103,5 +103,5 @@ class StoreInvalidationStressTest : StoreInvalidationStressConformance()
 
 private suspend fun <T> CompletableDeferred<T>.awaitFromDefaultContext(): T =
     withContext(Dispatchers.Default) {
-        withTimeout(5_000) { await() }
+        await()
     }

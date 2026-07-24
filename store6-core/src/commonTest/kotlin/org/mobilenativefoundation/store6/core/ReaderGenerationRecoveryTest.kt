@@ -6,10 +6,11 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.internal.RotatingSlotSourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
@@ -17,6 +18,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class ReaderGenerationRecoveryTest {
@@ -113,11 +115,11 @@ class ReaderGenerationRecoveryTest {
         sourceOfTruth: RotatingSlotSourceOfTruth<TestKey, String>,
         previousCount: Int,
     ) {
+        // Preserve the real-time Default-dispatch hop and let the suite-level runTest bound own
+        // cancellation.
         withContext(Dispatchers.Default) {
-            withTimeout(5_000) {
-                while (sourceOfTruth.subscriptionCount(key) <= previousCount) {
-                    yield()
-                }
+            while (sourceOfTruth.subscriptionCount(key) <= previousCount) {
+                yield()
             }
         }
         assertTrue(
@@ -126,3 +128,6 @@ class ReaderGenerationRecoveryTest {
         )
     }
 }
+
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)

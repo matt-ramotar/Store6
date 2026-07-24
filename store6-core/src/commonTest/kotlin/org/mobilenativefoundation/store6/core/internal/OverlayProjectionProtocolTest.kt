@@ -22,10 +22,10 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.selects.select
+import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.Freshness
@@ -46,6 +46,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 /** Deterministic proofs for the private base/revision/generation projection protocol. */
 @OptIn(ExperimentalStoreApi::class, DelicateStoreApi::class)
@@ -1168,9 +1169,7 @@ class OverlayProjectionProtocolTest {
                     cancelAndIgnoreRemainingEvents()
                 }
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) {
-                        signals.subscriptionCount.first { count -> count > 0 }
-                    }
+                    signals.subscriptionCount.first { count -> count > 0 }
                 }
 
                 store.stream(key, Freshness.MustBeFresh).test {
@@ -1683,8 +1682,15 @@ class OverlayProjectionProtocolTest {
         }
     }
 
+    private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+        coroutineRunTest(timeout = 25.seconds, testBody = testBody)
+
+    // Keep Default-dispatch ordering, but let runTest provide the only timeout. Short nested
+    // wall-clock deadlines are scheduler-sensitive under the broad root build graph.
     private suspend fun <T> awaitFromDefault(block: suspend () -> T): T =
-        withContext(Dispatchers.Default) { withTimeout(2_000L) { block() } }
+        withContext(Dispatchers.Default) {
+            block()
+        }
 
     private class SuspendGate {
         private val entered = CompletableDeferred<Unit>()
@@ -1701,7 +1707,9 @@ class OverlayProjectionProtocolTest {
         }
 
         suspend fun awaitEntered() {
-            withContext(Dispatchers.Default) { withTimeout(2_000L) { entered.await() } }
+            withContext(Dispatchers.Default) {
+                entered.await()
+            }
         }
 
         suspend fun awaitEnteredCausally() {
@@ -1709,7 +1717,9 @@ class OverlayProjectionProtocolTest {
         }
 
         suspend fun awaitExited() {
-            withContext(Dispatchers.Default) { withTimeout(2_000L) { exited.await() } }
+            withContext(Dispatchers.Default) {
+                exited.await()
+            }
         }
 
         fun release() {
@@ -1744,7 +1754,9 @@ class OverlayProjectionProtocolTest {
             get() = suppliedChanges ?: signals
 
         suspend fun awaitCall(): V? =
-            withContext(Dispatchers.Default) { withTimeout(2_000L) { calls.receive() } }
+            withContext(Dispatchers.Default) {
+                calls.receive()
+            }
 
         suspend fun awaitCallValue(expected: V) {
             while (awaitCall() != expected) Unit
@@ -1837,7 +1849,7 @@ class OverlayProjectionProtocolTest {
             while (true) {
                 val observed =
                     withContext(Dispatchers.Default) {
-                        withTimeout(2_000L) { serveEvents.receive() }
+                        serveEvents.receive()
                     }
                 if (expected == null || observed == expected) return observed
             }

@@ -13,10 +13,11 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
 import org.mobilenativefoundation.store6.core.internal.EngineStoreMeta
 import org.mobilenativefoundation.store6.core.internal.FetchDisposition
@@ -36,6 +37,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class SourceOfTruthCancellationConformanceTest {
@@ -92,7 +94,7 @@ class SourceOfTruthCancellationConformanceTest {
 
         val failure =
             withContext(Dispatchers.Default) {
-                withTimeout(1_000L) { collector.await() }
+                collector.await()
             }.exceptionOrNull()
         assertIs<CancellationException>(failure)
         assertEquals("write cancelled", failure.message)
@@ -213,7 +215,7 @@ class SourceOfTruthCancellationConformanceTest {
 
         val failure =
             withContext(Dispatchers.Default) {
-                withTimeout(1_000L) { collector.await() }
+                collector.await()
             }.exceptionOrNull()
         assertIs<CancellationException>(failure)
         assertEquals("delete cancelled", failure.message)
@@ -529,3 +531,6 @@ class SourceOfTruthCancellationConformanceTest {
         override suspend fun forgetAll() = delegate.forgetAll()
     }
 }
+
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)

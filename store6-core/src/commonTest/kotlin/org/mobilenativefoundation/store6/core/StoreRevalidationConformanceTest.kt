@@ -3,11 +3,11 @@ package org.mobilenativefoundation.store6.core
 import app.cash.turbine.test
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -15,6 +15,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 abstract class StoreRevalidationConformance : SourceOfTruthSubstitutionTest() {
     @Test
@@ -141,8 +142,9 @@ abstract class StoreRevalidationConformance : SourceOfTruthSubstitutionTest() {
         } finally {
             releaseNotModified.complete(Unit)
             releaseSlowCollector.complete(Unit)
-            slowCollector.cancelAndJoin()
+            slowCollector.cancel()
             store.close()
+            slowCollector.join()
         }
     }
 
@@ -193,15 +195,20 @@ abstract class StoreRevalidationConformance : SourceOfTruthSubstitutionTest() {
         } finally {
             releaseSlowCollector.complete(Unit)
             releaseRefetch.complete(Unit)
-            slowCollector.cancelAndJoin()
+            slowCollector.cancel()
             store.close()
+            slowCollector.join()
         }
     }
 }
 
 class StoreRevalidationConformanceTest : StoreRevalidationConformance()
 
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)
+
+// Preserve Default-dispatch ordering and let the suite-level runTest bound own cancellation.
 private suspend fun <T> CompletableDeferred<T>.awaitFromDefaultContext(): T =
     withContext(Dispatchers.Default) {
-        withTimeout(5_000) { await() }
+        await()
     }

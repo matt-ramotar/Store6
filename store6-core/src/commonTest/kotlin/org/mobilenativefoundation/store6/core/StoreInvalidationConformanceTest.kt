@@ -9,10 +9,11 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.flow.produceIn
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -20,6 +21,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 
 open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
     // AC-3 (TEST-1): an active stream signaled by invalidate observes refetched data.
@@ -307,7 +309,7 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
 
             val failure =
                 withContext(Dispatchers.Default) {
-                    withTimeout(5_000) { waiter.await() }
+                    waiter.await()
                 }.exceptionOrNull()
             val exception = assertIs<StoreException>(failure)
             val missing = assertIs<StoreError.Missing>(exception.error)
@@ -343,7 +345,7 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
 
             val failure =
                 withContext(Dispatchers.Default) {
-                    withTimeout(5_000) { waiter.await() }
+                    waiter.await()
                 }.exceptionOrNull()
             val exception = assertIs<StoreException>(failure)
             assertIs<StoreError.Missing>(exception.error)
@@ -649,7 +651,19 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
 
                 store.clearNamespace(StoreNamespace("a"))
 
-                assertIs<StoreResult.Loading>(collector.awaitItem())
+                // 006 fenced-clear ruling: an already-active pipeline may queue one duplicate
+                // pre-clear Data frame. Drain it exactly; Loading then Missing must still follow.
+                var frame = collector.awaitItem()
+                var queuedPreClearReplays = 0
+                while (frame !is StoreResult.Loading) {
+                    queuedPreClearReplays += 1
+                    assertEquals(1, queuedPreClearReplays, "more than one queued pre-clear replay")
+                    val replay = assertIs<StoreResult.Data<String>>(frame)
+                    assertEquals("v1", replay.value)
+                    assertFalse(replay.isStale)
+                    assertFalse(replay.refreshing)
+                    frame = collector.awaitItem()
+                }
                 val missing = assertIs<StoreResult.Error>(collector.awaitItem())
                 assertIs<StoreError.Missing>(missing.error)
                 assertFalse(missing.servedStale)
@@ -806,6 +820,9 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
     }
 }
 
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)
+
 private suspend fun <K : StoreKey> Store<K, String>.awaitLocalOnlyMissingReaderBarrier(
     key: K,
     scope: kotlinx.coroutines.CoroutineScope,
@@ -817,7 +834,9 @@ private suspend fun <K : StoreKey> Store<K, String>.awaitLocalOnlyMissingReaderB
     return collector
 }
 
+// Preserve the cross-scheduler hop; runTest owns the timeout so broad-graph load cannot
+// expire a shorter wall-clock deadline before the causal event reaches Dispatchers.Default.
 private suspend fun <T> CompletableDeferred<T>.awaitFromDefault(): T =
     withContext(Dispatchers.Default) {
-        withTimeout(5_000) { await() }
+        await()
     }

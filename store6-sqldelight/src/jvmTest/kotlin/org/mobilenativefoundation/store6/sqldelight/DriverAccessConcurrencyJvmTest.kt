@@ -12,9 +12,10 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -30,6 +31,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 internal class DriverAccessConcurrencyJvmTest {
     @Test
@@ -242,7 +244,7 @@ internal class DriverAccessConcurrencyJvmTest {
                     releaseHoldingWrite.countDown()
                     holdingWrite.await()
                     withContext(Dispatchers.Default) {
-                        withTimeout(5_000) { nestedTransaction.await() }
+                        nestedTransaction.await()
                     }
                 }
             } finally {
@@ -340,3 +342,6 @@ internal class DriverAccessConcurrencyJvmTest {
                 "work outside withTransaction."
     }
 }
+
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)

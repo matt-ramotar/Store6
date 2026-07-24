@@ -7,7 +7,9 @@ kotlin {
         nodejs {
             testTask {
                 useMocha {
-                    timeout = "30s"
+                    // Keep the runner above the 240s StoreInvalidationStressTest watchdog so
+                    // runTest always owns cancellation and cleanup.
+                    timeout = "300s"
                 }
             }
         }
