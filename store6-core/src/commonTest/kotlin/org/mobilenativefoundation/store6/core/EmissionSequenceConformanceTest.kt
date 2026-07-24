@@ -238,6 +238,9 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
                         secondGate.await()
                         FetcherResult.NotModified(etag = "e1")
                     }
+                    // T2E ruling: a cold-baseline 304 commits ObsoleteRevalidation and legally
+                    // self-heals with exactly one replanned conditional fetch.
+                    3 -> FetcherResult.NotModified(etag = "e1")
                     else -> error("unexpected fetch call $calls")
                 }
             }
@@ -294,7 +297,10 @@ open class EmissionSequenceConformanceTest : SourceOfTruthSubstitutionTest() {
                 }
                 assertIs<StoreResult.Revalidated>(terminal)
                 collector.expectNoEvents()
-                assertEquals(2, calls)
+                assertTrue(
+                    calls in 2..3,
+                    "the 304 cycle may self-heal one obsolete cold-baseline launch",
+                )
                 localCollector.cancelAndIgnoreRemainingEvents()
                 initialCollector.cancelAndIgnoreRemainingEvents()
                 collector.cancelAndIgnoreRemainingEvents()

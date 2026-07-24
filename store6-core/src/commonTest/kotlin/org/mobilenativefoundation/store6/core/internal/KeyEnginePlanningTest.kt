@@ -42,6 +42,7 @@ import kotlin.test.assertNull
 import kotlin.test.assertNotNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 
@@ -272,6 +273,110 @@ class KeyEnginePlanningTest {
         assertEquals("v2", engine.get(Freshness.MustBeFresh))
         assertTrue(thirdFetchEntered.isCompleted)
         assertEquals(3, calls, "a later MustBeFresh demand must not reuse the old 304 owner")
+    }
+
+    // T2E ruling (017 post-merge): a 304 that launched against a null residence baseline but
+    // finds residence present at commit is an obsolete launch snapshot, not an adapter-contract
+    // violation. It must classify ObsoleteRevalidation and self-heal by replanning once.
+    @Test
+    fun coldBaselineNotModified_hydratedBeforeCommit_classifiesObsoleteAndReplans() = runTest {
+        val key = TestKey("cold-304-hydrated")
+        val sourceOfTruth = InMemorySourceOfTruth<TestKey, String>()
+        val firstFetchEntered = CompletableDeferred<Unit>()
+        val releaseFirstFetch = CompletableDeferred<Unit>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = ResultFetcher {
+                    when (++calls) {
+                        1 -> {
+                            firstFetchEntered.complete(Unit)
+                            releaseFirstFetch.await()
+                            FetcherResult.NotModified("e1")
+                        }
+                        2 -> FetcherResult.NotModified("e1")
+                        else -> error("unexpected fetch call $calls")
+                    }
+                },
+                sot = sourceOfTruth,
+                bookkeeper = InMemoryBookkeeper(),
+                validator = DefaultFreshnessValidator,
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+            )
+
+        engine.stream(Freshness.CachedOrFetch).test {
+            assertIs<StoreResult.Loading>(awaitItem())
+            firstFetchEntered.await()
+            val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+            assertNull(ticket.residenceRevisionAtLaunch)
+
+            sourceOfTruth.write(key, "external")
+            assertEquals("external", assertIs<StoreResult.Data<String>>(awaitItem()).value)
+
+            releaseFirstFetch.complete(Unit)
+            assertIs<FetchOutcome.ObsoleteRevalidation>(ticket.outcome.await())
+
+            while (true) {
+                when (val item = awaitItem()) {
+                    is StoreResult.Data -> assertEquals("external", item.value)
+                    is StoreResult.Revalidated -> break
+                    else -> fail("unexpected lifecycle item ${item::class.simpleName}")
+                }
+            }
+            testScheduler.runCurrent()
+            assertEquals(2, calls, "the cold-baseline 304 self-heal replans exactly once")
+            expectNoEvents()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun trulyColdNotModified_staysTypedMissingAdapterContractFailure() = runTest {
+        val key = TestKey("cold-304-empty")
+        val firstFetchEntered = CompletableDeferred<Unit>()
+        val releaseFirstFetch = CompletableDeferred<Unit>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = ResultFetcher {
+                    when (++calls) {
+                        1 -> {
+                            firstFetchEntered.complete(Unit)
+                            releaseFirstFetch.await()
+                            FetcherResult.NotModified("e1")
+                        }
+                        else -> error("unexpected fetch call $calls")
+                    }
+                },
+                sot = InMemorySourceOfTruth(),
+                bookkeeper = InMemoryBookkeeper(),
+                validator = DefaultFreshnessValidator,
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+            )
+
+        engine.stream(Freshness.CachedOrFetch).test {
+            assertIs<StoreResult.Loading>(awaitItem())
+            firstFetchEntered.await()
+            val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+            assertNull(ticket.residenceRevisionAtLaunch)
+
+            releaseFirstFetch.complete(Unit)
+            val failed = assertIs<FetchOutcome.Failed>(ticket.outcome.await())
+            assertIs<StoreError.Missing>(failed.exception.error)
+
+            val failure = assertIs<StoreResult.Error>(awaitItem())
+            assertIs<StoreError.Missing>(failure.error)
+            assertFalse(failure.servedStale)
+            testScheduler.runCurrent()
+            assertEquals(1, calls, "a truly cold 304 is terminal and must not replan")
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test

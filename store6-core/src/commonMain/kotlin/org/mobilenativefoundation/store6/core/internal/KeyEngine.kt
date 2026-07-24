@@ -1482,12 +1482,20 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             when (result.effect) {
                                 KeyEffect.CommitRevalidation -> {
                                     val current = residence.value
-                                    if (baseline == null) {
+                                    if (baseline == null && current == null) {
                                         FetchOutcome.Failed(
                                             exception = notModifiedWithoutValueException(),
                                             atEpochMillis = now,
                                         )
-                                    } else if (current == null || residenceRevision != baseline) {
+                                    } else if (
+                                        baseline == null ||
+                                        current == null ||
+                                        residenceRevision != baseline
+                                    ) {
+                                        // A null launch baseline with residence present at commit
+                                        // is an obsolete launch snapshot (residence hydrated
+                                        // mid-flight), not an adapter-contract violation; only a
+                                        // 304 with no value on either side is Failed.
                                         FetchOutcome.ObsoleteRevalidation
                                     } else {
                                         val age = elapsedAge(now, current.meta)
