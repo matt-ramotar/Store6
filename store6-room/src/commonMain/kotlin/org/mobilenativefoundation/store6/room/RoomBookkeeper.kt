@@ -239,8 +239,8 @@ public class RoomBookkeeper(
     }
 
     private companion object {
-        const val SEQUENCE_SCOPE = "store6.sequence"
-        const val GLOBAL_SCOPE = "store6.global"
+        private const val SEQUENCE_SCOPE = "store6.sequence"
+        private const val GLOBAL_SCOPE = "store6.global"
 
         fun namespaceScope(namespace: String): String = "ns:$namespace"
     }
