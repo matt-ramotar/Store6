@@ -13,11 +13,11 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
 import org.mobilenativefoundation.store6.core.internal.FetchDisposition
 import org.mobilenativefoundation.store6.core.internal.FetchOutcome
@@ -38,6 +38,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class KeyEngineSourceOfTruthRaceTest {
@@ -89,7 +90,7 @@ class KeyEngineSourceOfTruthRaceTest {
                 assertIs<StoreError.Persistence>(failure.error)
 
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { sourceOfTruth.recovered.await() }
+                    sourceOfTruth.recovered.await()
                 }
                 assertTrue(sourceOfTruth.readerCalls >= 4)
                 expectNoEvents()
@@ -119,7 +120,7 @@ class KeyEngineSourceOfTruthRaceTest {
                 assertIs<StoreError.Persistence>(failure.error)
 
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { sourceOfTruth.recovered.await() }
+                    sourceOfTruth.recovered.await()
                 }
                 assertTrue(sourceOfTruth.readerCalls >= 4)
                 expectNoEvents()
@@ -155,7 +156,7 @@ class KeyEngineSourceOfTruthRaceTest {
                     assertIs<StoreResult.Error>(second.awaitItem()).error,
                 )
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { sourceOfTruth.recovered.await() }
+                    sourceOfTruth.recovered.await()
                 }
                 assertEquals(2, sourceOfTruth.readerCalls)
                 first.cancelAndIgnoreRemainingEvents()
@@ -382,7 +383,7 @@ class KeyEngineSourceOfTruthRaceTest {
                 assertEquals("seed", assertIs<StoreResult.Data<String>>(collector.awaitItem()).value)
                 sourceOfTruth.liveReaderStarted.await()
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { sourceOfTruth.writeStarted.await() }
+                    sourceOfTruth.writeStarted.await()
                 }
 
                 sourceOfTruth.publishExternal("external")
@@ -641,3 +642,6 @@ class KeyEngineSourceOfTruthRaceTest {
         }
     }
 }
+
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)

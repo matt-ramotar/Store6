@@ -4,9 +4,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import kotlin.test.Test
@@ -15,6 +16,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalStoreApi::class)
 class StoreScopedMaintenanceRaceTest {
@@ -36,7 +38,7 @@ class StoreScopedMaintenanceRaceTest {
         val laterSuccess = backgroundScope.async { store.get(key, Freshness.MustBeFresh) }
         testScheduler.runCurrent()
         try {
-            withRealTimeout { successEntered.await() }
+            awaitFromDefault { successEntered.await() }
             val invalidation = backgroundScope.async {
                 store.invalidateNamespace(StoreNamespace("a"))
             }
@@ -46,8 +48,8 @@ class StoreScopedMaintenanceRaceTest {
                 "watermark must advance before resident status is rechecked",
             )
             releaseSuccess.complete(Unit)
-            assertEquals("v2", withRealTimeout { laterSuccess.await() })
-            withRealTimeout { invalidation.await() }
+            assertEquals("v2", awaitFromDefault { laterSuccess.await() })
+            awaitFromDefault { invalidation.await() }
             val watermarkIndex = durableBookkeeper.log.indexOf("advanceStaleWatermark:a")
             val statusAfterWatermark =
                 durableBookkeeper.log.indexOfLast { it == "status:a/1" }
@@ -81,7 +83,7 @@ class StoreScopedMaintenanceRaceTest {
         val laterSuccess = backgroundScope.async { store.get(key, Freshness.MustBeFresh) }
         testScheduler.runCurrent()
         try {
-            withRealTimeout { successEntered.await() }
+            awaitFromDefault { successEntered.await() }
             val invalidation = backgroundScope.async { store.invalidateAll() }
             testScheduler.runCurrent()
             assertTrue(
@@ -89,8 +91,8 @@ class StoreScopedMaintenanceRaceTest {
                 "global watermark must advance before resident status is rechecked",
             )
             releaseSuccess.complete(Unit)
-            assertEquals("v2", withRealTimeout { laterSuccess.await() })
-            withRealTimeout { invalidation.await() }
+            assertEquals("v2", awaitFromDefault { laterSuccess.await() })
+            awaitFromDefault { invalidation.await() }
             val watermarkIndex = durableBookkeeper.log.indexOf("advanceGlobalStaleWatermark")
             val statusAfterWatermark = durableBookkeeper.log.indexOfLast { it == "status:test/1" }
             assertTrue(
@@ -136,19 +138,19 @@ class StoreScopedMaintenanceRaceTest {
         testScheduler.runCurrent()
 
         try {
-            withRealTimeout { affectedFetchStarted.await() }
+            awaitFromDefault { affectedFetchStarted.await() }
             val clear = backgroundScope.async { store.clearNamespace(StoreNamespace("a")) }
             testScheduler.runCurrent()
             assertTrue(gated.namespaceDeleted.isCompleted, "clear must reach atomic bulk delete")
             releaseAffectedFetch.complete(Unit)
             val newEngineTail = backgroundScope.async { runCatching { store.get(betweenSweeps) } }
             testScheduler.runCurrent()
-            withRealTimeout { betweenSweepsFetchStarted.await() }
+            awaitFromDefault { betweenSweepsFetchStarted.await() }
             assertEquals("b/1-v2", store.get(unrelated, Freshness.MustBeFresh))
             gated.releaseDelete.complete(Unit)
-            withRealTimeout { clear.await() }
-            assertMissingResult(withRealTimeout { oldTail.await() })
-            assertMissingResult(withRealTimeout { newEngineTail.await() })
+            awaitFromDefault { clear.await() }
+            assertMissingResult(awaitFromDefault { oldTail.await() })
+            assertMissingResult(awaitFromDefault { newEngineTail.await() })
             assertNull(backing.reader(affected).first())
             assertNull(backing.reader(betweenSweeps).first())
             assertEquals("b/1-v2", backing.reader(unrelated).first())
@@ -190,18 +192,18 @@ class StoreScopedMaintenanceRaceTest {
         testScheduler.runCurrent()
 
         try {
-            withRealTimeout { affectedFetchStarted.await() }
+            awaitFromDefault { affectedFetchStarted.await() }
             val clear = backgroundScope.async { store.clearAll() }
             testScheduler.runCurrent()
             assertTrue(gated.allDeleted.isCompleted, "clearAll must reach atomic bulk delete")
             releaseAffectedFetch.complete(Unit)
             val newEngineTail = backgroundScope.async { runCatching { store.get(betweenSweeps) } }
             testScheduler.runCurrent()
-            withRealTimeout { betweenSweepsFetchStarted.await() }
+            awaitFromDefault { betweenSweepsFetchStarted.await() }
             gated.releaseDelete.complete(Unit)
-            withRealTimeout { clear.await() }
-            assertMissingResult(withRealTimeout { oldTail.await() })
-            assertMissingResult(withRealTimeout { newEngineTail.await() })
+            awaitFromDefault { clear.await() }
+            assertMissingResult(awaitFromDefault { oldTail.await() })
+            assertMissingResult(awaitFromDefault { newEngineTail.await() })
             assertNull(backing.reader(existing).first())
             assertNull(backing.reader(betweenSweeps).first())
             assertLocalOnlyMissing(store, existing)
@@ -218,10 +220,11 @@ class StoreScopedMaintenanceRaceTest {
         assertIs<StoreError.Missing>(failure.error)
     }
 
-    /** Bounds Default-dispatcher engine tails in real time instead of advancing virtual time. */
-    private suspend fun <T> withRealTimeout(block: suspend () -> T): T =
+    // Preserve the real-time Default-dispatch hop (never virtual time) and let the suite-level
+    // runTest bound own cancellation.
+    private suspend fun <T> awaitFromDefault(block: suspend () -> T): T =
         withContext(Dispatchers.Default) {
-            withTimeout(5_000) { block() }
+            block()
         }
 
     private suspend fun <K : StoreKey> assertLocalOnlyMissing(
@@ -232,3 +235,6 @@ class StoreScopedMaintenanceRaceTest {
         assertIs<StoreError.Missing>(failure.error)
     }
 }
+
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)

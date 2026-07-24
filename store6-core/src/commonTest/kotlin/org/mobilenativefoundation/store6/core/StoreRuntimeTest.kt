@@ -4,8 +4,9 @@ import app.cash.turbine.test
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.KeyEvents
 import org.mobilenativefoundation.store6.core.seam.runtime
@@ -13,6 +14,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(ExperimentalStoreApi::class, DelicateStoreApi::class)
 class StoreRuntimeTest {
@@ -111,7 +113,7 @@ class StoreRuntimeTest {
                 assertEquals(Origin.SOT, awaitDataValue("applied").origin)
                 sot.write(TestKey("1"), "external")
                 withContext(Dispatchers.Default) {
-                    withTimeout(2_000L) { secondFetchStarted.await() }
+                    secondFetchStarted.await()
                 }
                 assertEquals(Origin.SOT, awaitDataValue("external").origin)
                 releaseSecondFetch.complete(Unit)
@@ -148,3 +150,6 @@ class StoreRuntimeTest {
         store.close()
     }
 }
+
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)

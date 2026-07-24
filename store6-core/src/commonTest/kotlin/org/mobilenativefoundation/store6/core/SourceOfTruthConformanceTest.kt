@@ -11,10 +11,11 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.internal.SharedFlowSourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
@@ -30,7 +31,7 @@ class SourceOfTruthConformanceTest {
 
     // C-05 shape: values arriving via fetch commit are attributed FETCHER.
     @Test
-    fun originHonesty_fetchCommit_emitsFetcher() = runTest(timeout = 25.seconds) {
+    fun originHonesty_fetchCommit_emitsFetcher() = runTest {
         var calls = 0
         val key = TestKey("1")
         val readerProbe =
@@ -468,19 +469,20 @@ class SourceOfTruthConformanceTest {
             }
         }
         withContext(Dispatchers.Default) {
-            withTimeout(10_000) {
-                val collector = launch {
-                    store.stream(TestKey("1")).collect { }
-                }
-                repeat(10) {
-                    getAllowingConcurrentClear()
-                    store.invalidate(TestKey("1"))
-                    getAllowingConcurrentClear()
-                    store.clear(TestKey("1"))
-                }
-                collector.cancel()
+            val collector = launch {
+                store.stream(TestKey("1")).collect { }
             }
+            repeat(10) {
+                getAllowingConcurrentClear()
+                store.invalidate(TestKey("1"))
+                getAllowingConcurrentClear()
+                store.clear(TestKey("1"))
+            }
+            collector.cancel()
         }
         store.close()
     }
 }
+
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)

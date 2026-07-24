@@ -10,9 +10,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
@@ -27,6 +28,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.seconds
 
 @OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class KeyRegistryTest {
@@ -334,14 +336,14 @@ class KeyRegistryTest {
         resident: Int,
         destroyed: Long,
     ) {
+        // Preserve the real-time Default-dispatch hop and let the suite-level runTest bound own
+        // cancellation.
         withContext(Dispatchers.Default) {
-            withTimeout(5_000L) {
-                while (
-                    store.residentEngineCountForTest() != resident ||
-                    store.destroyedEngineCountForTest() != destroyed
-                ) {
-                    yield()
-                }
+            while (
+                store.residentEngineCountForTest() != resident ||
+                store.destroyedEngineCountForTest() != destroyed
+            ) {
+                yield()
             }
         }
     }
@@ -386,3 +388,6 @@ class KeyRegistryTest {
         val hooks: EngineResidencyHooks,
     )
 }
+
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)

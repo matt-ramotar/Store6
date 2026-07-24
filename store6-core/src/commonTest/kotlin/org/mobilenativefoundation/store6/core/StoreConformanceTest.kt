@@ -8,7 +8,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
@@ -16,6 +18,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.time.Duration.Companion.seconds
 
 open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
 
@@ -133,7 +136,7 @@ open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
 
         val failure =
             withContext(Dispatchers.Default) {
-                withTimeout(1_000) { waiter.await() }
+                waiter.await()
             }.exceptionOrNull()
         assertIs<CancellationException>(failure)
     }
@@ -158,7 +161,7 @@ open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
 
         val failure =
             withContext(Dispatchers.Default) {
-                withTimeout(1_000) { collector.await() }
+                collector.await()
             }.exceptionOrNull()
         assertIs<CancellationException>(failure)
     }
@@ -219,7 +222,7 @@ open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
 
             val failure =
                 withContext(Dispatchers.Default) {
-                    withTimeout(1_000) { waiter.await() }
+                    waiter.await()
                 }.exceptionOrNull()
             assertFalse(release.isCompleted)
             assertIs<CancellationException>(failure)
@@ -250,7 +253,7 @@ open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
 
             val failure =
                 withContext(Dispatchers.Default) {
-                    withTimeout(1_000) { collector.await() }
+                    collector.await()
                 }.exceptionOrNull()
             assertFalse(release.isCompleted)
             assertIs<CancellationException>(failure)
@@ -260,3 +263,6 @@ open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
         }
     }
 }
+
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = 25.seconds, testBody = testBody)

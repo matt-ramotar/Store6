@@ -651,7 +651,19 @@ open class StoreInvalidationConformanceTest : SourceOfTruthSubstitutionTest() {
 
                 store.clearNamespace(StoreNamespace("a"))
 
-                assertIs<StoreResult.Loading>(collector.awaitItem())
+                // 006 fenced-clear ruling: an already-active pipeline may queue one duplicate
+                // pre-clear Data frame. Drain it exactly; Loading then Missing must still follow.
+                var frame = collector.awaitItem()
+                var queuedPreClearReplays = 0
+                while (frame !is StoreResult.Loading) {
+                    queuedPreClearReplays += 1
+                    assertEquals(1, queuedPreClearReplays, "more than one queued pre-clear replay")
+                    val replay = assertIs<StoreResult.Data<String>>(frame)
+                    assertEquals("v1", replay.value)
+                    assertFalse(replay.isStale)
+                    assertFalse(replay.refreshing)
+                    frame = collector.awaitItem()
+                }
                 val missing = assertIs<StoreResult.Error>(collector.awaitItem())
                 assertIs<StoreError.Missing>(missing.error)
                 assertFalse(missing.servedStale)

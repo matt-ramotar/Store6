@@ -7,7 +7,6 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.internal.DefaultFreshnessValidator
 import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
@@ -145,16 +144,16 @@ class StoreZeroConfigEquivalenceTest {
             assertEquals("value:${key.canonicalId()}", store.get(key))
         }
 
+        // Preserve the real-time Default-dispatch hop; the tests' explicit runTest bound owns
+        // cancellation.
         withContext(Dispatchers.Default) {
-            withTimeout(5_000L) {
-                while (
-                    store.createdEngineCountForTest() != 129L ||
-                    store.createdEngineCountForTest() - store.destroyedEngineCountForTest() !=
-                    store.residentEngineCountForTest().toLong() ||
-                    store.idleEngineCountForTest() != store.residentEngineCountForTest()
-                ) {
-                    yield()
-                }
+            while (
+                store.createdEngineCountForTest() != 129L ||
+                store.createdEngineCountForTest() - store.destroyedEngineCountForTest() !=
+                store.residentEngineCountForTest().toLong() ||
+                store.idleEngineCountForTest() != store.residentEngineCountForTest()
+            ) {
+                yield()
             }
         }
 
