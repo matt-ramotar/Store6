@@ -30,6 +30,9 @@ abstract class StoreRevalidationConformance : SourceOfTruthSubstitutionTest() {
                         notModifiedGate.await()
                         FetcherResult.NotModified("e1")
                     }
+                    // T2E ruling: a cold-baseline 304 commits ObsoleteRevalidation and legally
+                    // self-heals with exactly one replanned conditional fetch.
+                    3 -> FetcherResult.NotModified("e1")
                     else -> error("unexpected fetch call $calls")
                 }
             }
@@ -59,8 +62,17 @@ abstract class StoreRevalidationConformance : SourceOfTruthSubstitutionTest() {
                 cancelAndIgnoreRemainingEvents()
             }
 
+            val callsAfterRevalidated = calls
+            assertTrue(
+                callsAfterRevalidated in 2..3,
+                "the 304 cycle may self-heal one obsolete cold-baseline launch",
+            )
             assertEquals("v1", store.get(TestKey("1")))
-            assertEquals(2, calls, "successful 304 must clear staleness before later planning")
+            assertEquals(
+                callsAfterRevalidated,
+                calls,
+                "successful 304 must clear staleness before later planning",
+            )
         } finally {
             notModifiedGate.complete(Unit)
             store.close()
@@ -86,6 +98,9 @@ abstract class StoreRevalidationConformance : SourceOfTruthSubstitutionTest() {
                         releaseNotModified.await()
                         FetcherResult.NotModified("e1")
                     }
+                    // T2E ruling: a cold-baseline 304 commits ObsoleteRevalidation and legally
+                    // self-heals with exactly one replanned conditional fetch.
+                    3 -> FetcherResult.NotModified("e1")
                     else -> error("unexpected fetch call $calls")
                 }
             }
@@ -138,7 +153,7 @@ abstract class StoreRevalidationConformance : SourceOfTruthSubstitutionTest() {
                 beforeRevalidated.count { it is StoreResult.Data<*> } <= 1,
                 "a blocked collector may retain only the latest consecutive Data before Revalidated",
             )
-            assertEquals(2, calls)
+            assertTrue(calls in 2..3, "the 304 cycle may self-heal one obsolete cold-baseline launch")
         } finally {
             releaseNotModified.complete(Unit)
             releaseSlowCollector.complete(Unit)
