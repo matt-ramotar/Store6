@@ -1,1 +1,24 @@
-// Intentionally empty T1 placeholder: T6 owns the Room sample implementation.
+plugins {
+    id("org.jetbrains.kotlin.jvm")
+    alias(libs.plugins.ksp)
+    application
+}
+
+kotlin {
+    jvmToolchain(11)
+    sourceSets {
+        getByName("main")
+            .languageSettings
+            .optIn("org.mobilenativefoundation.store6.core.ExperimentalStoreApi")
+    }
+}
+
+dependencies {
+    implementation(projects.store6Core)
+    implementation(projects.store6Room)
+    implementation(libs.room.runtime)
+    implementation(libs.androidx.sqlite.bundled)
+    ksp(libs.room.compiler)
+}
+
+application { mainClass.set("org.mobilenativefoundation.store6.room.sample.MainKt") }
