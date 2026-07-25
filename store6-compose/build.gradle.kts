@@ -48,4 +48,13 @@ kotlin {
 
 android {
     namespace = "org.mobilenativefoundation.store6.compose"
+
+    // The shared commonTest suites drive a real Composition on every target, and the Compose
+    // runtime traces composition disposal through android.os.Trace. Under Android local unit
+    // tests that class is an unimplemented android.jar stub, so it throws instead of no-opping.
+    // Returning stub defaults keeps the Android variant running the same suites as every other
+    // target; no assertion in this module depends on an android.jar return value.
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
