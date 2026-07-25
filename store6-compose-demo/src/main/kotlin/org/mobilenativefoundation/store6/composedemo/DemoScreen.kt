@@ -20,6 +20,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,7 +44,12 @@ fun DemoScreen(store: Store<UserKey, User>, controls: DemoControls) {
     var lastData by remember { mutableStateOf<StoreResult.Data<User>?>(null) }
     val current = result
     val ui = deriveDemoUiState(current, lastData)
-    if (current is StoreResult.Data<User>) lastData = current
+    // Retain the last Data for the next composition. Assigning during composition would be a
+    // backwards write to state this composition already read; SideEffect defers it until the
+    // composition has successfully applied.
+    if (current is StoreResult.Data<User>) {
+        SideEffect { lastData = current }
+    }
 
     MaterialTheme {
         Column(

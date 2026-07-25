@@ -73,5 +73,10 @@ internal fun streamRestartKey(key: StoreKey, freshness: Freshness): Any =
 private fun freshnessToken(freshness: Freshness): Any =
     when (freshness) {
         is Freshness.MaxAge -> "MaxAge:${freshness.notOlderThan}"
-        else -> freshness // data objects are singletons
+        // GUARD: every other landed Freshness is a `data object`, so instance identity IS a stable
+        // token. MaxAge is the sole plain class with identity equality and must be normalized by
+        // value. If core ever adds another non-singleton Freshness, add a branch for it here —
+        // otherwise a new-but-equal instance silently restarts collection on every recomposition,
+        // which is exactly the footgun the MaxAge branch exists to prevent.
+        else -> freshness
     }
