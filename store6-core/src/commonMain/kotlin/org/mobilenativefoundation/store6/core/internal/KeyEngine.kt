@@ -442,9 +442,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     successfulWriteSequenceAtObservation = current.successfulSequence,
                 )
             val activeObservation =
-                observation.copy(
-                    activeWriteAttributionAtObservation = activeWriteAttribution,
-                )
+                if (activeAttributionAtObservation === activeWriteAttribution) {
+                    observation
+                } else {
+                    observation.copy(
+                        activeWriteAttributionAtObservation = activeWriteAttribution,
+                    )
+                }
             val matchingActiveAttribution = activeObservation.matchingWriterAttribution()
             val followedMatchingActiveWriteRow =
                 activeWriteAttribution != null &&
@@ -746,6 +750,10 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             disposition === FetchDisposition.Failed ||
                 disposition === FetchDisposition.Cancelled
         if (committed == null && (!writeDidNotCommit || matchingAttribution != null)) return null
+        // A terminal failed owner cannot lend its consumed tag to the resumed row. With no tag,
+        // an equal live predecessor envelope stays unchanged while different content remains SOT.
+        val retainedConsumedAttribution =
+            provisionalRow.consumedAttribution.takeUnless { writeDidNotCommit }
 
         return stateLock.withLock {
             if (mutableState.value.readerGen != readerGen) return@withLock null
@@ -763,7 +771,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             event = event,
                             resolution = resolution,
                             consumedAttributionOverride =
-                                provisionalRow.consumedAttribution,
+                                retainedConsumedAttribution,
                         )
                     } else {
                         null
@@ -773,13 +781,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 recordForExactWriterEnvelopeLocked(
                     event = event,
                     attribution = matchingAttribution,
-                    consumedAttribution = provisionalRow.consumedAttribution,
+                    consumedAttribution = retainedConsumedAttribution,
                 )
             } else {
                 mapReaderRowLocked(
                     readerGen = readerGen,
                     event = event,
-                    tag = provisionalRow.consumedAttribution,
+                    tag = retainedConsumedAttribution,
                     matchingAttribution = null,
                 )
             }
