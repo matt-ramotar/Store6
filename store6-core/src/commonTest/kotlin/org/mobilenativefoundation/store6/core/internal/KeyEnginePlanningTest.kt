@@ -2778,6 +2778,113 @@ class KeyEnginePlanningTest {
     }
 
     @Test
+    fun coldPreWriteAbsent_twoCollectorsCannotLaunchMirrorFetch() = runTest {
+        val key = TestKey("cold-pre-write-absent-two-collectors")
+        val sourceOfTruth = HeldColdObservationSourceOfTruth(immediateReaderCalls = 2)
+        val fetchStarted = CompletableDeferred<Unit>()
+        val releaseFirstFetch = CompletableDeferred<Unit>()
+        val releaseUnexpectedFetch = CompletableDeferred<Unit>()
+        val initialDeliveryGate = SequencedGate()
+        val collectorAInitial = initialDeliveryGate.gateNext()
+        val collectorBInitial = initialDeliveryGate.gateNext()
+        val outcomeDeliveryGate = SequencedGate()
+        val collectorAOutcome = outcomeDeliveryGate.gateNext()
+        val collectorBOutcome = outcomeDeliveryGate.gateNext()
+        val planningContexts = mutableListOf<FreshnessContext>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = ResultFetcher {
+                    when (++calls) {
+                        1 -> {
+                            fetchStarted.complete(Unit)
+                            releaseFirstFetch.await()
+                            FetcherResult.Success("fresh")
+                        }
+
+                        2 -> {
+                            releaseUnexpectedFetch.await()
+                            FetcherResult.Success("unexpected")
+                        }
+
+                        else -> error("unexpected fetch call $calls")
+                    }
+                },
+                sot = sourceOfTruth,
+                bookkeeper = InMemoryBookkeeper(),
+                validator =
+                    object : FreshnessValidator {
+                        override fun plan(context: FreshnessContext): FetchPlan {
+                            planningContexts += context
+                            return DefaultFreshnessValidator.plan(context)
+                        }
+                },
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+                beforeInitialDeliveryTestGate = initialDeliveryGate::awaitIfQueued,
+                beforeTicketOutcomeDeliveryTestGate = outcomeDeliveryGate::awaitIfQueued,
+            )
+
+        app.cash.turbine.turbineScope {
+            val collectorA = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
+            val collectorB = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
+            collectorAInitial.entered.await()
+            collectorBInitial.entered.await()
+            fetchStarted.await()
+            val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+            assertEquals(1, calls)
+            assertFalse(sourceOfTruth.coldObservationHeld.isCompleted)
+            collectorAInitial.release.complete(Unit)
+            collectorBInitial.release.complete(Unit)
+            assertIs<StoreResult.Loading>(collectorA.awaitItem())
+            assertIs<StoreResult.Loading>(collectorB.awaitItem())
+            sourceOfTruth.coldObservationHeld.await()
+
+            releaseFirstFetch.complete(Unit)
+            assertIs<FetchOutcome.Committed>(ticket.outcome.await())
+            collectorAOutcome.entered.await()
+            collectorBOutcome.entered.await()
+            testScheduler.advanceTimeBy(
+                (COLD_OBSERVATION_HOLD + WRITER_CURRENT_DELIVERY_GAP).inWholeMilliseconds,
+            )
+            testScheduler.runCurrent()
+
+            val data =
+                listOf(
+                    assertIs<StoreResult.Data<String>>(collectorA.awaitItem()),
+                    assertIs<StoreResult.Data<String>>(collectorB.awaitItem()),
+                )
+            val committedContext = planningContexts.last { it.hasResidentValue }
+            data.forEach { result ->
+                assertEquals(
+                    ColdPathContractObservation(
+                        origin = Origin.FETCHER,
+                        isStale = false,
+                        refreshing = false,
+                        hasMeta = true,
+                        fetchCalls = 1,
+                    ),
+                    ColdPathContractObservation(
+                        origin = result.origin,
+                        isStale = result.isStale,
+                        refreshing = result.refreshing,
+                        hasMeta = committedContext.meta != null,
+                        fetchCalls = calls,
+                    ),
+                )
+            }
+
+            collectorA.cancelAndIgnoreRemainingEvents()
+            collectorB.cancelAndIgnoreRemainingEvents()
+            collectorAOutcome.release.complete(Unit)
+            collectorBOutcome.release.complete(Unit)
+            releaseUnexpectedFetch.complete(Unit)
+        }
+    }
+
+    @Test
     fun olderPreStampRow_cannotOverwriteANewerWriterObservation() = runTest {
         val key = TestKey("older-pre-stamp-row")
         val sourceOfTruth = ReplayEveryRowSourceOfTruth()
@@ -3442,14 +3549,16 @@ class KeyEnginePlanningTest {
         val fetchCalls: Int,
     )
 
-    private class HeldColdObservationSourceOfTruth : SingleRowTestSourceOfTruth<String> {
+    private class HeldColdObservationSourceOfTruth(
+        private val immediateReaderCalls: Int = 1,
+    ) : SingleRowTestSourceOfTruth<String> {
         private val rows = MutableStateFlow<String?>(null)
         private var readerCalls = 0
         val coldObservationHeld = CompletableDeferred<Unit>()
 
         override fun reader(key: TestKey): Flow<String?> {
             readerCalls += 1
-            if (readerCalls == 1) return rows
+            if (readerCalls <= immediateReaderCalls) return rows
             return flow {
                 var first = true
                 var heldColdObservation = false
