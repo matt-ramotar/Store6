@@ -6,6 +6,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,7 +45,11 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 import kotlin.test.fail
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
+
+private val COLD_OBSERVATION_HOLD = 60.milliseconds
+private val WRITER_CURRENT_DELIVERY_GAP = 1.milliseconds
 
 @OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class KeyEnginePlanningTest {
@@ -2689,6 +2694,90 @@ class KeyEnginePlanningTest {
     }
 
     @Test
+    fun coldPreWriteAbsent_cannotBecomePostCutoffAuthority() = runTest {
+        val key = TestKey("cold-pre-write-absent")
+        val sourceOfTruth = HeldColdObservationSourceOfTruth()
+        val fetchStarted = CompletableDeferred<Unit>()
+        val releaseFirstFetch = CompletableDeferred<Unit>()
+        val releaseUnexpectedFetch = CompletableDeferred<Unit>()
+        val outcomeDeliveryGate = InitialDeliveryGate().also { it.arm() }
+        val planningContexts = mutableListOf<FreshnessContext>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = ResultFetcher {
+                    when (++calls) {
+                        1 -> {
+                            fetchStarted.complete(Unit)
+                            releaseFirstFetch.await()
+                            FetcherResult.Success("fresh")
+                        }
+
+                        2 -> {
+                            releaseUnexpectedFetch.await()
+                            FetcherResult.Success("unexpected")
+                        }
+
+                        else -> error("unexpected fetch call $calls")
+                    }
+                },
+                sot = sourceOfTruth,
+                bookkeeper = InMemoryBookkeeper(),
+                validator =
+                    object : FreshnessValidator {
+                        override fun plan(context: FreshnessContext): FetchPlan {
+                            planningContexts += context
+                            return DefaultFreshnessValidator.plan(context)
+                        }
+                    },
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+                beforeTicketOutcomeDeliveryTestGate = outcomeDeliveryGate::awaitIfArmed,
+            )
+
+        app.cash.turbine.turbineScope {
+            val collector = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
+            assertIs<StoreResult.Loading>(collector.awaitItem())
+            sourceOfTruth.coldObservationHeld.await()
+            fetchStarted.await()
+            val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+
+            releaseFirstFetch.complete(Unit)
+            assertIs<FetchOutcome.Committed>(ticket.outcome.await())
+            outcomeDeliveryGate.entered.await()
+            testScheduler.advanceTimeBy(
+                (COLD_OBSERVATION_HOLD + WRITER_CURRENT_DELIVERY_GAP).inWholeMilliseconds,
+            )
+            testScheduler.runCurrent()
+
+            val data = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+            val committedContext = planningContexts.last { it.hasResidentValue }
+            assertEquals(
+                ColdPathContractObservation(
+                    origin = Origin.FETCHER,
+                    isStale = false,
+                    refreshing = false,
+                    hasMeta = true,
+                    fetchCalls = 1,
+                ),
+                ColdPathContractObservation(
+                    origin = data.origin,
+                    isStale = data.isStale,
+                    refreshing = data.refreshing,
+                    hasMeta = committedContext.meta != null,
+                    fetchCalls = calls,
+                ),
+            )
+
+            collector.cancelAndIgnoreRemainingEvents()
+            outcomeDeliveryGate.release()
+            releaseUnexpectedFetch.complete(Unit)
+        }
+    }
+
+    @Test
     fun olderPreStampRow_cannotOverwriteANewerWriterObservation() = runTest {
         val key = TestKey("older-pre-stamp-row")
         val sourceOfTruth = ReplayEveryRowSourceOfTruth()
@@ -3342,6 +3431,52 @@ class KeyEnginePlanningTest {
         class Step {
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
+        }
+    }
+
+    private data class ColdPathContractObservation(
+        val origin: Origin,
+        val isStale: Boolean,
+        val refreshing: Boolean,
+        val hasMeta: Boolean,
+        val fetchCalls: Int,
+    )
+
+    private class HeldColdObservationSourceOfTruth : SingleRowTestSourceOfTruth<String> {
+        private val rows = MutableStateFlow<String?>(null)
+        private var readerCalls = 0
+        val coldObservationHeld = CompletableDeferred<Unit>()
+
+        override fun reader(key: TestKey): Flow<String?> {
+            readerCalls += 1
+            if (readerCalls == 1) return rows
+            return flow {
+                var first = true
+                var heldColdObservation = false
+                rows.collect { value ->
+                    if (first && value == null) {
+                        first = false
+                        heldColdObservation = true
+                        coldObservationHeld.complete(Unit)
+                        delay(COLD_OBSERVATION_HOLD)
+                    } else if (heldColdObservation) {
+                        heldColdObservation = false
+                        delay(WRITER_CURRENT_DELIVERY_GAP)
+                    }
+                    emit(value)
+                }
+            }
+        }
+
+        override suspend fun write(
+            key: TestKey,
+            value: String,
+        ) {
+            rows.value = value
+        }
+
+        override suspend fun delete(key: TestKey) {
+            rows.value = null
         }
     }
 
