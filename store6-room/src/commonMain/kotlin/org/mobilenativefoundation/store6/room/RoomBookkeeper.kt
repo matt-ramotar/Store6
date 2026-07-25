@@ -2,11 +2,11 @@
 
 package org.mobilenativefoundation.store6.room
 
-import androidx.room.RoomDatabase
-import androidx.room.deferredTransaction
-import androidx.room.immediateTransaction
-import androidx.room.useReaderConnection
-import androidx.room.useWriterConnection
+import androidx.room3.RoomDatabase
+import androidx.room3.deferredTransaction
+import androidx.room3.immediateTransaction
+import androidx.room3.useReaderConnection
+import androidx.room3.useWriterConnection
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import org.mobilenativefoundation.store6.core.DelicateStoreApi

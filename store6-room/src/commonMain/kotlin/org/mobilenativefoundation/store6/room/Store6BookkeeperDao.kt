@@ -1,8 +1,8 @@
 package org.mobilenativefoundation.store6.room
 
-import androidx.room.Dao
-import androidx.room.Query
-import androidx.room.Upsert
+import androidx.room3.Dao
+import androidx.room3.Query
+import androidx.room3.Upsert
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 
 /** Room primitives for the adapter-owned TD-6 bookkeeping sidecar. */

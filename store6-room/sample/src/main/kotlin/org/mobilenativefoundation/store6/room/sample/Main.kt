@@ -2,15 +2,15 @@
 
 package org.mobilenativefoundation.store6.room.sample
 
-import androidx.room.Dao
-import androidx.room.Database
-import androidx.room.Entity
-import androidx.room.PrimaryKey
-import androidx.room.Query
-import androidx.room.Room
-import androidx.room.RoomDatabase
-import androidx.room.Upsert
-import androidx.room.migration.Migration
+import androidx.room3.Dao
+import androidx.room3.Database
+import androidx.room3.Entity
+import androidx.room3.PrimaryKey
+import androidx.room3.Query
+import androidx.room3.Room
+import androidx.room3.RoomDatabase
+import androidx.room3.Upsert
+import androidx.room3.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import java.io.File
@@ -111,7 +111,9 @@ private class FakeApi {
 
 private val addStore6Tables =
     object : Migration(1, 2) {
-        override fun migrate(connection: SQLiteConnection) =
+        // Room 3's Migration.migrate is suspend; Store6RoomSchema.createTables stays non-suspend
+        // because androidx.sqlite 2.7.0's execSQL is still synchronous.
+        override suspend fun migrate(connection: SQLiteConnection) =
             Store6RoomSchema.createTables(connection)
     }
 

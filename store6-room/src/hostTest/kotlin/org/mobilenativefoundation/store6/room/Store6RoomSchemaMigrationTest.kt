@@ -2,7 +2,7 @@
 
 package org.mobilenativefoundation.store6.room
 
-import androidx.room.migration.Migration
+import androidx.room3.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestResult
@@ -32,7 +32,9 @@ internal class Store6RoomSchemaMigrationTest {
 
         val migration =
             object : Migration(1, 2) {
-                override fun migrate(connection: SQLiteConnection) {
+                // Room 3's Migration.migrate is suspend; Store6RoomSchema.createTables stays
+                // non-suspend because androidx.sqlite 2.7.0's execSQL is still synchronous.
+                override suspend fun migrate(connection: SQLiteConnection) {
                     Store6RoomSchema.createTables(connection)
                 }
             }

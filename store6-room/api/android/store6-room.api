@@ -1,5 +1,5 @@
 public final class org/mobilenativefoundation/store6/room/RoomBookkeeper : org/mobilenativefoundation/store6/core/seam/Bookkeeper {
-	public fun <init> (Landroidx/room/RoomDatabase;Lorg/mobilenativefoundation/store6/room/Store6BookkeeperDao;)V
+	public fun <init> (Landroidx/room3/RoomDatabase;Lorg/mobilenativefoundation/store6/room/Store6BookkeeperDao;)V
 	public fun advanceGlobalStaleWatermark (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun advanceStaleWatermark (Lorg/mobilenativefoundation/store6/core/StoreNamespace;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun forget (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
@@ -12,7 +12,7 @@ public final class org/mobilenativefoundation/store6/room/RoomBookkeeper : org/m
 }
 
 public final class org/mobilenativefoundation/store6/room/RoomSourceOfTruth : org/mobilenativefoundation/store6/core/seam/TransactionalSourceOfTruth {
-	public fun <init> (Landroidx/room/RoomDatabase;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;)V
+	public fun <init> (Landroidx/room3/RoomDatabase;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;)V
 	public fun delete (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun deleteAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public fun deleteNamespace (Lorg/mobilenativefoundation/store6/core/StoreNamespace;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;

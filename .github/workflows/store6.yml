@@ -517,8 +517,9 @@ jobs:
           for module in "${modules[@]}"; do
             for suffix in "${suffixes[@]}"; do
               case "${module}:${suffix}" in
-                store6-room:-js|store6-room:-wasm-js|store6-room:-mingwx64)
-                  # store6-room ships the Room-KMP target subset; these three do not exist there.
+                store6-room:-js|store6-room:-wasm-js|store6-room:-mingwx64|store6-room:-iosx64)
+                  # store6-room ships Room 3's target subset; room3 publishes no iosX64 and no
+                  # web/mingw klibs for this module's scope.
                   continue
                   ;;
               esac

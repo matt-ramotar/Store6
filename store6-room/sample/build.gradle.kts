@@ -16,9 +16,9 @@ kotlin {
 dependencies {
     implementation(projects.store6Core)
     implementation(projects.store6Room)
-    implementation(libs.room.runtime)
+    implementation(libs.room3.runtime)
     implementation(libs.androidx.sqlite.bundled)
-    ksp(libs.room.compiler)
+    ksp(libs.room3.compiler)
 }
 
 application { mainClass.set("org.mobilenativefoundation.store6.room.sample.MainKt") }

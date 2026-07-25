@@ -1,7 +1,7 @@
 package org.mobilenativefoundation.store6.room
 
-import androidx.room.ColumnInfo
-import androidx.room.Entity
+import androidx.room3.ColumnInfo
+import androidx.room3.Entity
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 
 /**

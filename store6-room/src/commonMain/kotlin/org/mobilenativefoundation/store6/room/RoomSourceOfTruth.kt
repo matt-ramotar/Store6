@@ -2,9 +2,9 @@
 
 package org.mobilenativefoundation.store6.room
 
-import androidx.room.RoomDatabase
-import androidx.room.immediateTransaction
-import androidx.room.useWriterConnection
+import androidx.room3.RoomDatabase
+import androidx.room3.immediateTransaction
+import androidx.room3.useWriterConnection
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
