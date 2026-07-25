@@ -11,8 +11,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -2979,6 +2982,121 @@ class KeyEnginePlanningTest {
     }
 
     @Test
+    fun failedSuccessorWrite_cannotStripCommittedPredecessorEnvelope() = runTest {
+        val key = TestKey("failed-successor-preserves-predecessor")
+        val sourceOfTruth = FailingSuccessorSourceOfTruth()
+        val mappingGate = SequencedGate()
+        val firstFetchStarted = CompletableDeferred<Unit>()
+        val releaseFirstFetch = CompletableDeferred<Unit>()
+        val unexpectedFetchStarted = CompletableDeferred<Unit>()
+        val releaseUnexpectedFetch = CompletableDeferred<Unit>()
+        val planningContexts = mutableListOf<FreshnessContext>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = ResultFetcher {
+                    when (++calls) {
+                        1 -> {
+                            firstFetchStarted.complete(Unit)
+                            releaseFirstFetch.await()
+                            FetcherResult.Success("first")
+                        }
+
+                        2 -> {
+                            unexpectedFetchStarted.complete(Unit)
+                            releaseUnexpectedFetch.await()
+                            FetcherResult.Success("unexpected")
+                        }
+
+                        else -> error("unexpected fetch call $calls")
+                    }
+                },
+                sot = sourceOfTruth,
+                bookkeeper = InMemoryBookkeeper(),
+                validator =
+                    object : FreshnessValidator {
+                        override fun plan(context: FreshnessContext): FetchPlan {
+                            planningContexts += context
+                            return DefaultFreshnessValidator.plan(context)
+                        }
+                    },
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+                beforeReaderRecordMappingTestGate = mappingGate::awaitIfQueued,
+            )
+
+        app.cash.turbine.turbineScope {
+            val owner = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
+            try {
+                assertIs<StoreResult.Loading>(owner.awaitItem())
+                firstFetchStarted.await()
+                sourceOfTruth.liveReaderStarted.await()
+                testScheduler.runCurrent()
+                val firstTicket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+                releaseFirstFetch.complete(Unit)
+                withTimeout(3_000L) { sourceOfTruth.firstNotificationQueued.await() }
+                assertIs<FetchOutcome.Committed>(
+                    withTimeout(3_000L) { firstTicket.outcome.await() },
+                )
+
+                val successorExact = mappingGate.gateNext()
+                val rollback = mappingGate.gateNext()
+                try {
+                    val successor =
+                        backgroundScope.async {
+                            runCatching { engine.applyWrite("second") }
+                        }
+                    withTimeout(3_000L) { successorExact.entered.await() }
+                    sourceOfTruth.releaseRollback.complete(Unit)
+                    withTimeout(3_000L) { sourceOfTruth.rollbackRawCaptured.await() }
+
+                    successorExact.release.complete(Unit)
+                    withTimeout(3_000L) { rollback.entered.await() }
+                    rollback.release.complete(Unit)
+                    testScheduler.runCurrent()
+                    sourceOfTruth.releaseFailure.complete(Unit)
+                    assertTrue(withTimeout(3_000L) { successor.await() }.isFailure)
+                    testScheduler.runCurrent()
+
+                    val retained = assertIs<StoreResult.Data<String>>(owner.awaitItem())
+                    val retainedContext = planningContexts.last { it.hasResidentValue }
+                    assertEquals(
+                        ColdPathContractObservation(
+                            origin = Origin.FETCHER,
+                            isStale = false,
+                            refreshing = false,
+                            hasMeta = true,
+                            fetchCalls = 1,
+                        ),
+                        ColdPathContractObservation(
+                            origin = retained.origin,
+                            isStale = retained.isStale,
+                            refreshing = retained.refreshing,
+                            hasMeta = retainedContext.meta != null,
+                            fetchCalls = calls,
+                        ),
+                    )
+                    assertFalse(unexpectedFetchStarted.isCompleted)
+                } finally {
+                    successorExact.release.complete(Unit)
+                    rollback.release.complete(Unit)
+                    sourceOfTruth.releaseRollback.complete(Unit)
+                    sourceOfTruth.releaseFailure.complete(Unit)
+                    releaseUnexpectedFetch.complete(Unit)
+                }
+            } finally {
+                sourceOfTruth.releaseFirstNotification.complete(Unit)
+                sourceOfTruth.releaseRollback.complete(Unit)
+                releaseFirstFetch.complete(Unit)
+                releaseUnexpectedFetch.complete(Unit)
+                owner.cancelAndIgnoreRemainingEvents()
+            }
+        }
+    }
+
+    @Test
     fun replacementReaderSession_retiresUnresolvedPredecessorFence() = runTest {
         val key = TestKey("replacement-retires-predecessor-fence")
         val sourceOfTruth = ConsecutiveWriteEchoSourceOfTruth()
@@ -3791,6 +3909,64 @@ class KeyEnginePlanningTest {
         fun publishExternal(value: String) {
             current = value
             check(liveRows.tryEmit(value))
+        }
+    }
+
+    private class FailingSuccessorSourceOfTruth : SingleRowTestSourceOfTruth<String> {
+        private val rows = MutableStateFlow<String?>(null)
+        private var readerCalls = 0
+        val liveReaderStarted = CompletableDeferred<Unit>()
+        val firstNotificationQueued = CompletableDeferred<Unit>()
+        val releaseFirstNotification = CompletableDeferred<Unit>()
+        val secondRawCaptured = CompletableDeferred<Unit>()
+        val releaseRollback = CompletableDeferred<Unit>()
+        val rollbackRawCaptured = CompletableDeferred<Unit>()
+        val releaseFailure = CompletableDeferred<Unit>()
+
+        override fun reader(key: TestKey): Flow<String?> {
+            val readerCall = ++readerCalls
+            if (readerCall == 1) return flow { emit(rows.value) }
+            return flow {
+                emit(rows.value)
+                liveReaderStarted.complete(Unit)
+                emitAll(
+                    rows.drop(1).transformLatest { value ->
+                        if (value == "first" && !firstNotificationQueued.isCompleted) {
+                            firstNotificationQueued.complete(Unit)
+                            releaseFirstNotification.await()
+                        } else {
+                            emit(value)
+                            when (value) {
+                                "second" -> secondRawCaptured.complete(Unit)
+                                "first" -> rollbackRawCaptured.complete(Unit)
+                            }
+                        }
+                    },
+                )
+            }
+        }
+
+        override suspend fun write(
+            key: TestKey,
+            value: String,
+        ) {
+            rows.value = value
+            if (value == "first") {
+                firstNotificationQueued.await()
+                return
+            }
+
+            check(value == "second")
+            secondRawCaptured.await()
+            releaseRollback.await()
+            rows.value = "first"
+            rollbackRawCaptured.await()
+            releaseFailure.await()
+            throw IllegalStateException("successor write failed")
+        }
+
+        override suspend fun delete(key: TestKey) {
+            rows.value = null
         }
     }
 
