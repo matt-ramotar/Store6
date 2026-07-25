@@ -422,8 +422,16 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             // A live reader can have pre-return notifications queued upstream. The exact
             // writer-current closes that fence; observations after it are later authority.
             val pendingWriteAttribution = current.pendingWriteAttribution
+            val activeWriteAttribution = current.activeAttribution
             val activeAttributionAtObservation =
-                current.activeAttribution ?: pendingWriteAttribution
+                when {
+                    pendingWriteAttribution == null -> activeWriteAttribution
+                    value != null && pendingWriteAttribution.value == value ->
+                        pendingWriteAttribution
+                    value != null && activeWriteAttribution?.value == value ->
+                        activeWriteAttribution
+                    else -> pendingWriteAttribution
+                }
             val observation =
                 RawWriteObservation(
                     readerGen = readerGen,
@@ -433,37 +441,45 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     activeWriteAttributionAtObservation = activeAttributionAtObservation,
                     successfulWriteSequenceAtObservation = current.successfulSequence,
                 )
-            val matchingAttribution = observation.matchingWriterAttribution()
+            val activeObservation =
+                observation.copy(
+                    activeWriteAttributionAtObservation = activeWriteAttribution,
+                )
+            val matchingActiveAttribution = activeObservation.matchingWriterAttribution()
             val followedMatchingActiveWriteRow =
-                current.activeAttribution != null &&
-                    matchingAttribution == null &&
+                activeWriteAttribution != null &&
+                    matchingActiveAttribution == null &&
                     (current.activeRawPhase is ActiveRawPhase.Matching ||
                         current.activeRawPhase is ActiveRawPhase.OtherAfterMatching)
             val nextPhase =
-                if (current.activeAttribution == null) {
+                if (activeWriteAttribution == null) {
                     current.activeRawPhase
-                } else if (matchingAttribution != null) {
-                    ActiveRawPhase.Matching(observation, matchingAttribution)
+                } else if (matchingActiveAttribution != null) {
+                    ActiveRawPhase.Matching(activeObservation, matchingActiveAttribution)
                 } else {
                     when (current.activeRawPhase) {
                         is ActiveRawPhase.Matching ->
                             ActiveRawPhase.OtherAfterMatching(
                                 matchingObservation = current.activeRawPhase.observation,
-                                observation = observation,
+                                observation = activeObservation,
                             )
 
                         is ActiveRawPhase.OtherAfterMatching ->
                             ActiveRawPhase.OtherAfterMatching(
                                 matchingObservation =
                                     current.activeRawPhase.matchingObservation,
-                                observation = observation,
+                                observation = activeObservation,
                             )
 
                         ActiveRawPhase.Unobserved,
                         is ActiveRawPhase.OtherBeforeMatching,
-                        -> ActiveRawPhase.OtherBeforeMatching(observation)
+                        -> ActiveRawPhase.OtherBeforeMatching(activeObservation)
                     }
                 }
+            val activeExactSupersedesPending =
+                value != null &&
+                    activeWriteAttribution != null &&
+                    activeWriteAttribution.value == value
             val updated =
                 current.copy(
                     latestRawSequence = nextSequence,
@@ -471,7 +487,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     pendingWriteAttribution =
                         if (
                             value != null &&
-                            pendingWriteAttribution?.value == value
+                            (pendingWriteAttribution?.value == value ||
+                                activeExactSupersedesPending)
                         ) {
                             null
                         } else {
@@ -489,7 +506,9 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                     activeWriteAttributionAtObservation =
                         observation.activeWriteAttributionAtObservation,
                     followedMatchingActiveWriteRow = followedMatchingActiveWriteRow,
-                    pendingCommitFenceAtObservation = pendingWriteAttribution != null,
+                    pendingCommitFenceAtObservation =
+                        pendingWriteAttribution != null &&
+                            activeAttributionAtObservation === pendingWriteAttribution,
                 )
             }
         }
@@ -1257,7 +1276,6 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                     observedAttribution = committedAttribution,
                                     activeAttribution = committedAttribution,
                                     activeRawPhase = ActiveRawPhase.Unobserved,
-                                    pendingWriteAttribution = null,
                                 )
                             }
                         } else {
@@ -1386,7 +1404,6 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                 observedAttribution = attribution,
                                 activeAttribution = attribution,
                                 activeRawPhase = ActiveRawPhase.Unobserved,
-                                pendingWriteAttribution = null,
                             )
                         }
                         attribution
@@ -1542,9 +1559,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
             val current = writeObservationBoundary.value
             val nextSequence = current.successfulSequence + 1L
             val pendingWriteAttribution =
-                current.activeAttribution?.takeIf {
+                if (
                     current.readerSessionActive &&
-                        current.activeRawPhase !is ActiveRawPhase.Matching
+                    current.activeRawPhase !is ActiveRawPhase.Matching
+                ) {
+                    current.activeAttribution ?: current.pendingWriteAttribution
+                } else {
+                    current.pendingWriteAttribution
                 }
             val updated =
                 current.copy(

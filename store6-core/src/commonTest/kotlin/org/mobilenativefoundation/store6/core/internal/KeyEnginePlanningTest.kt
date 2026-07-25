@@ -2979,6 +2979,60 @@ class KeyEnginePlanningTest {
     }
 
     @Test
+    fun replacementReaderSession_retiresUnresolvedPredecessorFence() = runTest {
+        val key = TestKey("replacement-retires-predecessor-fence")
+        val sourceOfTruth = ConsecutiveWriteEchoSourceOfTruth()
+        val fetchStarted = CompletableDeferred<Unit>()
+        val releaseFetch = CompletableDeferred<Unit>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = ResultFetcher {
+                    calls += 1
+                    fetchStarted.complete(Unit)
+                    releaseFetch.await()
+                    FetcherResult.Success("first")
+                },
+                sot = sourceOfTruth,
+                bookkeeper = InMemoryBookkeeper(),
+                validator = DefaultFreshnessValidator,
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+            )
+
+        app.cash.turbine.turbineScope {
+            val owner = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
+            assertIs<StoreResult.Loading>(owner.awaitItem())
+            fetchStarted.await()
+            sourceOfTruth.liveReaderStarted.await()
+            val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+            releaseFetch.complete(Unit)
+            sourceOfTruth.firstEchoHeld.await()
+            assertIs<FetchOutcome.Committed>(ticket.outcome.await())
+
+            owner.cancelAndIgnoreRemainingEvents()
+            testScheduler.advanceTimeBy(READER_PIPELINE_GRACE_MILLIS + 1L)
+            testScheduler.runCurrent()
+
+            val replacement = engine.stream(Freshness.LocalOnly).testIn(backgroundScope)
+            sourceOfTruth.replacementReaderStarted.await()
+            sourceOfTruth.publishExternal("external")
+            var external: StoreResult.Data<String>? = null
+            while (external == null) {
+                val item = replacement.awaitItem()
+                if (item is StoreResult.Data && item.value == "external") external = item
+            }
+            assertEquals(Origin.SOT, checkNotNull(external).origin)
+            assertEquals(1, calls)
+
+            replacement.cancelAndIgnoreRemainingEvents()
+            sourceOfTruth.releaseFirstEcho.complete(Unit)
+        }
+    }
+
+    @Test
     fun olderPreStampRow_cannotOverwriteANewerWriterObservation() = runTest {
         val key = TestKey("older-pre-stamp-row")
         val sourceOfTruth = ReplayEveryRowSourceOfTruth()
@@ -3688,6 +3742,7 @@ class KeyEnginePlanningTest {
         private var readerCalls = 0
         private var current: String? = null
         val liveReaderStarted = CompletableDeferred<Unit>()
+        val replacementReaderStarted = CompletableDeferred<Unit>()
         val firstEchoHeld = CompletableDeferred<Unit>()
         val releaseFirstEcho = CompletableDeferred<Unit>()
         val secondWriteStarted = CompletableDeferred<Unit>()
@@ -3695,12 +3750,13 @@ class KeyEnginePlanningTest {
         val releaseSecondEcho = CompletableDeferred<Unit>()
 
         override fun reader(key: TestKey): Flow<String?> {
-            readerCalls += 1
-            val isLiveReader = readerCalls >= 2
+            val readerCall = ++readerCalls
+            val isLiveReader = readerCall >= 2
             return flow {
                 emit(current)
                 if (!isLiveReader) return@flow
                 liveReaderStarted.complete(Unit)
+                if (readerCall >= 3) replacementReaderStarted.complete(Unit)
                 liveRows.collect { value ->
                     when (value) {
                         "first" -> {
@@ -3730,6 +3786,11 @@ class KeyEnginePlanningTest {
         override suspend fun delete(key: TestKey) {
             current = null
             check(liveRows.tryEmit(null))
+        }
+
+        fun publishExternal(value: String) {
+            current = value
+            check(liveRows.tryEmit(value))
         }
     }
 
