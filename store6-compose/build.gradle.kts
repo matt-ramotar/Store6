@@ -3,10 +3,18 @@ plugins {
     alias(libs.plugins.kotlin.compose.compiler)
 }
 
+val store6StabilityConfig = layout.projectDirectory.file("stability/store6-stability.conf")
+
 composeCompiler {
     // Dogfoods the shipped consumer snippet: core types are stable inside this module's own
     // composables. The conf file lands in this same task (T1) so this wiring never dangles.
-    stabilityConfigurationFiles.add(layout.projectDirectory.file("stability/store6-stability.conf"))
+    stabilityConfigurationFiles.add(store6StabilityConfig)
+}
+
+// The Compose compiler plugin does not register stabilityConfigurationFiles as a task input, so
+// a conf-only edit would otherwise leave these compilations UP-TO-DATE against stale settings.
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask<*>>().configureEach {
+    inputs.file(store6StabilityConfig).withPathSensitivity(PathSensitivity.RELATIVE)
 }
 
 kotlin {
