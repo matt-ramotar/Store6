@@ -245,6 +245,13 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                 readerFailureRecord(readerGen, event.exception)
                         }
                     }
+                    .retryWhen { failure, _ ->
+                        if (failure is RestartRawReaderSession) {
+                            true
+                        } else {
+                            throw failure
+                        }
+                    }
             }
             .shareIn(
                 scope = engineScope,
@@ -591,8 +598,9 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                             null
                         }
                     }
-                // A fenced mismatch was published before the writer-current notification. It
-                // cannot clear the committed envelope or acquire later-source authority.
+                // A fenced mismatch is ambiguous with a notification queued before the
+                // writer-current. It cannot map directly; a committed owner replaces the reader
+                // so that only the new session's current row can establish later authority.
                 if (event.pendingCommitFenceAtObservation) {
                     val ownerAttribution =
                         checkNotNull(event.activeWriteAttributionAtObservation)
@@ -611,8 +619,18 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                                     event = event,
                                     attribution = ownerAttribution,
                                     consumedAttribution = null,
+                                ) ?: recordForCurrentSameValueEnvelopeLocked(
+                                    event = event,
+                                    consumedAttribution = null,
                                 )
                             } else {
+                                if (
+                                    matchingAttribution == null &&
+                                    disposition.attribution === ownerAttribution &&
+                                    pendingFenceStillActiveLocked(event, ownerAttribution)
+                                ) {
+                                    throw RestartRawReaderSession()
+                                }
                                 null
                             }
                         }
@@ -739,13 +757,10 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         if (committed != null && committed.attribution !== ownerAttribution) {
             return null
         }
-        if (
+        val restartFencedMismatch =
             committed != null &&
-            provisionalRow.dropNonmatchingOnCommit &&
-            matchingAttribution == null
-        ) {
-            return null
-        }
+                provisionalRow.dropNonmatchingOnCommit &&
+                matchingAttribution == null
         val writeDidNotCommit =
             disposition === FetchDisposition.Failed ||
                 disposition === FetchDisposition.Cancelled
@@ -777,12 +792,25 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                         null
                     }
                 }
+            if (restartFencedMismatch) {
+                if (pendingFenceStillActiveLocked(event, ownerAttribution)) {
+                    throw RestartRawReaderSession()
+                }
+                return@withLock null
+            }
             if (matchingAttribution != null) {
                 recordForExactWriterEnvelopeLocked(
                     event = event,
                     attribution = matchingAttribution,
                     consumedAttribution = retainedConsumedAttribution,
-                )
+                ) ?: if (provisionalRow.dropNonmatchingOnCommit) {
+                    recordForCurrentSameValueEnvelopeLocked(
+                        event = event,
+                        consumedAttribution = retainedConsumedAttribution,
+                    )
+                } else {
+                    null
+                }
             } else {
                 mapReaderRowLocked(
                     readerGen = readerGen,
@@ -792,6 +820,17 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 )
             }
         }
+    }
+
+    /** True only while this event still belongs to the unresolved live-session fence. */
+    private fun pendingFenceStillActiveLocked(
+        event: RawReaderEvent.Row<V>,
+        attribution: AttributionTag,
+    ): Boolean {
+        val boundary = writeObservationBoundary.value
+        return boundary.readerGen == event.readerGen &&
+            boundary.readerSessionActive &&
+            boundary.pendingWriteAttribution === attribution
     }
 
     /** True when conflate has already observed a newer row/absence in this reader generation. */
@@ -850,6 +889,26 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         val value = event.value ?: return null
         val envelope = residence.value ?: return null
         if (!envelope.matchesWriterAttribution(value, attribution)) return null
+        return ReaderRecord.Row(
+            envelope = envelope,
+            readerGen = event.readerGen,
+            residenceRevision = residenceRevision,
+            successfulWriteSequenceAtObservation =
+                event.successfulWriteSequenceAtObservation,
+            consumedAttribution = consumedAttribution,
+            activeWriteAttributionAtObservation = event.activeWriteAttributionAtObservation,
+            rawObservationSequence = event.rawObservationSequence,
+        )
+    }
+
+    /** Reuses the live same-value envelope for a fenced exact row after residence advancement. */
+    private fun recordForCurrentSameValueEnvelopeLocked(
+        event: RawReaderEvent.Row<V>,
+        consumedAttribution: AttributionTag?,
+    ): ReaderRecord.Row<V>? {
+        val value = event.value ?: return null
+        val envelope = residence.value ?: return null
+        if (envelope.value != value) return null
         return ReaderRecord.Row(
             envelope = envelope,
             readerGen = event.readerGen,
@@ -4676,6 +4735,9 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private class RawObservationFailure(
         val engineFailure: Throwable,
     ) : RuntimeException(engineFailure)
+
+    /** Restarts the sole reader after discarding one unresolved committed-fence mismatch. */
+    private class RestartRawReaderSession : RuntimeException()
 
     /** Converts self-originated flow cancellation into a terminal no-failure-contract breach. */
     private class ProjectionChangesFailure(
