@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.test.TestResult
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
@@ -16,6 +17,7 @@ import org.mobilenativefoundation.store6.testing.TestStoreResults
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.time.Duration.Companion.milliseconds
 
 class CollectAsStateTest {
@@ -116,6 +118,50 @@ class CollectAsStateTest {
             assertEquals("alice", (state.value as StoreResult.Data<String>).value)
             currentKey.value = TestKey("2")
             host.awaitUntil { (state.value as? StoreResult.Data<String>)?.value == "bob" }
+        }
+    }
+
+    /**
+     * [Freshness.MaxAge] is the one Freshness subtype that is a plain class with identity
+     * equality, so the restart key normalizes it by duration. Without that normalization the
+     * natural call shape — allocating `MaxAge(...)` inline in the composable — would restart
+     * collection on every recomposition.
+     */
+    @Test
+    fun equalMaxAgeInstanceDoesNotRestartAndDifferentMaxAgeDoes(): TestResult {
+        val store = FakeStore<TestKey, String>()
+        val key = TestKey("1")
+        store.setValue(key, "alice")
+        val freshness = mutableStateOf<Freshness>(Freshness.MaxAge(30.milliseconds))
+        lateinit var state: State<StoreResult<String>>
+        return runComposeTest(content = {
+            state = store.collectAsState(key, freshness.value)
+        }) { host ->
+            host.awaitUntil { (state.value as? StoreResult.Data<String>)?.value == "alice" }
+            val afterFirst = store.interactions.size
+            freshness.value = Freshness.MaxAge(30.milliseconds) // new instance, equal duration
+            host.advanceFrame()
+            host.advanceFrame()
+            assertEquals(afterFirst, store.interactions.size)
+            freshness.value = Freshness.MaxAge(90.milliseconds) // different duration
+            host.awaitUntil { store.interactions.size > afterFirst }
+            assertEquals(afterFirst + 1, store.interactions.size)
+        }
+    }
+
+    @Test
+    fun initialResultIsRenderedBeforeAnyEmission(): TestResult {
+        val flow = MutableSharedFlow<StoreResult<String>>(replay = 1)
+        val seeded = TestStoreResults.data(
+            value = "seed", origin = Origin.MEMORY, isStale = true, refreshing = false,
+        )
+        var rendered: StoreResult<String>? = null
+        return runComposeTest(content = {
+            rendered = flow.collectAsStoreState(initial = seeded).value
+        }) { host ->
+            assertSame(seeded, rendered)
+            flow.emit(TestStoreResults.data(value = "fresh", origin = Origin.FETCHER))
+            host.awaitUntil { (rendered as? StoreResult.Data<String>)?.value == "fresh" }
         }
     }
 }

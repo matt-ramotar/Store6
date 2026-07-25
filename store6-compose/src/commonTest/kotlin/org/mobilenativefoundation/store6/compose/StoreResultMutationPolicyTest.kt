@@ -12,11 +12,15 @@ import kotlin.time.Duration.Companion.milliseconds
 
 class StoreResultMutationPolicyTest {
     private val policy = storeResultMutationPolicy<String>()
-    private fun data(value: String, refreshing: Boolean = false, age: Long = 0) =
-        TestStoreResults.data(
-            value = value, origin = Origin.FETCHER, age = age.milliseconds,
-            isStale = false, refreshing = refreshing,
-        )
+    private fun data(
+        value: String,
+        refreshing: Boolean = false,
+        age: Long = 0,
+        origin: Origin = Origin.FETCHER,
+    ) = TestStoreResults.data(
+        value = value, origin = origin, age = age.milliseconds,
+        isStale = false, refreshing = refreshing,
+    )
 
     @Test fun equivalentForStructurallyEqualDataIgnoringAge() =
         assertTrue(policy.equivalent(data("a", age = 0), data("a", age = 90)))
@@ -36,5 +40,20 @@ class StoreResultMutationPolicyTest {
     @Test fun sameInstanceIsEquivalent() {
         val loading = TestStoreResults.loading()
         assertTrue(policy.equivalent(loading, loading))
+    }
+
+    /**
+     * The memory-snapshot-then-fetch-commit sequence emits the same value under two origins;
+     * collapsing those would hide the origin transition from readers.
+     */
+    @Test fun notEquivalentWhenOriginDiffers() =
+        assertFalse(policy.equivalent(data("a", origin = Origin.MEMORY), data("a", origin = Origin.FETCHER)))
+
+    @Test fun customValueEquivalenceIsHonored() {
+        val caseInsensitive = storeResultMutationPolicy<String> { x, y -> x.equals(y, ignoreCase = true) }
+        assertTrue(caseInsensitive.equivalent(data("a"), data("A")))
+        assertFalse(caseInsensitive.equivalent(data("a"), data("b")))
+        // The default policy must NOT treat these as equivalent — proving the custom one was used.
+        assertFalse(policy.equivalent(data("a"), data("A")))
     }
 }

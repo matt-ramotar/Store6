@@ -11,8 +11,8 @@ dedicated follow-up once it is.
   restarts only on structural identity change (namespace/canonicalId/freshness), all targets.
 - `Flow<StoreResult<V>>.collectAsStoreState(initial)` — the flow-level variant.
 - `Store.collectAsStateWithLifecycle(...)` / `collectAsStoreStateWithLifecycle(...)` —
-  lifecycle-gated via `repeatOnLifecycle`; android, jvm, ios, macos, js, wasmJs only
-  (lifecycle-runtime-compose 2.9.1 does not publish the remaining Store targets).
+  lifecycle-gated via `repeatOnLifecycle`, on all targets. These need a `LifecycleOwner`; on
+  targets with no UI host that populates `LocalLifecycleOwner`, pass one explicitly.
 - `skipEqualData()` / `storeResultMutationPolicy()` — structural skipping for stateIn/ViewModel
   flows and custom state holders.
 

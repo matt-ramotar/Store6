@@ -58,6 +58,16 @@ class DemoUiStateTest {
         assertNull(ui.emptyError)
     }
 
+    @Test fun freshErrorOverRetainedCardBannersWithoutTheStaleWording() {
+        val prev = data("alice")
+        val error = TestStoreResults.error(TestStoreResults.fetchError("boom"), servedStale = false)
+        val ui = deriveDemoUiState(error, previousData = prev)
+        assertSame(prev, ui.card)
+        assertEquals("Refresh failed", ui.errorBanner)
+        assertFalse(ui.showStaleBadge)
+        assertNull(ui.emptyError)
+    }
+
     @Test fun errorWithNoLocalValueSurfacesEmptyError() {
         val error = TestStoreResults.error(TestStoreResults.fetchError("boom"), servedStale = false)
         val ui = deriveDemoUiState(error, previousData = null)

@@ -34,6 +34,22 @@ class ClosedStoreBehaviorTest {
         assertFailsWith<IllegalStateException> { store.stream(TestKey("1")) }
     }
 
+    /**
+     * The stream is guarded twice — at call and again at collection start. This is the second
+     * guard: the Flow is obtained while the store is open, so only the collection-start check can
+     * reject it. That is the path a composable takes when the store closes between composition
+     * and the LaunchedEffect body running.
+     */
+    @Test
+    fun streamObtainedBeforeCloseThrowsAtCollectionStart(): TestResult = runTest {
+        val store = FakeStore<TestKey, String>()
+        val key = TestKey("1")
+        store.setValue(key, "v1")
+        val stream = store.stream(key)
+        store.close()
+        assertFailsWith<IllegalStateException> { stream.collect {} }
+    }
+
     @Test
     fun closeDuringCollectionEndsAsCancellation(): TestResult = runTest {
         val store = FakeStore<TestKey, String>()

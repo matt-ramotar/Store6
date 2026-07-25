@@ -75,6 +75,14 @@ jobs:
         run: |
           set -euo pipefail
           reports_dir=store6-compose-demo/build/compose-reports
+          # Force a complete, non-incremental report. Kotlin incremental compilation rewrites the
+          # stability report with ONLY the recompiled subset, and the report is an undeclared task
+          # output, so neither deleting it nor editing a source guarantees a whole-module snapshot.
+          # Discarding the module's build directory makes the next compile a full one. The demo
+          # module's compilations are also opted out of the build cache (see its build.gradle.kts)
+          # so this cannot be served from cache without running the compiler.
+          rm -rf store6-compose-demo/build
+          ./gradlew :store6-compose-demo:compileKotlin --stacktrace
           if [[ "$(find "${reports_dir}" -name '*-composables.txt' 2>/dev/null | wc -l | tr -d ' ')" -eq 0 ]]; then
             echo "ERROR: no composables report under ${reports_dir}" >&2
             echo "The compose metrics wiring in store6-compose-demo/build.gradle.kts was removed or renamed." >&2
@@ -83,20 +91,34 @@ jobs:
           # All reports are concatenated (deterministic; probes exist only in the main compilation,
           # so tier counts stay exact regardless of how many reports the plugin writes — the test
           # compilation writes a separate, empty *_test-composables.txt and never clobbers it).
-          # iface_strict=1 per the T6 calibration Ruling A recorded in
-          # docs/v6/decisions/store6-compose-packaging.md: the shipped conf renders every probe
-          # parameter stable, including the interface-typed and generic ones.
+          #
+          # Every probe parameter must be rendered EXPLICITLY `stable`. Asserting the mere absence
+          # of `unstable` would pass silently on the compiler's third rendering — a bare, unprefixed
+          # `value: X` line, which it emits for unknown/runtime stability.
+          #
+          # iface_strict=1 is the calibration ruling for this branch: the shipped conf renders every
+          # probe parameter stable, including the interface-typed and generic ones. Set it to 0 only
+          # if a toolchain bump makes interface-typed parameters unprovable, which downgrades the
+          # iface tier to skippable-only and reports the residual instead of failing.
           find "${reports_dir}" -name '*-composables.txt' | sort | xargs cat | awk -v iface_strict=1 '
             /fun / {
               tier = 0
               if ($0 ~ /ProbeStrict/) { tier = 1; strict += 1 }
               else if ($0 ~ /ProbeIface/) { tier = 2; iface += 1 }
               if (tier > 0 && $0 !~ /skippable/) { print "NOT SKIPPABLE: " $0; bad = 1 }
+              next
             }
-            tier == 1 && /unstable/ { print "UNSTABLE PARAM (strict tier): " $0; bad = 1 }
-            tier == 2 && /unstable/ {
-              if (iface_strict) { print "UNSTABLE PARAM (iface tier): " $0; bad = 1 }
-              else { print "INFO: unstable iface-tier param (allowed under Ruling B): " $0 }
+            /^\)/ { tier = 0; next }
+            tier > 0 {
+              if ($1 != "stable") {
+                label = (tier == 1) ? "strict" : "iface"
+                if (tier == 1 || iface_strict) {
+                  print "PARAM NOT STABLE (" label " tier): " $0
+                  bad = 1
+                } else {
+                  print "INFO: non-stable iface-tier param (allowed under Ruling B): " $0
+                }
+              }
             }
             END {
               if (strict != 8) { print "Expected 8 ProbeStrict composables, found " strict + 0; exit 1 }

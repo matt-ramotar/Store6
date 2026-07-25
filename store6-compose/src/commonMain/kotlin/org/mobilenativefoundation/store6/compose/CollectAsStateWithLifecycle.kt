@@ -25,11 +25,9 @@ import org.mobilenativefoundation.store6.core.seam.StoreResults
  * collection releases its engine refcount; a quiescent idle engine may be evicted (LRU, default
  * `maxIdleKeys` 128) and is transparently rebuilt on re-entry — no API-visible difference.
  * Requires a populated [LocalLifecycleOwner] (any CMP UI host or Android component provides
- * one) unless [lifecycleOwner] is passed explicitly.
- *
- * Availability: this entry point exists only on the CMP lifecycle tier
- * (android, jvm, ios, macos, js, wasmJs) because lifecycle-runtime-compose 2.9.1 does not
- * publish the remaining Store targets; use [collectAsState] there.
+ * one) unless [lifecycleOwner] is passed explicitly. On targets with no UI host that populates
+ * it — linuxX64, mingwX64 and the non-simulator Apple targets, in practice — pass
+ * [lifecycleOwner] explicitly or use [collectAsState].
  *
  * The seam this consumes is a FREEZE CANDIDATE, not frozen.
  */
