@@ -2885,6 +2885,100 @@ class KeyEnginePlanningTest {
     }
 
     @Test
+    fun successorWrite_cannotRetireQueuedPredecessorEchoFence() = runTest {
+        val key = TestKey("successor-write-predecessor-echo")
+        val sourceOfTruth = ConsecutiveWriteEchoSourceOfTruth()
+        val fetchStarted = CompletableDeferred<Unit>()
+        val releaseFirstFetch = CompletableDeferred<Unit>()
+        val outcomeDeliveryGate = InitialDeliveryGate().also { it.arm() }
+        val planningContexts = mutableListOf<FreshnessContext>()
+        val unexpectedFetchStarted = CompletableDeferred<Unit>()
+        val releaseUnexpectedFetch = CompletableDeferred<Unit>()
+        var calls = 0
+        val engine =
+            KeyEngine(
+                key = key,
+                keyId = KeyId.from(key),
+                fetcher = ResultFetcher {
+                    when (++calls) {
+                        1 -> {
+                            fetchStarted.complete(Unit)
+                            releaseFirstFetch.await()
+                            FetcherResult.Success("first")
+                        }
+
+                        2 -> {
+                            unexpectedFetchStarted.complete(Unit)
+                            releaseUnexpectedFetch.await()
+                            FetcherResult.Success("unexpected")
+                        }
+
+                        else -> error("unexpected fetch call $calls")
+                    }
+                },
+                sot = sourceOfTruth,
+                bookkeeper = InMemoryBookkeeper(),
+                validator =
+                    object : FreshnessValidator {
+                        override fun plan(context: FreshnessContext): FetchPlan {
+                            planningContexts += context
+                            return DefaultFreshnessValidator.plan(context)
+                        }
+                    },
+                wallClock = FakeWallClock(now = 0L),
+                engineScope = backgroundScope,
+                beforeTicketOutcomeDeliveryTestGate = outcomeDeliveryGate::awaitIfArmed,
+            )
+
+        app.cash.turbine.turbineScope {
+            val collector = engine.stream(Freshness.CachedOrFetch).testIn(backgroundScope)
+            assertIs<StoreResult.Loading>(collector.awaitItem())
+            fetchStarted.await()
+            sourceOfTruth.liveReaderStarted.await()
+            val ticket = assertIs<FetchSlot.InFlight>(engine.state.value.fetch).ticket
+            releaseFirstFetch.complete(Unit)
+            sourceOfTruth.firstEchoHeld.await()
+            assertIs<FetchOutcome.Committed>(ticket.outcome.await())
+            outcomeDeliveryGate.entered.await()
+
+            val successor = backgroundScope.async { engine.applyWrite("second") }
+            try {
+                sourceOfTruth.secondWriteStarted.await()
+                sourceOfTruth.releaseFirstEcho.complete(Unit)
+                testScheduler.runCurrent()
+
+                val first = assertIs<StoreResult.Data<String>>(collector.awaitItem())
+                val committedContext = planningContexts.last { it.hasResidentValue }
+                assertEquals(
+                    ColdPathContractObservation(
+                        origin = Origin.FETCHER,
+                        isStale = false,
+                        refreshing = false,
+                        hasMeta = true,
+                        fetchCalls = 1,
+                    ),
+                    ColdPathContractObservation(
+                        origin = first.origin,
+                        isStale = first.isStale,
+                        refreshing = first.refreshing,
+                        hasMeta = committedContext.meta != null,
+                        fetchCalls = calls,
+                    ),
+                )
+                assertFalse(unexpectedFetchStarted.isCompleted)
+            } finally {
+                sourceOfTruth.releaseFirstEcho.complete(Unit)
+                sourceOfTruth.releaseSecondWriteReturn.complete(Unit)
+                sourceOfTruth.releaseSecondEcho.complete(Unit)
+                outcomeDeliveryGate.release()
+                releaseUnexpectedFetch.complete(Unit)
+            }
+            successor.await()
+            collector.cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
     fun olderPreStampRow_cannotOverwriteANewerWriterObservation() = runTest {
         val key = TestKey("older-pre-stamp-row")
         val sourceOfTruth = ReplayEveryRowSourceOfTruth()
@@ -3586,6 +3680,56 @@ class KeyEnginePlanningTest {
 
         override suspend fun delete(key: TestKey) {
             rows.value = null
+        }
+    }
+
+    private class ConsecutiveWriteEchoSourceOfTruth : SingleRowTestSourceOfTruth<String> {
+        private val liveRows = MutableSharedFlow<String?>(extraBufferCapacity = 2)
+        private var readerCalls = 0
+        private var current: String? = null
+        val liveReaderStarted = CompletableDeferred<Unit>()
+        val firstEchoHeld = CompletableDeferred<Unit>()
+        val releaseFirstEcho = CompletableDeferred<Unit>()
+        val secondWriteStarted = CompletableDeferred<Unit>()
+        val releaseSecondWriteReturn = CompletableDeferred<Unit>()
+        val releaseSecondEcho = CompletableDeferred<Unit>()
+
+        override fun reader(key: TestKey): Flow<String?> {
+            readerCalls += 1
+            val isLiveReader = readerCalls >= 2
+            return flow {
+                emit(current)
+                if (!isLiveReader) return@flow
+                liveReaderStarted.complete(Unit)
+                liveRows.collect { value ->
+                    when (value) {
+                        "first" -> {
+                            firstEchoHeld.complete(Unit)
+                            releaseFirstEcho.await()
+                        }
+
+                        "second" -> releaseSecondEcho.await()
+                    }
+                    emit(value)
+                }
+            }
+        }
+
+        override suspend fun write(
+            key: TestKey,
+            value: String,
+        ) {
+            current = value
+            check(liveRows.tryEmit(value))
+            if (value == "second") {
+                secondWriteStarted.complete(Unit)
+                releaseSecondWriteReturn.await()
+            }
+        }
+
+        override suspend fun delete(key: TestKey) {
+            current = null
+            check(liveRows.tryEmit(null))
         }
     }
 
