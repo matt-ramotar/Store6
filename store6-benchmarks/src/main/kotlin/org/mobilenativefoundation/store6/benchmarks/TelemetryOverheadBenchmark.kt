@@ -26,7 +26,7 @@ import org.mobilenativefoundation.store6.testing.FakeSourceOfTruth
  * FS-10's evidence is measured plus structural, not a literal differential against a telemetry-free
  * engine. Structural inspection and tests establish that telemetry=none leaves the install point
  * null, each call site takes its null fast path, and KeyEngine.launchFetch allocates no
- * fetch-duration mark. telemetry=noop installs NoopTelemetry, so this benchmark measures the
+ * fetch-duration mark. telemetry=noop installs NoopTelemetry, so this benchmark estimates the
  * incremental configured-noop overhead relative to that unset/null fast path: non-null branches,
  * the fetch-duration mark, and virtual calls into no-op bodies. There is no seam-less engine to
  * compare, so the delta neither proves literal zero cost nor bounds total telemetry machinery cost
@@ -34,9 +34,12 @@ import org.mobilenativefoundation.store6.testing.FakeSourceOfTruth
  *
  * fetchGet: full fetch cycle per op (onFetchStarted + mark + onFetchSucceeded + onServe), via
  * MustBeFresh against a constant fetcher on the DSL-default in-memory SoT (public builder path).
- * residentServe: resident LocalOnly get (onServe only). streamEmissions: a 100-write cooperatively
- * yielded schedule through an attached stream; both variants may conflate intermediate writes,
- * and onServe runs once per public delivery. The none/noop pair uses the same schedule.
+ * residentServe: resident LocalOnly get (onServe only). streamEmissions: each timed invocation
+ * launches one collector, waits for its first public result and an epoch-unique readiness marker,
+ * then runs a 100-write cooperatively yielded schedule through the attached stream. Its score
+ * includes that precondition, the schedule, and final observation. Both variants may conflate
+ * intermediate writes, and onServe runs once per public delivery. The none/noop pair uses the same
+ * schedule.
  */
 @OptIn(ExperimentalStoreApi::class)
 @State(Scope.Thread)

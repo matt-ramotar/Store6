@@ -24,11 +24,11 @@ import org.mobilenativefoundation.store6.testing.FakeSourceOfTruth
  * METRIC-1: stream-emission overhead versus the raw SoT flow (NFR-8, TD-8, TEST-7).
  *
  * Both sides observe the SAME FakeSourceOfTruth class under the SAME write schedule, awaiting the
- * SAME epoch-unique sentinel. Before workload writes, every collector first receives a public
- * emission and then observes an epoch-unique attachment marker. That marker is one additional
- * common write/observation per invocation outside the W=1000 workload; it is an attachment
- * precondition, not workload data, and proves the Store's long-lived reader/fan-out pipeline is
- * attached even after its grace period expires.
+ * SAME epoch-unique sentinel. Within each timed invocation, before workload writes, every
+ * collector first receives a public emission and then observes an epoch-unique attachment marker.
+ * That marker is one additional common write/observation per invocation outside the W=1000
+ * workload but inside the timed operation. It is an attachment precondition, not workload data,
+ * and proves the Store's long-lived reader/fan-out pipeline is attached before W begins.
  *
  * With collectors=1, reader multiplicity matches and storeStream/rawSotFlow is the METRIC-1
  * engine-overhead headline: registry, reader pipeline, planning, conflation, projection, telemetry
@@ -39,10 +39,11 @@ import org.mobilenativefoundation.store6.testing.FakeSourceOfTruth
  * reader chains while Store shares one upstream and fans out. It is useful end-to-end scaling data,
  * not an isolated engine-overhead ratio.
  *
- * The measurand is write-to-final-observation propagation under a schedule, not per-emission unit
- * cost. Both sides may conflate arbitrary intermediate writes. paced=true is a cooperatively
- * yielded writer schedule, not an acknowledgement or per-emission guarantee; paced=false is the
- * burst/conflation schedule. The two bracket real workloads.
+ * The reported score includes collector launch, attachment, readiness, the W schedule, and final
+ * observation. It is an end-to-end attach-plus-schedule measurand, not pure W-only latency or
+ * per-emission unit cost. Both sides may conflate arbitrary intermediate writes. paced=true is a
+ * cooperatively yielded writer schedule, not an acknowledgement or per-emission guarantee;
+ * paced=false is the burst/conflation schedule. The two bracket real workloads.
  */
 @OptIn(ExperimentalStoreApi::class)
 @State(Scope.Thread)

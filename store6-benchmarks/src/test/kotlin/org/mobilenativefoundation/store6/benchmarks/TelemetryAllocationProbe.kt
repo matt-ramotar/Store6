@@ -18,7 +18,7 @@ import kotlin.test.Test
  * REPORT-ONLY by design: prints a table, asserts nothing numeric (thresholds are OQ-6/first-data
  * territory), and skips gracefully off HotSpot. Known scope limit, stated wherever the numbers
  * are quoted: the fetch-duration mark allocates on the ENGINE thread (KeyEngine.launchFetch), so
- * a caller-thread probe cannot see it — the JMH none-vs-noop ns/op deltas and the optional local
+ * a caller-thread probe cannot see it — the JMH none-vs-noop timing deltas and the optional local
  * `-prof gc` run cover the full cross-thread path.
  */
 class TelemetryAllocationProbe {
