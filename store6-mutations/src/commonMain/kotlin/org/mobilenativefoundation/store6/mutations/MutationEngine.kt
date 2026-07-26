@@ -6,6 +6,7 @@
 package org.mobilenativefoundation.store6.mutations
 
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -13,6 +14,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
+import org.mobilenativefoundation.store6.core.seam.Overlay
 
 /**
  * Identifies a mutation that remains pending.
@@ -65,6 +67,23 @@ internal class MutationEngine<K : StoreKey, V : Any>(
 
     internal val changes: SharedFlow<StoreKey> = signalSink.asSharedFlow()
     internal val poisoned: SharedFlow<PoisonedIntent> = poisonSink.asSharedFlow()
+
+    /**
+     * Projects confirmed residence through the current pending intents.
+     *
+     * Store stamps a changed projection with `OVERLAY` origin, zero age, and no staleness.
+     * `OVERLAY` is therefore the pending-write affordance; staleness is not. The shared [changes]
+     * stream remains live and never completes or fails.
+     */
+    internal val overlay: Overlay<K, V> =
+        object : Overlay<K, V> {
+            override fun apply(
+                key: K,
+                base: V?,
+            ): V? = projectAll(key, base)
+
+            override val changes: Flow<StoreKey> = this@MutationEngine.changes
+        }
 
     internal suspend fun <A : Any> mutate(
         key: K,
