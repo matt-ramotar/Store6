@@ -1,0 +1,36 @@
+// Klib ABI Dump
+// Targets: [iosArm64, iosSimulatorArm64, iosX64, js, linuxX64, macosArm64, mingwX64, tvosArm64, wasmJs, watchosArm64]
+// Rendering settings:
+// - Signature version: 2
+// - Show manifest properties: true
+// - Show declarations: true
+
+// Library unique name: <Store5:store6-mutations>
+final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any, #C: kotlin/Any> org.mobilenativefoundation.store6.mutations/MutatorRef { // org.mobilenativefoundation.store6.mutations/MutatorRef|null[0]
+    final val id // org.mobilenativefoundation.store6.mutations/MutatorRef.id|{}id[0]
+        final fun <get-id>(): kotlin/String // org.mobilenativefoundation.store6.mutations/MutatorRef.id.<get-id>|<get-id>(){}[0]
+}
+
+final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.mutations/MutatorRegistry // org.mobilenativefoundation.store6.mutations/MutatorRegistry|null[0]
+
+final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.mutations/MutatorRegistryBuilder { // org.mobilenativefoundation.store6.mutations/MutatorRegistryBuilder|null[0]
+    final fun <#A1: kotlin/Any> mutator(kotlin/String, kotlin/Function2<#B?, #A1, #B?>): org.mobilenativefoundation.store6.mutations/MutatorRef<#A, #B, #A1> // org.mobilenativefoundation.store6.mutations/MutatorRegistryBuilder.mutator|mutator(kotlin.String;kotlin.Function2<1:1?,0:0,1:1?>){0§<kotlin.Any>}[0]
+}
+
+final class org.mobilenativefoundation.store6.mutations/PendingIntent { // org.mobilenativefoundation.store6.mutations/PendingIntent|null[0]
+    final val mutationId // org.mobilenativefoundation.store6.mutations/PendingIntent.mutationId|{}mutationId[0]
+        final fun <get-mutationId>(): kotlin/String // org.mobilenativefoundation.store6.mutations/PendingIntent.mutationId.<get-mutationId>|<get-mutationId>(){}[0]
+    final val mutatorId // org.mobilenativefoundation.store6.mutations/PendingIntent.mutatorId|{}mutatorId[0]
+        final fun <get-mutatorId>(): kotlin/String // org.mobilenativefoundation.store6.mutations/PendingIntent.mutatorId.<get-mutatorId>|<get-mutatorId>(){}[0]
+}
+
+final class org.mobilenativefoundation.store6.mutations/PoisonedIntent { // org.mobilenativefoundation.store6.mutations/PoisonedIntent|null[0]
+    final val failure // org.mobilenativefoundation.store6.mutations/PoisonedIntent.failure|{}failure[0]
+        final fun <get-failure>(): kotlin/Throwable // org.mobilenativefoundation.store6.mutations/PoisonedIntent.failure.<get-failure>|<get-failure>(){}[0]
+    final val mutationId // org.mobilenativefoundation.store6.mutations/PoisonedIntent.mutationId|{}mutationId[0]
+        final fun <get-mutationId>(): kotlin/String // org.mobilenativefoundation.store6.mutations/PoisonedIntent.mutationId.<get-mutationId>|<get-mutationId>(){}[0]
+    final val mutatorId // org.mobilenativefoundation.store6.mutations/PoisonedIntent.mutatorId|{}mutatorId[0]
+        final fun <get-mutatorId>(): kotlin/String // org.mobilenativefoundation.store6.mutations/PoisonedIntent.mutatorId.<get-mutatorId>|<get-mutatorId>(){}[0]
+}
+
+final fun <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.mutations/mutatorRegistry(kotlin/Function1<org.mobilenativefoundation.store6.mutations/MutatorRegistryBuilder<#A, #B>, kotlin/Unit>): org.mobilenativefoundation.store6.mutations/MutatorRegistry<#A, #B> // org.mobilenativefoundation.store6.mutations/mutatorRegistry|mutatorRegistry(kotlin.Function1<org.mobilenativefoundation.store6.mutations.MutatorRegistryBuilder<0:0,0:1>,kotlin.Unit>){0§<org.mobilenativefoundation.store6.core.StoreKey>;1§<kotlin.Any>}[0]

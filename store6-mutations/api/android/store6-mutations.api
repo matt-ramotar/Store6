@@ -1,0 +1,26 @@
+public final class org/mobilenativefoundation/store6/mutations/MutatorRef {
+	public final fun getId ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/mutations/MutatorRegistry {
+}
+
+public final class org/mobilenativefoundation/store6/mutations/MutatorRegistryBuilder {
+	public final fun mutator (Ljava/lang/String;Lkotlin/jvm/functions/Function2;)Lorg/mobilenativefoundation/store6/mutations/MutatorRef;
+}
+
+public final class org/mobilenativefoundation/store6/mutations/MutatorRegistryKt {
+	public static final fun mutatorRegistry (Lkotlin/jvm/functions/Function1;)Lorg/mobilenativefoundation/store6/mutations/MutatorRegistry;
+}
+
+public final class org/mobilenativefoundation/store6/mutations/PendingIntent {
+	public final fun getMutationId ()Ljava/lang/String;
+	public final fun getMutatorId ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/mutations/PoisonedIntent {
+	public final fun getFailure ()Ljava/lang/Throwable;
+	public final fun getMutationId ()Ljava/lang/String;
+	public final fun getMutatorId ()Ljava/lang/String;
+}
+
