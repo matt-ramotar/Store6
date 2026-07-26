@@ -9,16 +9,16 @@
 
 ## Start
 
-- [Quickstart](<PLACEHOLDER-QUICKSTART-HOME>): the five-line store, the full runnable program that CI compiles and runs on every pull request, and the experimental write path.
-- [Important Defaults](<PLACEHOLDER-DOCS-HOME>/important-defaults.md): every zero-config behavior — freshness, retry, cache and memory, single-flighting, emission — each line traceable to a named conformance test.
+- [Quickstart](docs/store6/quickstart.md): the five-line store, the full runnable program that CI compiles and runs on every pull request, and the experimental write path.
+- [Important Defaults](docs/store6/important-defaults.md): every zero-config behavior — freshness, retry, cache and memory, single-flighting, emission — each line traceable to a named conformance test.
 
 ## Use Store
 
-- [Keys and Namespaces](<PLACEHOLDER-DOCS-HOME>/key-design.md): key design is the one skill Store asks you to learn. `StoreKey`, `StoreNamespace`, `canonicalId()`, and namespace-level operations.
-- [Invalidate or Clear](<PLACEHOLDER-DOCS-HOME>/invalidate-vs-clear.md): invalidate marks stale and refetches for live streams; clear removes and never replays. Which one you want, and why.
+- [Keys and Namespaces](docs/store6/key-design.md): key design is the one skill Store asks you to learn. `StoreKey`, `StoreNamespace`, `canonicalId()`, and namespace-level operations.
+- [Invalidate or Clear](docs/store6/invalidate-vs-clear.md): invalidate marks stale and refetches for live streams; clear removes and never replays. Which one you want, and why.
 
 ## Project
 
 - [Stability](STABILITY.md): API tiers, the deprecation cycle, the release cadence commitment, how stability is verified from a released tag, and the mutations posture at alpha01.
-- [Roadmap](<PLACEHOLDER-ROADMAP-HOME>): operating principles, the phase table, target windows, and how to contribute.
+- [Roadmap](ROADMAP.md): operating principles, the phase table, target windows, and how to contribute.
 - [Contributing](CONTRIBUTING.md): how to get involved.

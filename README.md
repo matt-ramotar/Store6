@@ -27,8 +27,8 @@ Two things about the first alpha, stated up front rather than discovered later:
 
 The full policy — API tiers, the deprecation cycle, the cadence commitment, and how you can verify
 all of it from a released tag — is in [STABILITY.md](./STABILITY.md). The public roadmap is at
-[<PLACEHOLDER-ROADMAP-HOME>](<PLACEHOLDER-ROADMAP-HOME>), and the quickstart is at
-[<PLACEHOLDER-QUICKSTART-HOME>](<PLACEHOLDER-QUICKSTART-HOME>).
+[ROADMAP.md](./ROADMAP.md), and the quickstart is at
+[docs/store6/quickstart.md](./docs/store6/quickstart.md).
 
 ---
 

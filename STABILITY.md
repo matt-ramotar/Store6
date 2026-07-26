@@ -100,7 +100,7 @@ Each alpha closes at least one community issue with a link to the named guarante
 a conformance test, not a changelog line. The next alpha's target month is stated in each release's
 notes. This document states the policy. Each release states the date.
 
-The public roadmap is at [<PLACEHOLDER-ROADMAP-HOME>](<PLACEHOLDER-ROADMAP-HOME>).
+The public roadmap is at [ROADMAP.md](./ROADMAP.md).
 
 ## 6. Migrating from Store 5
 
@@ -143,10 +143,11 @@ three things plainly.
 
 ### (a) The tier
 
-Experimental, in its own artifact, every public symbol `@ExperimentalStoreApi`. Written graduation
-criteria are published alongside the alpha01 release, with the first review at 6.1
-(<PLACEHOLDER-GRADUATION>). The target window for graduation to stable is roughly 6.3, and it is a
-target rather than a schedule: graduation requires the API unchanged across two consecutive minors,
+Experimental, in its own artifact, every public symbol `@ExperimentalStoreApi`. The written
+graduation criteria are published alongside the 6.0.0-alpha01 release and linked from this section
+then; the first review is at 6.1. The target window for graduation to stable is roughly 6.3, and it
+is a target rather than a schedule: graduation requires the API unchanged across two consecutive
+minors,
 crash-matrix and soak lanes green in production-representative apps, and at least three external
 production adopters reporting. If those are not met, it stays experimental and the review repeats.
 Nothing graduates because a date arrived.
