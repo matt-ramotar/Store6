@@ -8,7 +8,7 @@ consequences when you get them wrong.
 
 ## The two jobs
 
-<!-- provenance: store6-core/src/commonMain/kotlin/org/mobilenativefoundation/store6/core/StoreKey.kt:9-20 — the landed public interface, declarations only (KDoc elided; not a copy-paste recipe) -->
+<!-- provenance: store6-core/src/commonMain/kotlin/org/mobilenativefoundation/store6/core/StoreKey.kt:9-19 — the landed public interface, declarations only (KDoc elided; not a copy-paste recipe) -->
 
 ```kotlin
 public interface StoreKey {

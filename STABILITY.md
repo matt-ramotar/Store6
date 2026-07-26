@@ -49,10 +49,10 @@ Group coordinates are unchanged: `org.mobilenativefoundation.store`. Packages ar
 | Artifact | Tier | In 6.0.0-alpha01 |
 |---|---|---|
 | `store6-core` | Stable-track. The API is **not frozen** until the beta01 freeze candidate. | alpha01 |
-| `store6-testing` | Stable-track, same freeze schedule as core. | alpha01 |
-| `store6-sqldelight` | Experimental adapter (`@ExperimentalStoreApi`). Graduates to stable at 6.0.0, having run the contract kit throughout the alpha line. | alpha01 |
-| `store6-room` | Experimental adapter, same graduation. | alpha01 |
-| `store6-compose` | Experimental adapter, same graduation. | alpha01 |
+| `store6-testing` | Experimental (`@ExperimentalStoreApi`) — every public declaration in the artifact carries the marker today. | alpha01 |
+| `store6-sqldelight` | Experimental adapter (`@ExperimentalStoreApi`). Graduates to stable at 6.0.0, having run the contract kit throughout the alpha line. | alpha01, may slip one alpha |
+| `store6-room` | Experimental adapter, same graduation. | alpha01, may slip one alpha |
+| `store6-compose` | Experimental adapter, same graduation. | alpha01, may slip one alpha |
 | `store6-mutations` | **Experimental, separate artifact — every public symbol is `@ExperimentalStoreApi`.** See [§8](#mutations). | alpha01 |
 | `store6-bom` | Version alignment only; no API surface of its own. | alpha01 |
 | `store6-devtools` | Experimental (`@ExperimentalStoreApi`). | alpha02 (target) |
@@ -60,12 +60,16 @@ Group coordinates are unchanged: `org.mobilenativefoundation.store`. Packages ar
 
 Inside `store6-core`, the `org.mobilenativefoundation.store6.core.seam` package — the 13 files you
 implement to plug in your own fetcher, source of truth, bookkeeper, clock, telemetry, or overlay —
-is a **freeze candidate, not frozen.** The distinction is load-bearing and we state it in two
-stages deliberately. A real producer has to exercise a seam end to end before we will call it a
-candidate, and the candidate only becomes frozen once the ack-path atomicity work and its test
-matrix are green. If that work misses beta01, the `Overlay` and `StoreWriteHandle` surfaces ship
-`@ExperimentalStoreApi` outside the frozen tier and the rest of core freezes on schedule. CI
-enforces the file list on every pull request, so the seam cannot grow quietly.
+is a **freeze candidate, not frozen.** Today these types are `@ExperimentalStoreApi`, so
+implementing one is an explicit opt-in; that is the exception §2 names, and it is why the seam sits
+inside a stable-track artifact rather than shipping separately.
+
+The candidate-versus-frozen distinction is load-bearing and we state it in two stages deliberately.
+A real producer has to exercise a seam end to end before we will call it a candidate. The
+`Overlay` and `StoreWriteHandle` surfaces become frozen only once the ack-path atomicity work and
+its test matrix are green; if that work misses beta01, those two ship `@ExperimentalStoreApi`
+outside the frozen tier and the rest of core freezes on schedule. CI enforces the 13-file list on
+every pull request, so the seam cannot grow quietly.
 
 Promised but not in the alpha01 line: `store6-store5-interop` and `store6-paging-androidx`, both
 tracking to 6.0.0. An artifact that misses a train gets its target release named here. It does not

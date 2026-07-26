@@ -21,8 +21,10 @@ line here and its test ever disagree, the test is right and this page is a bug.
   (`maxAgeWithinBoundServesResidentWithoutSecondFetch`).
 - **`MustBeFresh` always fetches**, even against a fresh resident value
   (`mustBeFreshRefetchesFreshResident`).
-- **`LocalOnly` never fetches.** It serves what is resident, and fails `Missing` when nothing is
-  (`localOnlyResidentIgnoresInvalidationForGetAndStream`).
+- **`LocalOnly` never fetches.** It serves what is resident
+  (`localOnlyResidentIgnoresInvalidationForGetAndStream`), and when nothing is resident it fails
+  `Missing` without a `Loading` frame and without calling the fetcher
+  (`localOnlyWithoutResidentReportsMissingWithoutLoadingOrFetcherCall`).
 - **Stale-while-revalidate is the shape of every refresh.** A stale value is served immediately and
   the refresh produces **exactly one** terminal outcome — one fresh `Data`, or one served-stale
   `Error`, or one `Revalidated`, never two
@@ -33,10 +35,11 @@ line here and its test ever disagree, the test is right and this page is a bug.
 ## Retry
 
 - **The engine does not retry your fetcher. Zero retries, zero backoff, at zero configuration.** One
-  demand cycle invokes the fetcher exactly once; a failure schedules no background retry; a later
-  call is a new demand rather than a continuation of the failed one
-  (`fetcherFailure_isNotRetried_zeroConfig`). If you want retries, they belong in your fetcher, where
-  you control the policy.
+  demand cycle invokes the fetcher exactly once, and a failure schedules no background retry — on
+  the terminalizing `get` path and on a live `stream` collector that survives the failure. A later
+  call is new demand rather than a continuation of the failed one
+  (`fetcherFailure_isNotRetried_zeroConfig`, which pins all three). If you want retries, they belong
+  in your fetcher, where you control the policy.
 - **The source-of-truth reader subscription self-heals.** If the reader pipeline drops, the engine
   re-subscribes on a fixed internal delay. This is engine behavior, not a knob: **the delay constant
   is internal and not contractual**, and no test pins its literal value.
@@ -103,8 +106,9 @@ window's millisecond value is an internal constant, and this page deliberately d
 
 ## What is *not* defaulted
 
-- **A fetcher is required.** `store<K, V> { }` without `fetcher { }`, `fetcherOfResult { }`, or a
-  source of truth fails at build time with a message that says so (`StoreBuilder.kt:178`).
+- **A fetcher is required**, and installing a source of truth does not substitute for one.
+  `store<K, V> { }` without `fetcher { }`, `fetcherOfResult { }`, or `fetcher(Fetcher)` fails at
+  build time with a message that says so (`StoreBuilder.kt:177-180`).
 - **Telemetry is unset**, and the engine takes a null fast path rather than paying for a no-op sink
   (`StoreBuilder.kt:58`).
 - **Overlay is unset.** With no overlay installed, nothing is projected onto reads

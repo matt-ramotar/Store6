@@ -1,5 +1,8 @@
 # Quickstart
 
+> Store 6 is in development and **nothing is published yet**. This page is the shape of the API as
+> it stands on `main`; the install coordinates land with 6.0.0-alpha01.
+
 Store needs two things from you: a **key** that identifies what you want, and a **fetcher** that
 knows how to go get it. Everything else — sharing one in-flight request across concurrent callers,
 serving what is already resident, tracking staleness, bounding memory — is what Store does with
@@ -135,7 +138,7 @@ screen instead, and `close()` the store when you are done with it.
 Optimistic writes go through a journal, so they survive being offline and survive process death.
 You get a mutation store instead of a plain one, and it is a `Store` — everything above still works.
 
-<!-- plan-anchored: shapes from docs/v6/plans/020-implementation-plan.md:136-145 (consumer call site) and :1080-1097 (the end-to-end tracer). Not parity-checked: the artifact is unlanded. Re-anchor on landed code when the mutations API review completes. -->
+<!-- plan-anchored: shapes from docs/v6/plans/020-implementation-plan.md:136-145 (consumer call site) and :1065-1097 (the end-to-end tracer). Not parity-checked: the artifact is unlanded. Re-anchor on landed code when the mutations API review completes. -->
 
 ```kotlin
 @OptIn(ExperimentalStoreApi::class)   // required: the whole module is experimental
@@ -152,8 +155,11 @@ The flow, end to end:
 1. **Offline enqueue.** `mutate` appends one intent and returns a mutation id. Nothing is pushed.
 2. **Optimistic visibility.** `stream(key)` emits `Data(value = optimistic, origin = OVERLAY)`.
 3. **Reconnect and acknowledge.** `drainOnce(key)` pushes the pending intents and adopts each ack.
-4. **Confirmed.** The stream converges on the server's echo, attributed `SOT` or `MEMORY`, and the
-   old base value never reappears. No redundant fetch happens anywhere in this sequence.
+4. **Confirmed.** By the acknowledgement contract, the server's echo becomes the committed value,
+   attributed `SOT` or `MEMORY`, and the optimistic frame is retired rather than replayed. A stream
+   opened after the acknowledgement sees the echo. Convergence for a collector that was *already*
+   active across the acknowledgement is the subject of open engine work and is not yet a behavior
+   this page will promise. No redundant fetch happens anywhere in this sequence.
 
 Two properties that are design decisions rather than accidents:
 
