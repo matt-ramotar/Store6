@@ -30,7 +30,7 @@ kotlin {
     macosArm64()
     js { nodejs() }
     @OptIn(ExperimentalWasmDsl::class)
-    wasmJs { nodejs() }
+    wasmJs { browser() }
 
     sourceSets {
         val commonMain by getting {
