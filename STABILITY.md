@@ -2,15 +2,12 @@
 
 ## 1. What this document is
 
-Two issues on this repository name the same failure from two directions. [#570][570] asked us to
-stop making breaking API changes in beta. [#534][534] asked for a roadmap and never got one. Both
-are fair. The 5.1 line spent 30 months across 10 alphas, and `MutableStore` spent three years
-annotation-gated inside a stable artifact without ever converging.
+What each `store6-*` artifact promises, how an API is allowed to change, how often we ship, and how
+you can verify all of it from a released tag. Where a promise is not yet earned, this document says
+so rather than rounding up.
 
-This document is the answer, in a form you can hold us to: what each artifact promises, how an API
-is allowed to change, how often we ship, and how you can verify all of it from a released tag
-rather than taking our word for it. Where a promise is not yet earned, this document says so
-instead of rounding up.
+It is also the standing answer to [#570][570] on binary compatibility and [#534][534] on a published
+roadmap.
 
 Scope: the `store6-*` artifacts, effective with the 6.0.0-alpha01 release. Store 5 continues under
 its own coordinates, and [§6](#6-migrating-from-store-5) covers living with both.
@@ -32,10 +29,9 @@ All three are `RequiresOptIn.Level.ERROR`: you cannot use them by accident. `Sto
 carries `@SubclassOptInRequired(DelicateStoreApi::class)`, so implementing the interface yourself is
 a deliberate act, not a default.
 
-**Experimental code lives in separate artifacts, never annotation-gated inside a stable one.** This
-is a packaging rule, and it is the direct lesson of `MutableStore`. When an experimental capability
-needs its own release rhythm, it gets its own artifact, and the tier is stated on the artifact
-rather than buried in an annotation on a member you have already depended on.
+**Experimental code lives in separate artifacts, never annotation-gated inside a stable one.** When
+a capability needs its own release rhythm, it gets its own artifact, and the tier is stated on the
+artifact rather than buried in an annotation on a member you have already depended on.
 
 **SemVer is scoped to the stable tier.** A breaking change to an `@ExperimentalStoreApi` surface in
 a minor release is not a SemVer violation, because that surface never claimed the guarantee. That is
@@ -86,9 +82,8 @@ Every removal from the stable tier goes through three stages:
    before your build breaks.
 3. **`HIDDEN` at the next major.** Binary compatibility is preserved until then.
 
-**No silent capability drops.** If a capability is removed, it gets a deprecation cycle and a
-migration note. Store 5 dropped its `FileSystem` source-of-truth support without either, and users
-found out by upgrading. That is the specific mistake this clause exists to prevent.
+**No silent capability drops.** A removed capability gets the same cycle and a migration note. You
+should never find out a capability is gone by upgrading.
 
 ## 5. Release cadence
 
@@ -118,7 +113,7 @@ gates for 6.0.0 — they block GA, they are not follow-ups.
 
 <a id="verification"></a>
 
-This is the part [#570][570] actually asked for. None of it depends on trusting us.
+Every claim in this document is checkable from a released tag.
 
 - **`explicitApi()` strict** on every `store6-*` library module. Nothing becomes public by omission.
 - **Binary-compatibility-validator (0.17.0) with klib validation enabled.** Each module commits a
@@ -141,9 +136,8 @@ This is the part [#570][570] actually asked for. None of it depends on trusting 
 
 <a id="mutations"></a>
 
-`store6-mutations` ships in alpha01 because a write-less Store 6 would be a functional regression
-against Store 5's `MutableStore` for every app that writes. It ships honestly, which means stating
-three things plainly.
+`store6-mutations` is in the alpha01 floor, not the may-slip list: an app that writes should not
+have to wait for a later alpha. Three things about it are worth stating plainly.
 
 ### (a) The tier
 

@@ -1,26 +1,25 @@
 # Store 6 roadmap
 
-[#534][534] asked for a roadmap in March 2023 and never got one. This is it.
+Store 6's plan, with dates on it. Some of those dates will move. What will not move is the rule
+that governs how they move, stated in the first section below. Where a window is an estimate, this
+page says so and gives the range.
 
-It is a plan with dates on it, which means some of those dates will move. What will not move is the
-rule that governs how they move, stated in the first section below. Where a window is a guess, this
-page says it is a guess and gives the range.
+This is the roadmap [#534][534] asked for.
 
 ## Operating principles
 
-These are commitments, not aspirations. Each answers a specific failure from the Store 5 era.
+These are commitments, not aspirations.
 
-1. **Cut scope, never cadence.** A slip threatens a release's contents, never its date. The 5.1 line
-   spent 30 months across 10 alphas. That does not happen again.
+1. **Cut scope, never cadence.** A slip threatens a release's contents, never its date.
 2. **The read core never waits on an extension.** If paging, the Swift facade, or Store 5 interop
    slips, 6.0 still ships as a complete, stable read library without it. Mutations are not an
    extension for this rule's purposes — writing is functionality Store 5 already shipped, and Store 6
    is not publishable to this community without it. It lives in a separate artifact because its API
    is experimental, which is a packaging decision, not a dependency one.
 3. **Experimental code lives in separate artifacts.** Never annotation-gated inside a stable
-   artifact. `MutableStore` spent three years in that purgatory and never converged.
-4. **Docs are launch gates, not follow-ups.** A release without its documentation is not done. The
-   4→5 migration stalled at a coordinate split because the guide never shipped.
+   artifact, so a tier is always visible on the thing you depend on.
+4. **Docs are launch gates, not follow-ups.** A release without its documentation is not done, and
+   migration guides ship with the migration.
 5. **Gates are written down before the work starts**, so a feature ships when its criteria pass
    rather than when enthusiasm peaks.
 
@@ -35,16 +34,15 @@ History, stars, and watchers stay here.
 
 ### 6.0.0-alpha01 — target Q4 2026 (confidence range Q4 2026 – Q1 2027)
 
-The first public artifact answers the trust deficit on day one. Honest about the schedule: this is a
-heavy load for one maintainer in roughly five months, so the list is split into a floor that defines
-the release and deliverables that may slip a month under principle 1.
+The list is split into a floor that defines the release and deliverables that may slip a month
+under principle 1. The confidence range above is real: treat Q1 2027 as the honest outer bound.
 
 **The floor — these are alpha01:**
 
 | | |
 |---|---|
 | `store6-core`, `store6-testing` | The engine and its conformance kit. |
-| `store6-mutations` | The write path: journal, drain, rebase, conflict stack, restart replay. Experimental artifact. Shipping alpha01 without writes would be a functional regression against Store 5. |
+| `store6-mutations` | The write path: journal, drain, rebase, conflict stack, restart replay. Experimental artifact, in the floor rather than the may-slip list. |
 | STABILITY.md + this roadmap | The published policy: tiers, deprecation cycle, cadence commitment. |
 | Quickstart + Important Defaults | The mental model before the API reference. |
 
@@ -97,9 +95,6 @@ production adopters reporting. If those are not met, it stays experimental and t
 There is no date-driven graduation.
 
 ## How to contribute
-
-When NYTimes filed [#534][534] they also offered to help write documentation. They never got an
-on-ramp. That is the specific gap this section closes.
 
 - **Documentation.** Every page in this line names the source it was written from, and code blocks
   come from modules CI compiles. If a page loses you, open an issue saying where. That is a useful
