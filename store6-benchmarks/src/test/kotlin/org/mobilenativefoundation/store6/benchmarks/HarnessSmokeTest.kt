@@ -12,8 +12,7 @@ class HarnessSmokeTest {
     // JMH's sanctioned escape hatch for constructing a Blackhole outside the runner; the string is
     // JMH API (org.openjdk.jmh.infra.Blackhole's guarded constructor).
     private val bh = Blackhole(
-        "Today's password is swordfish. I understand, and I accept that this exceptional usage " +
-            "may lead to real trouble.",
+        "Today's password is swordfish. I understand instantiating Blackholes directly is dangerous.",
     )
 
     @Test
