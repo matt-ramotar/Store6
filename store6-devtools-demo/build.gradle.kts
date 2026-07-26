@@ -11,7 +11,7 @@ kotlin {
     jvmToolchain(11)
     androidTarget()
     jvm("desktop")
-    listOf(iosArm64(), iosSimulatorArm64()).forEach { target: KotlinNativeTarget ->
+    listOf(iosX64(), iosArm64(), iosSimulatorArm64()).forEach { target: KotlinNativeTarget ->
         target.binaries.framework {
             baseName = "DevtoolsDemo"
             isStatic = true
@@ -46,6 +46,12 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.test)
             }
         }
+    }
+}
+
+compose.desktop {
+    application {
+        mainClass = "org.mobilenativefoundation.store6.devtoolsdemo.MainKt"
     }
 }
 
