@@ -17,6 +17,9 @@ jobs:
   linux-build-test:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      # Kotlin JS/Wasm lock tasks must see one complete project graph across separate Gradle steps.
+      GRADLE_OPTS: -Dorg.gradle.configureondemand=false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
