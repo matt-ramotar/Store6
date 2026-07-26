@@ -34,6 +34,7 @@ class MutationOverlayTest {
         val engine =
             MutationEngine(
                 mutatorRegistry<MutationsTestKey, String> {},
+                echoingMutationServer(),
             )
         val key = MutationsTestKey("identity")
         val base = charArrayOf('b', 'a', 's', 'e').concatToString()
@@ -49,6 +50,7 @@ class MutationOverlayTest {
                 mutatorRegistry<MutationsTestKey, String> {
                     append = mutator("append") { base, suffix -> base.orEmpty() + suffix }
                 },
+                echoingMutationServer(),
             )
         val key = MutationsTestKey("active")
         val store = store<MutationsTestKey, String> {
@@ -84,6 +86,7 @@ class MutationOverlayTest {
                 mutatorRegistry<MutationsTestKey, String> {
                     create = mutator("create") { _, value -> value }
                 },
+                echoingMutationServer(),
             )
         val key = MutationsTestKey("create")
         engine.mutate(key, create, "optimistic")
@@ -99,6 +102,7 @@ class MutationOverlayTest {
                 mutatorRegistry<MutationsTestKey, String> {
                     delete = mutator<Unit>("delete") { _, _ -> null }
                 },
+                echoingMutationServer(),
             )
         val key = MutationsTestKey("delete")
         engine.mutate(key, delete, Unit)
@@ -114,6 +118,7 @@ class MutationOverlayTest {
                 mutatorRegistry<MutationsTestKey, String> {
                     append = mutator("append") { base, suffix -> base.orEmpty() + suffix }
                 },
+                echoingMutationServer(),
             )
         val key = MutationsTestKey("fan-out")
         val observed = List(CONCURRENT_COLLECTORS) { CompletableDeferred<StoreKey>() }
@@ -142,6 +147,7 @@ class MutationOverlayTest {
                     mutatorRegistry<MutationsTestKey, String> {
                         append = mutator("append") { base, suffix -> base.orEmpty() + suffix }
                     },
+                server = echoingMutationServer(),
                 journal = journal,
             )
         val key = MutationsTestKey("lifecycle")

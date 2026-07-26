@@ -79,7 +79,7 @@ class MutationJournalTest {
             mutatorRegistry<MutationsTestKey, String> {
                 hostile = mutator("hostile") { _, _ -> throw IllegalStateException("boom") }
             }
-        val engine = MutationEngine(registry)
+        val engine = MutationEngine(registry, echoingMutationServer())
         val key = MutationsTestKey("hostile")
         engine.mutate(key, hostile, Unit)
 
@@ -94,7 +94,7 @@ class MutationJournalTest {
             mutatorRegistry<MutationsTestKey, String> {
                 hostile = mutator("hostile") { _, _ -> throw failure }
             }
-        val engine = MutationEngine(registry)
+        val engine = MutationEngine(registry, echoingMutationServer())
         val key = MutationsTestKey("poison")
         val mutationId = engine.mutate(key, hostile, Unit)
 
@@ -113,7 +113,7 @@ class MutationJournalTest {
             mutatorRegistry<MutationsTestKey, String> {
                 cancelling = mutator("cancelling") { _, _ -> throw failure }
             }
-        val engine = MutationEngine(registry)
+        val engine = MutationEngine(registry, echoingMutationServer())
         val key = MutationsTestKey("cancellation")
         val mutationId = engine.mutate(key, cancelling, Unit)
 
@@ -128,7 +128,7 @@ class MutationJournalTest {
     fun unknownMutatorId_isSkipped_notFatal() = runTest {
         val journal = InMemoryMutationJournal<String>()
         val registry = mutatorRegistry<MutationsTestKey, String> {}
-        val engine = MutationEngine(registry, journal)
+        val engine = MutationEngine(registry, echoingMutationServer(), journal)
         val key = MutationsTestKey("unknown")
         journal.append(key.identity(), JournalEntry("mutation-1", "missing", Unit))
 
@@ -145,6 +145,7 @@ class MutationJournalTest {
         val engine =
             MutationEngine(
                 registry = mutatorRegistry<MutationsTestKey, String> {},
+                server = echoingMutationServer(),
                 journal = journal,
             )
         val key = MutationsTestKey("foreign-absent")
@@ -172,7 +173,7 @@ class MutationJournalTest {
                 mutator<String>("shared") { base, suffix -> base?.plus(suffix) }
             }
         val journal = InMemoryMutationJournal<String>()
-        val engine = MutationEngine(targetRegistry, journal)
+        val engine = MutationEngine(targetRegistry, echoingMutationServer(), journal)
         val key = MutationsTestKey("foreign-collision")
 
         val failure =
@@ -203,7 +204,7 @@ class MutationJournalTest {
             }
 
         assertEquals("Mutator id 'shared' is already registered.", failure.message)
-        val engine = MutationEngine(builder.build())
+        val engine = MutationEngine(builder.build(), echoingMutationServer())
         val key = MutationsTestKey("duplicate")
         engine.mutate(key, original, 7)
         assertEquals("base7", engine.projectAll(key, "base"))

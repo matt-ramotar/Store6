@@ -19,6 +19,55 @@ internal class MutationsTestKey(
     override fun canonicalId(): String = id
 }
 
+/**
+ * Test-only dual-role backend for the mutations tracer.
+ *
+ * [MutationServer] intentionally has only the push half. This fixture additionally exposes [load]
+ * for a Store fetcher, so [offline] can take the test's server reads and writes offline together.
+ * [pushBehavior] remains scriptable for acknowledgements and failures.
+ */
+internal class FakeBackend(
+    private val fallbackValue: String = "base",
+) : MutationServer<MutationsTestKey, String> {
+    private val confirmed = mutableMapOf<KeyIdentity, String>()
+
+    internal var offline: Boolean = false
+    internal var fetchCount: Int = 0
+        private set
+    internal val pushedValues: MutableList<String> = mutableListOf()
+    internal var pushBehavior:
+        suspend (MutationsTestKey, String) -> MutationAck<String> = { _, value ->
+            MutationAck(echo = value, etag = "etag-${pushedValues.size}")
+        }
+
+    internal fun seed(
+        key: MutationsTestKey,
+        value: String,
+    ) {
+        confirmed[key.identity()] = value
+    }
+
+    internal suspend fun load(key: MutationsTestKey): String {
+        fetchCount += 1
+        check(!offline) { "backend is offline" }
+        return confirmed[key.identity()] ?: fallbackValue
+    }
+
+    override suspend fun push(
+        key: MutationsTestKey,
+        value: String,
+    ): MutationAck<String> {
+        check(!offline) { "backend is offline" }
+        pushedValues += value
+        return pushBehavior(key, value).also { ack ->
+            confirmed[key.identity()] = ack.echo
+        }
+    }
+}
+
+internal fun <K : StoreKey, V : Any> echoingMutationServer(): MutationServer<K, V> =
+    MutationServer { _, value -> MutationAck(echo = value, etag = null) }
+
 internal suspend fun ReceiveTurbine<StoreResult<String>>.awaitData(): StoreResult.Data<String> {
     while (true) {
         when (val result = awaitItem()) {
