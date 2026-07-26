@@ -96,9 +96,9 @@ array with the expected benchmark inventory and numeric primary metrics.
    local quiet-machine `calibrate` result may support the NFR proposal.
 6. **No numeric CI gate exists yet.** Until Matt ratifies OQ-6, workflows
    validate execution and schema only. They contain no performance threshold.
-7. **Invocation isolation.** Every invocation uses epoch-unique readiness and
-   sentinel values. Stores close per thread-scoped trial; cold stores close per
-   invocation.
+7. **Invocation isolation.** Every multi-write stream invocation uses
+   epoch-unique readiness and sentinel values. Stores close per thread-scoped
+   trial; cold stores close per invocation.
 
 The private, ignored first-data record and NFR-8 proposal live at
 `docs/v6/decisions/store6-benchmarks-first-data.md`.
