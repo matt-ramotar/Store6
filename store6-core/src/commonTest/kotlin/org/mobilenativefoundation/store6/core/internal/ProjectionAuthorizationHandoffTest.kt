@@ -392,7 +392,11 @@ class ProjectionAuthorizationHandoffTest {
                 testScheduler.runCurrent()
                 observer.expectNoEvents()
 
-                if (invalidationInterleaved) {
+                val invalidateBeforePredecessorDelivery =
+                    invalidationInterleaved &&
+                        mappingBeforeConfirmFresh &&
+                        deliveryBeforeConfirmFresh
+                if (invalidateBeforePredecessorDelivery) {
                     assertTrue(firstMapping.entered.isCompleted, "raw row was captured")
                     assertFalse(firstDelivery.entered.isCompleted)
                     harness.engine.invalidate()
@@ -447,6 +451,16 @@ class ProjectionAuthorizationHandoffTest {
                     observer.expectNoEvents()
                 }
 
+                if (invalidationInterleaved && !invalidateBeforePredecessorDelivery) {
+                    assertTrue(firstMapping.entered.isCompleted, "raw row was captured")
+                    assertFalse(
+                        firstDelivery.exited.isCompleted,
+                        "invalidation must remain between raw capture and collector delivery",
+                    )
+                    // Do not advance the scheduler before confirmFresh: the stale-epoch observer is
+                    // itself a delivery path and must resolve the post-confirmFresh residence.
+                    harness.engine.invalidate()
+                }
                 val heldR2 =
                     if (successorPresent) {
                         harness.beforeProjectionDeliveryGate.gateNext()
