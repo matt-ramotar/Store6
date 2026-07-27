@@ -129,6 +129,8 @@ internal class KeyEngine<K : StoreKey, V : Any>(
     private val afterProjectionDeliveryTestGate: suspend () -> Unit = {},
     /** Deterministic direct-test gate before a readiness waiter suspends on both state flows. */
     private val beforeProjectionReadinessWaitTestGate: suspend () -> Unit = {},
+    /** Deterministic direct-test gate after coherent base capture and before authorization. */
+    private val beforeProjectionAuthorizationTestGate: suspend () -> Unit = {},
 ) {
     private val stateLock = Mutex()
     private val writeLock = Mutex()
@@ -4188,6 +4190,7 @@ internal class KeyEngine<K : StoreKey, V : Any>(
         private suspend fun deliverDataLocked(
             envelope: ValueEnvelope<V>,
             revision: Long,
+            projectionBase: ProjectionBase<V>? = null,
             originOverride: Origin? = null,
             authority: DataDeliveryAuthority = DataDeliveryAuthority.Generic,
         ): DataDeliveryDecision {
@@ -4213,9 +4216,16 @@ internal class KeyEngine<K : StoreKey, V : Any>(
                 return DataDeliveryDecision.ForeignDirectRevalidation
             }
 
+            beforeProjectionAuthorizationTestGate()
+            val authorizationBase =
+                projectionBase?.also { captured ->
+                    check(captured.envelope === envelope && captured.revision == revision) {
+                        "A captured projection base must name the delivered residence."
+                    }
+                } ?: ProjectionBase(envelope, revision)
             val authorization =
                 projectionAuthorization(
-                    base = ProjectionBase(envelope, revision),
+                    base = authorizationBase,
                     originOverride = originOverride,
                     authority = authority,
                 )

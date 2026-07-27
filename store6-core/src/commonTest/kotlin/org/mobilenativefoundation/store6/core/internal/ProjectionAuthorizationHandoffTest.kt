@@ -616,6 +616,58 @@ class ProjectionAuthorizationHandoffTest {
         }
     }
 
+    @Test
+    fun confirmFreshBetweenResolutionAndAuthorization_handsCapturedR1LineageToR2() = runTest {
+        val harness = matrixHarness("projection-authorization-resolve-factory-race")
+        assertEquals("seed", harness.engine.get(Freshness.LocalOnly))
+
+        turbineScope {
+            val observer = harness.engine.stream(Freshness.LocalOnly).testIn(backgroundScope)
+            try {
+                settleInitialProjection(harness, observer)
+
+                val mapping = harness.mappingGate.gateNext()
+                val delivery = harness.readerDeliveryGate.gateNext()
+                val write = harness.sourceOfTruth.gateNextWrite()
+                val residenceProjection = harness.afterProjectionDeliveryGate.gateNext()
+                harness.overlay.clearCalls()
+                val apply =
+                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                        harness.engine.applyWrite("echo")
+                    }
+                mapping.entered.await()
+                write.published.await()
+                write.releaseReturn.complete(Unit)
+                apply.await()
+                assertProjectionCall(harness.overlay.awaitCall(), retired = false)
+                residenceProjection.entered.await()
+                residenceProjection.releaseAndAwait()
+
+                val authorization = harness.projectionAuthorizationGate.gateNext()
+                mapping.releaseAndAwait()
+                delivery.entered.await()
+                delivery.releaseAndAwait()
+                authorization.entered.await()
+
+                harness.engine.confirmFresh(etag = "r2")
+                authorization.releaseAndAwait()
+                testScheduler.runCurrent()
+                observer.expectNoEvents()
+
+                val retirementDelivered = harness.afterProjectionDeliveryGate.gateNext()
+                harness.overlay.clearCalls()
+                harness.overlay.retire(harness.key)
+                assertProjectionCall(harness.overlay.awaitCall(), retired = true)
+                retirementDelivered.entered.await()
+                assertLatestConfirmed(observer)
+                retirementDelivered.releaseAndAwait()
+            } finally {
+                harness.releaseAll()
+                observer.cancelAndIgnoreRemainingEvents()
+            }
+        }
+    }
+
     private suspend fun TestScope.runSuccessorCell(
         harness: MatrixHarness,
         observer: ReceiveTurbine<StoreResult<String>>,
@@ -752,6 +804,7 @@ class ProjectionAuthorizationHandoffTest {
         val beforeProjectionDeliveryGate = SequencedGate()
         val afterProjectionDeliveryGate = SequencedGate()
         val projectionReadinessGate = SequencedGate()
+        val projectionAuthorizationGate = SequencedGate()
         val engine =
             KeyEngine(
                 key = key,
@@ -773,6 +826,8 @@ class ProjectionAuthorizationHandoffTest {
                 afterProjectionDeliveryTestGate = afterProjectionDeliveryGate::awaitIfQueued,
                 beforeProjectionReadinessWaitTestGate =
                     projectionReadinessGate::awaitIfQueued,
+                beforeProjectionAuthorizationTestGate =
+                    projectionAuthorizationGate::awaitIfQueued,
             )
         return MatrixHarness(
             key = key,
@@ -785,6 +840,7 @@ class ProjectionAuthorizationHandoffTest {
             beforeProjectionDeliveryGate = beforeProjectionDeliveryGate,
             afterProjectionDeliveryGate = afterProjectionDeliveryGate,
             projectionReadinessGate = projectionReadinessGate,
+            projectionAuthorizationGate = projectionAuthorizationGate,
         )
     }
 
@@ -826,6 +882,7 @@ class ProjectionAuthorizationHandoffTest {
         val beforeProjectionDeliveryGate: SequencedGate,
         val afterProjectionDeliveryGate: SequencedGate,
         val projectionReadinessGate: SequencedGate,
+        val projectionAuthorizationGate: SequencedGate,
     ) {
         fun releaseAll() {
             sourceOfTruth.releaseAll()
@@ -835,6 +892,7 @@ class ProjectionAuthorizationHandoffTest {
             beforeProjectionDeliveryGate.releaseAll()
             afterProjectionDeliveryGate.releaseAll()
             projectionReadinessGate.releaseAll()
+            projectionAuthorizationGate.releaseAll()
         }
     }
 
