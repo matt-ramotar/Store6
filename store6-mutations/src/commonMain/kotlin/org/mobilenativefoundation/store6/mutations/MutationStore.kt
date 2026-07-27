@@ -90,7 +90,8 @@ public class MutationStore<K : StoreKey, V : Any> internal constructor(
      *
      * Reads the unprojected confirmed base with [Freshness.LocalOnly], so this pass never fetches.
      * A missing base becomes `null` for create projection. Push failure stops normally with the
-     * current intent pending; adoption failure propagates.
+     * current intent pending; adoption failure propagates. This walking-skeleton facade serializes
+     * drain passes store-wide; Issue 023 owns per-key scheduling and parallelism.
      */
     @ExperimentalStoreApi
     public suspend fun drainOnce(key: K) {

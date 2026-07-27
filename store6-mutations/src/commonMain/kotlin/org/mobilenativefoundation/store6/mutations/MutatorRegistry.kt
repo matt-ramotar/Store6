@@ -49,6 +49,11 @@ public class MutatorRegistryBuilder<K : StoreKey, V : Any> internal constructor(
     /**
      * Registers [project] under [id] and returns the typed reference used to enqueue its arguments.
      *
+     * [project] runs synchronously inside Store's Overlay application and may be invoked repeatedly
+     * or concurrently for different keys. It must be a pure, deterministic, non-blocking function
+     * of `(base, args)`, and it must not call back into Store. A thrown failure is contained and
+     * reported through `MutationStore.poisoned`.
+     *
      * PROVISIONAL pending Issue 021: registration semantics may change before that issue is
      * complete.
      */

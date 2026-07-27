@@ -9,6 +9,7 @@ import app.cash.turbine.test
 import app.cash.turbine.withTurbineTimeout
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
@@ -20,11 +21,13 @@ import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.store
+import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -138,6 +141,114 @@ class MutationOverlayTest {
     }
 
     @Test
+    fun cancelledMutate_afterAppendStillPublishesKeyChange() = runTest {
+        lateinit var rename: MutatorRef<MutationsTestKey, String, String>
+        val engine =
+            MutationEngine(
+                mutatorRegistry<MutationsTestKey, String> {
+                    rename = mutator("rename") { _, value -> value }
+                },
+                echoingMutationServer(),
+            )
+        val firstKey = MutationsTestKey("append-signal-blocker")
+        val cancelledKey = MutationsTestKey("append-signal-cancelled")
+        val firstObserved = CompletableDeferred<StoreKey>()
+        val cancelledObserved = CompletableDeferred<StoreKey>()
+        val collector =
+            backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                var observed = 0
+                engine.changes.collect { key ->
+                    when (observed++) {
+                        0 -> firstObserved.complete(key)
+                        1 -> cancelledObserved.complete(key)
+                    }
+                }
+            }
+
+        try {
+            engine.mutate(firstKey, rename, "first")
+            val cancelledMutation =
+                backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                    engine.mutate(cancelledKey, rename, "second")
+                }
+            assertFalse(cancelledMutation.isCompleted)
+            assertEquals(1, engine.pending(cancelledKey).size)
+
+            cancelledMutation.cancel()
+            testScheduler.runCurrent()
+            cancelledMutation.join()
+
+            assertSame(firstKey, firstObserved.await())
+            assertTrue(cancelledMutation.isCancelled)
+            assertTrue(
+                cancelledObserved.isCompleted,
+                "a committed append must retain its key-change handoff across cancellation",
+            )
+            assertSame(cancelledKey, cancelledObserved.await())
+        } finally {
+            collector.cancelAndJoin()
+        }
+    }
+
+    @Test
+    fun cancelledDrain_afterRetireStillPublishesKeyChange() = runTest {
+        lateinit var rename: MutatorRef<MutationsTestKey, String, String>
+        val registry =
+            mutatorRegistry<MutationsTestKey, String> {
+                rename = mutator("rename") { _, value -> value }
+            }
+        val journal = InMemoryMutationJournal<String>()
+        val engine = MutationEngine(registry, echoingMutationServer(), journal)
+        engine.bind(NoopWriteHandle)
+        val firstKey = MutationsTestKey("retire-signal-blocker")
+        val retiredKey = MutationsTestKey("retire-signal-cancelled")
+        val firstObserved = CompletableDeferred<StoreKey>()
+        val retiredObserved = CompletableDeferred<StoreKey>()
+        val collector =
+            backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                var observed = 0
+                engine.changes.collect { key ->
+                    when (observed++) {
+                        0 -> firstObserved.complete(key)
+                        1 -> retiredObserved.complete(key)
+                    }
+                }
+            }
+
+        try {
+            engine.mutate(firstKey, rename, "first")
+            journal.append(
+                retiredKey.identity(),
+                JournalEntry(
+                    mutationId = "retired-mutation",
+                    mutatorId = rename.id,
+                    args = "second",
+                ),
+            )
+            val cancelledDrain =
+                backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                    engine.drainOnce(retiredKey, confirmedBase = "base")
+                }
+            assertFalse(cancelledDrain.isCompleted)
+            assertEquals(emptyList(), engine.pending(retiredKey))
+
+            cancelledDrain.cancel()
+            testScheduler.runCurrent()
+            cancelledDrain.join()
+
+            assertSame(firstKey, firstObserved.await())
+            assertTrue(cancelledDrain.isCancelled)
+            assertTrue(
+                retiredObserved.isCompleted,
+                "a completed retirement must retain its key-change handoff across cancellation",
+            )
+            assertSame(retiredKey, retiredObserved.await())
+        } finally {
+            collector.cancelAndJoin()
+        }
+    }
+
+    @Test
     fun changes_neverCompletes_andNeverFails() = runTest {
         lateinit var append: MutatorRef<MutationsTestKey, String, String>
         val journal = InMemoryMutationJournal<String>()
@@ -185,6 +296,20 @@ class MutationOverlayTest {
             streamCollector.cancelAndJoin()
         }
     }
+}
+
+private object NoopWriteHandle : StoreWriteHandle<MutationsTestKey, String> {
+    override suspend fun apply(
+        key: MutationsTestKey,
+        value: String,
+    ) = Unit
+
+    override suspend fun markStale(key: MutationsTestKey) = Unit
+
+    override suspend fun confirmFresh(
+        key: MutationsTestKey,
+        etag: String?,
+    ) = Unit
 }
 
 private const val CONCURRENT_COLLECTORS = 8

@@ -211,6 +211,71 @@ class MutationAckPathTest {
     }
 
     @Test
+    fun hostileHead_stopsDrainWithoutPushOrRetirement() = runTest {
+        lateinit var hostile: MutatorRef<MutationsTestKey, String, Unit>
+        lateinit var healthy: MutatorRef<MutationsTestKey, String, String>
+        val registry =
+            mutatorRegistry<MutationsTestKey, String> {
+                hostile = mutator("hostile") { _, _ -> error("projection failed") }
+                healthy = mutator("healthy") { _, value -> value }
+            }
+        val backend = FakeBackend()
+        val engine = MutationEngine(registry, backend)
+        val key = MutationsTestKey("hostile-head")
+        engine.bind(RecordingWriteHandle(mutableListOf()))
+        val hostileId = engine.mutate(key, hostile, Unit)
+        val healthyId = engine.mutate(key, healthy, "tail")
+
+        engine.drainOnce(key, confirmedBase = "base")
+
+        assertEquals(emptyList(), backend.pushedValues)
+        assertEquals(
+            listOf(hostileId, healthyId),
+            engine.pending(key).map(PendingIntent::mutationId),
+        )
+    }
+
+    @Test
+    fun unknownHead_stopsDrainWithoutPushOrRetirement() = runTest {
+        lateinit var healthy: MutatorRef<MutationsTestKey, String, String>
+        val registry =
+            mutatorRegistry<MutationsTestKey, String> {
+                healthy = mutator("healthy") { _, value -> value }
+            }
+        val backend = FakeBackend()
+        val journal = InMemoryMutationJournal<String>()
+        val engine = MutationEngine(registry, backend, journal)
+        val key = MutationsTestKey("unknown-head")
+        val unknownId = "unknown-mutation"
+        val healthyId = "healthy-mutation"
+        journal.append(
+            key.identity(),
+            JournalEntry(
+                mutationId = unknownId,
+                mutatorId = "removed-mutator",
+                args = Unit,
+            ),
+        )
+        journal.append(
+            key.identity(),
+            JournalEntry(
+                mutationId = healthyId,
+                mutatorId = healthy.id,
+                args = "tail",
+            ),
+        )
+        engine.bind(RecordingWriteHandle(mutableListOf()))
+
+        engine.drainOnce(key, confirmedBase = "base")
+
+        assertEquals(emptyList(), backend.pushedValues)
+        assertEquals(
+            listOf(unknownId, healthyId),
+            engine.pending(key).map(PendingIntent::mutationId),
+        )
+    }
+
+    @Test
     fun adoptionFailurePropagates() = runTest {
         val mutation = RenameMutation()
         val backend = FakeBackend()

@@ -6,6 +6,7 @@
 package org.mobilenativefoundation.store6.mutations
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -13,6 +14,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.seam.Overlay
@@ -110,7 +112,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     ),
                 )
             }
-        signalSink.emit(key)
+        signalChange(key)
         return mutationId
     }
 
@@ -127,7 +129,9 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     ) {
         var projected = confirmedBase
         for (entry in journal.pendingSnapshot(key.identity())) {
-            projected = project(projected, entry)
+            val result = project(projected, entry)
+            if (!result.shouldDrain) return
+            projected = result.value
             val value = projected ?: return
             val ack =
                 try {
@@ -154,15 +158,23 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     internal fun projectAll(
         key: K,
         base: V?,
-    ): V? = journal.pendingSnapshot(key.identity()).fold(base, ::project)
+    ): V? =
+        journal.pendingSnapshot(key.identity()).fold(base) { projected, entry ->
+            project(projected, entry).value
+        }
 
     private fun project(
         base: V?,
         entry: JournalEntry<V>,
-    ): V? {
-        val projection = registry.projections[entry.mutatorId] ?: return base
+    ): ProjectionResult<V> {
+        val projection =
+            registry.projections[entry.mutatorId]
+                ?: return ProjectionResult(value = base, shouldDrain = false)
         return try {
-            projection(base, entry.args)
+            ProjectionResult(
+                value = projection(base, entry.args),
+                shouldDrain = true,
+            )
         } catch (failure: Throwable) {
             poisonSink.tryEmit(
                 PoisonedIntent(
@@ -171,7 +183,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     failure = failure,
                 ),
             )
-            base
+            ProjectionResult(value = base, shouldDrain = false)
         }
     }
 
@@ -183,6 +195,19 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         handle.apply(key, ack.echo)
         handle.confirmFresh(key, ack.etag)
         journal.retire(key.identity(), entry.mutationId)
-        signalSink.emit(key)
+        signalChange(key)
+    }
+
+    private suspend fun signalChange(key: K) {
+        // Once a journal transition completes, caller cancellation cannot discard its accepted
+        // key-change handoff and strand a different key behind SharedFlow replay backpressure.
+        withContext(NonCancellable) {
+            signalSink.emit(key)
+        }
     }
 }
+
+private class ProjectionResult<V : Any>(
+    val value: V?,
+    val shouldDrain: Boolean,
+)
