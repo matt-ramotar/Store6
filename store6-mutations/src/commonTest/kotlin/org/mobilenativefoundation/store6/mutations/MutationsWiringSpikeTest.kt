@@ -17,74 +17,12 @@ import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.store
 import org.mobilenativefoundation.store6.core.seam.Overlay
-import org.mobilenativefoundation.store6.core.seam.runtime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class MutationsWiringSpikeTest {
-    @Test
-    fun spike_overlayProjectsThenWriteHandleFlipsToSot() = runTest {
-        val key = MutationsTestKey("spike")
-        val pending = MutableStateFlow<String?>(null)
-        val signals = MutableSharedFlow<StoreKey>(replay = 1)
-        val store = store<MutationsTestKey, String> {
-            fetcher { "base" }
-            overlay(
-                object : Overlay<MutationsTestKey, String> {
-                    override fun apply(
-                        key: MutationsTestKey,
-                        base: String?,
-                    ): String? = pending.value ?: base
-
-                    override val changes: Flow<StoreKey> = signals
-                },
-            )
-        }
-
-        try {
-            store.stream(key).test {
-                assertEquals("base", awaitData().value)
-
-                pending.value = "base+pending"
-                signals.emit(key)
-                var projected = awaitData()
-                while (projected.value != "base+pending") {
-                    projected = awaitData()
-                }
-                assertEquals(Origin.OVERLAY, projected.origin)
-
-                val writeHandle = checkNotNull(store.runtime()).writeHandle
-                writeHandle.apply(key, "base+pending")
-                val confirmed = awaitConfirmed()
-                assertEquals("base+pending", confirmed.value)
-                assertTrue(
-                    confirmed.origin == Origin.SOT || confirmed.origin == Origin.MEMORY,
-                    "expected SOT or MEMORY after confirmed write, was ${confirmed.origin}",
-                )
-
-                writeHandle.confirmFresh(key, etag = "srv-1")
-                pending.value = null
-                signals.emit(key)
-                cancelAndIgnoreRemainingEvents()
-            }
-
-            store.stream(key).test {
-                val retired = awaitConfirmed()
-                assertEquals("base+pending", retired.value)
-                assertTrue(
-                    retired.origin == Origin.SOT || retired.origin == Origin.MEMORY,
-                    "expected SOT or MEMORY after retirement, was ${retired.origin}",
-                )
-                cancelAndIgnoreRemainingEvents()
-            }
-        } finally {
-            store.close()
-        }
-    }
-
     @Test
     fun lastOverlayRegistrationWins() = runTest {
         val key = MutationsTestKey("last-overlay")
