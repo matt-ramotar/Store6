@@ -660,7 +660,7 @@ class OverlayProjectionProtocolTest {
     }
 
     @Test
-    fun foreignDirectOwner_equalButDistinctBaselineIsNeverReused() =
+    fun foreignDirectOwner_equalButDistinctReaderFirstReusesExactAuthorizedBaseline() =
         runForeignDirectOwnerEqualDistinctOrdering(ForeignOwnerOrdering.READER_FIRST)
 
     @Test
@@ -784,14 +784,9 @@ class OverlayProjectionProtocolTest {
                     assertSame(mustNotLeak, projected.value)
                     assertEquals(Origin.OVERLAY, projected.origin)
                     assertEquals(Origin.OVERLAY, telemetry.awaitServe(Origin.OVERLAY))
-                    val legacyOriginGuard = telemetry.serves.contains(Origin.OVERLAY)
                     outcomeGate.release()
                     assertSame(newer, awaitFromDefault { foreignOwner.await() })
                     cancelAndIgnoreRemainingEvents()
-                    assertFalse(
-                        legacyOriginGuard,
-                        "the legacy origin-only guard rejects a legal same-reference projection",
-                    )
                 } else {
                     expectNoEvents()
                     assertFalse(telemetry.serves.contains(Origin.OVERLAY))
