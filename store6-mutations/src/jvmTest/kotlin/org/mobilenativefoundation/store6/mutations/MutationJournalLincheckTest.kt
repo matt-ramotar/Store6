@@ -27,6 +27,7 @@ import kotlin.test.Test
 
 class MutationJournalLincheckTest {
     private val storage: InMemoryMutationJournalStorage = seededLincheckStorage()
+    private val records = LincheckRecordFactory()
 
     @Operation(runOnce = true, cancellableOnSuspension = false)
     suspend fun appendA(): JournalAppendResult = append(LINCHECK_SLOT_A)
@@ -89,6 +90,11 @@ class MutationJournalLincheckTest {
                     .allMethods()
                     .ignore(),
             )
+            .addGuarantee(
+                forClasses(LincheckRecordFactory::class)
+                    .allMethods()
+                    .ignore(),
+            )
             .addCustomScenario {
                 parallel {
                     thread {
@@ -116,7 +122,7 @@ class MutationJournalLincheckTest {
             val client = requireNotNull(transaction.client(LINCHECK_CLIENT_ID))
             val sequence = client.lastAllocatedSequence + 1L
             transaction.advanceClient(
-                client.copyWithLincheckWatermarks(lastAllocated = sequence),
+                records.client(client, lastAllocated = sequence),
             )
             transaction.insertIntent(
                 recordVersion = 1,
@@ -132,7 +138,7 @@ class MutationJournalLincheckTest {
                 createdAt = sequence,
             )
             transaction.insertExecution(
-                lincheckExecution(sequence, MutationExecutionPhase.UNPREPARED),
+                records.execution(sequence, MutationExecutionPhase.UNPREPARED),
             )
             JournalAppendResult(slot, sequence)
         }
@@ -158,21 +164,21 @@ class MutationJournalLincheckTest {
             val sequence = intent.clientSequence
             val client = requireNotNull(transaction.client(LINCHECK_CLIENT_ID))
             transaction.insertAttempt(
-                lincheckAttempt(
+                records.attempt(
                     intent = intent,
                     slot = slot,
                     advertisedRetiredThroughSequence = client.retiredThroughSequence,
                 ),
             )
             transaction.advanceExecution(
-                lincheckExecution(sequence, MutationExecutionPhase.READY, generation = 1),
+                records.execution(sequence, MutationExecutionPhase.READY, generation = 1),
             )
             transaction.advanceExecution(
-                lincheckExecution(sequence, MutationExecutionPhase.INFLIGHT, generation = 1),
+                records.execution(sequence, MutationExecutionPhase.INFLIGHT, generation = 1),
             )
-            transaction.insertAck(lincheckAck(sequence, slot))
+            transaction.insertAck(records.ack(sequence, slot))
             transaction.advanceExecution(
-                lincheckExecution(
+                records.execution(
                     sequence,
                     MutationExecutionPhase.ACKED,
                     generation = 1,
@@ -181,7 +187,7 @@ class MutationJournalLincheckTest {
                 ),
             )
             transaction.advanceExecution(
-                lincheckExecution(
+                records.execution(
                     sequence,
                     MutationExecutionPhase.EFFECTS_PENDING,
                     generation = 1,
@@ -190,7 +196,7 @@ class MutationJournalLincheckTest {
                 ),
             )
             transaction.advanceExecution(
-                lincheckExecution(
+                records.execution(
                     sequence,
                     MutationExecutionPhase.RETIRED,
                     generation = 1,
@@ -214,7 +220,7 @@ class MutationJournalLincheckTest {
                 executionIndex += 1
             }
             if (prefix > client.retiredThroughSequence) {
-                transaction.advanceClient(client.copyWithLincheckWatermarks(retiredThrough = prefix))
+                transaction.advanceClient(records.client(client, retiredThrough = prefix))
             }
             JournalRetireResult(slot, sequence, JournalRetireOutcome.RETIRED)
         }
@@ -487,82 +493,89 @@ private object JournalViewNormalizer {
         }
 }
 
-private fun lincheckAttempt(
-    intent: MutationIntentRecord,
-    slot: String,
-    advertisedRetiredThroughSequence: Long,
-): MutationAttemptRecord =
-    MutationAttemptRecord(
-        clientId = LINCHECK_CLIENT_ID,
-        clientSequence = intent.clientSequence,
-        generation = 1,
-        effectiveNamespace = intent.namespace,
-        effectiveCanonicalId = intent.canonicalId,
-        valueCodecVersion = 1,
-        basePresence = MutationPresenceState.PRESENT,
-        baseBlob = "base-$slot".encodeToByteArray(),
-        minePresence = MutationPresenceState.PRESENT,
-        mineBlob = "mine-$slot".encodeToByteArray(),
-        preconditionMetaPresent = false,
-        preconditionWrittenAt = null,
-        preconditionEtag = null,
-        advertisedRetiredThroughSequence = advertisedRetiredThroughSequence,
-        generationIdempotencyKey = "lincheck-$slot-g1",
-        preparedAt = 5L + intent.clientSequence,
-        conflictMetaPresent = null,
-        conflictWrittenAt = null,
-        conflictEtag = null,
-        conflictReceivedAt = null,
-    )
+/**
+ * Pure immutable carrier construction excluded from managed scheduling. The storage, transaction
+ * lambda, mutex, reads, state transitions, and retired-prefix scan remain fully instrumented.
+ */
+private class LincheckRecordFactory {
+    fun attempt(
+        intent: MutationIntentRecord,
+        slot: String,
+        advertisedRetiredThroughSequence: Long,
+    ): MutationAttemptRecord =
+        MutationAttemptRecord(
+            clientId = LINCHECK_CLIENT_ID,
+            clientSequence = intent.clientSequence,
+            generation = 1,
+            effectiveNamespace = intent.namespace,
+            effectiveCanonicalId = intent.canonicalId,
+            valueCodecVersion = 1,
+            basePresence = MutationPresenceState.PRESENT,
+            baseBlob = "base-$slot".encodeToByteArray(),
+            minePresence = MutationPresenceState.PRESENT,
+            mineBlob = "mine-$slot".encodeToByteArray(),
+            preconditionMetaPresent = false,
+            preconditionWrittenAt = null,
+            preconditionEtag = null,
+            advertisedRetiredThroughSequence = advertisedRetiredThroughSequence,
+            generationIdempotencyKey = "lincheck-$slot-g1",
+            preparedAt = 5L + intent.clientSequence,
+            conflictMetaPresent = null,
+            conflictWrittenAt = null,
+            conflictEtag = null,
+            conflictReceivedAt = null,
+        )
 
-private fun lincheckAck(
-    sequence: Long,
-    slot: String,
-): MutationAckRecord =
-    MutationAckRecord(
-        clientId = LINCHECK_CLIENT_ID,
-        clientSequence = sequence,
-        generation = 1,
-        authoritativePresence = MutationPresenceState.PRESENT,
-        authoritativeBlob = "ack-$slot".encodeToByteArray(),
-        valueCodecVersion = 1,
-        etag = "etag-$slot",
-        canonicalTargetNamespace = null,
-        canonicalTargetId = null,
-        receivedAt = 10L + sequence,
-    )
+    fun ack(
+        sequence: Long,
+        slot: String,
+    ): MutationAckRecord =
+        MutationAckRecord(
+            clientId = LINCHECK_CLIENT_ID,
+            clientSequence = sequence,
+            generation = 1,
+            authoritativePresence = MutationPresenceState.PRESENT,
+            authoritativeBlob = "ack-$slot".encodeToByteArray(),
+            valueCodecVersion = 1,
+            etag = "etag-$slot",
+            canonicalTargetNamespace = null,
+            canonicalTargetId = null,
+            receivedAt = 10L + sequence,
+        )
 
-private fun lincheckExecution(
-    sequence: Long,
-    phase: MutationExecutionPhase,
-    generation: Int = 0,
-    attempt: Int = 0,
-    lastAttemptAt: Long? = null,
-    retiredAt: Long? = null,
-): MutationExecutionRecord =
-    MutationExecutionRecord(
-        clientId = LINCHECK_CLIENT_ID,
-        clientSequence = sequence,
-        phase = phase,
-        currentGeneration = generation,
-        attempt = attempt,
-        lastAttemptAt = lastAttemptAt,
-        activeFailureId = null,
-        retiredAt = retiredAt,
-    )
+    fun execution(
+        sequence: Long,
+        phase: MutationExecutionPhase,
+        generation: Int = 0,
+        attempt: Int = 0,
+        lastAttemptAt: Long? = null,
+        retiredAt: Long? = null,
+    ): MutationExecutionRecord =
+        MutationExecutionRecord(
+            clientId = LINCHECK_CLIENT_ID,
+            clientSequence = sequence,
+            phase = phase,
+            currentGeneration = generation,
+            attempt = attempt,
+            lastAttemptAt = lastAttemptAt,
+            activeFailureId = null,
+            retiredAt = retiredAt,
+        )
 
-private fun MutationClientRecord.copyWithLincheckWatermarks(
-    lastAllocated: Long = lastAllocatedSequence,
-    retiredThrough: Long = retiredThroughSequence,
-): MutationClientRecord =
-    MutationClientRecord(
-        recordVersion = recordVersion,
-        clientId = clientId,
-        lastAllocatedSequence = lastAllocated,
-        retiredThroughSequence = retiredThrough,
-        serverConfirmedRetiredThroughSequence = serverConfirmedRetiredThroughSequence,
-        createdAt = createdAt,
-    )
+    fun client(
+        source: MutationClientRecord,
+        lastAllocated: Long = source.lastAllocatedSequence,
+        retiredThrough: Long = source.retiredThroughSequence,
+    ): MutationClientRecord =
+        MutationClientRecord(
+            recordVersion = source.recordVersion,
+            clientId = source.clientId,
+            lastAllocatedSequence = lastAllocated,
+            retiredThroughSequence = retiredThrough,
+            serverConfirmedRetiredThroughSequence = source.serverConfirmedRetiredThroughSequence,
+            createdAt = source.createdAt,
+        )
+}
 
 private fun mutationIdFor(slot: String): String = "lincheck-$slot"
 
