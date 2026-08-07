@@ -21,8 +21,8 @@ import org.jetbrains.kotlin.gradle.targets.jvm.KotlinJvmTarget
 
 /**
  * Conventions shared by every store6 library module (full and subset variants):
- * KMP + android-library + vanniktech publishing + BCV(klib), explicitApi, default
- * hierarchy, jvmToolchain(11), test deps, simulator-device wiring, android defaults.
+ * KMP + android-library + vanniktech publishing + BCV(klib) + Dokka, explicitApi,
+ * default hierarchy, jvmToolchain(11), test deps, simulator-device wiring, android defaults.
  * Subset modules declare their own targets AFTER this applies; androidTarget() is REQUIRED
  * (android library config + "release"-variant publishing are unconditional here), and
  * target spellings must exactly match Store6MultiplatformConventionPlugin's declarations.
@@ -32,6 +32,7 @@ internal fun Project.configureStore6Module() {
         apply("org.jetbrains.kotlin.multiplatform")
         apply("com.android.library")
         apply("com.vanniktech.maven.publish")
+        apply("org.jetbrains.dokka")
         apply("org.jetbrains.kotlinx.binary-compatibility-validator")
     }
 
@@ -103,6 +104,8 @@ internal fun Project.configureStore6Module() {
             targetCompatibility = JavaVersion.VERSION_11
         }
     }
+
+    configureDokka()
 
     val signingKeyPresent = providers.gradleProperty("signingInMemoryKey").isPresent
     extensions.configure<MavenPublishBaseExtension> {
