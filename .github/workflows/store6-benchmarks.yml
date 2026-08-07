@@ -1,10 +1,10 @@
 name: Store6 Benchmarks
 
-# Non-blocking measurement lane (issue 016 / TEST-7 / METRIC-1). Report-only: runs the smoke
-# configuration and uploads JSON results. NO step asserts against a number — the NFR-8 target is
-# unratified (OQ-6); a follow-up wires a threshold gate only after Matt ratifies a target from
-# first-data calibration. This workflow is deliberately OUTSIDE the exact-head-green ready-gate
-# convention, which continues to mean: the Store6 and CI workflows green at the head.
+# Non-blocking measurement lane. Report-only: runs the smoke configuration and uploads JSON
+# results. NO step asserts against a number — no numeric performance target has been adopted
+# (see store6-benchmarks/README.md for the CI boundary). This workflow is deliberately OUTSIDE
+# the exact-head-green ready-gate convention, which continues to mean: the Store6 and CI
+# workflows green at the head.
 on:
   workflow_dispatch:
   pull_request:

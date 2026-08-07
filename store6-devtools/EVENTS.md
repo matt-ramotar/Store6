@@ -1,8 +1,8 @@
 # Store6 devtools event vocabulary v0
 
 This vocabulary is versioned but **EXPERIMENTAL**. Its names and field order are stable within v0.
-The Store 6.1 web-panel wire format described by `technical-design.md` OQ-3 will stabilize from
-this vocabulary and is deliberately **not** decided here (DR-3).
+The Store 6.1 web-panel wire format will stabilize from this vocabulary and is deliberately
+**not** decided here.
 
 The logger and monitor observe identities and lifecycle facts only. Logger lines and inspector
 presentation never include stored values or `StoreError` message and cause payloads. The
@@ -87,4 +87,4 @@ not a separate UI vocabulary.
 
 As an experimental vocabulary, v0 may still change at an alpha boundary. Any v0 field-name,
 field-order, kind, or quoting change must be recorded in the alpha notes. Version v1 is cut only
-by the Store 6.1 OQ-3 wire-format decision.
+by the Store 6.1 web-panel wire-format decision.

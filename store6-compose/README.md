@@ -1,9 +1,7 @@
 # store6-compose
 
 Compose Multiplatform integration for Store v6. Everything here is `@ExperimentalStoreApi`.
-The seam it consumes is a FREEZE CANDIDATE, not frozen: issue 007 (memory boundedness) has
-landed, but the seam-freeze sign-off is not yet signed — the freeze wording flips in a
-dedicated follow-up once it is.
+The seam it consumes is a freeze candidate, not frozen — see [STABILITY.md](../STABILITY.md).
 
 ## Entry points
 
@@ -21,7 +19,7 @@ dedicated follow-up once it is.
 `StoreResult` types deliberately have identity equality. This module skips recomposition by
 structural comparison of `Data`'s value/origin/isStale/refreshing — `age` is excluded (it
 advances every emission). Results are never merged across kinds. That mirrors the engine's
-`conflateLatestData` rule as landed by issue 007 (same-kind latest-wins; never merged across
+`conflateLatestData` rule (same-kind latest-wins; never merged across
 kinds): "Revalidated is a lifecycle signal: `conflateLatestData` never conflates it away in
 favor of another kind; for a blocked collector a newer `Revalidated` supersedes an older queued
 one, so the kind itself is never lost." This module is stricter still — `Loading`/`Revalidated`/

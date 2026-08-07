@@ -2,7 +2,7 @@
 
 `store6-sqldelight` persists Store6 values and durable freshness metadata in one SQLDelight database. The adapter leaves your generated schema unchanged and creates its own four `store6_meta*` sidecar tables when it is constructed.
 
-The Store6 seam remains **FREEZE CANDIDATE awaiting Matt's signature**.
+The Store6 seam is a **freeze candidate, not frozen** — see [STABILITY.md](../STABILITY.md).
 
 ## 15-minute existing-schema walkthrough
 
@@ -128,4 +128,4 @@ The walkthrough was measured on July 22, 2026 from a nonexistent consumer direct
 | Second process and durable-meta zero-refetch check | 0.96 s |
 | **Total** | **62.72 s (1m 2.72s)** |
 
-This automated run is evidence that the documented path fits comfortably inside 15 minutes on this machine; Matt should still spot-check the human walkthrough on his machine before merge.
+This automated run is evidence that the documented path fits comfortably inside 15 minutes on this machine.

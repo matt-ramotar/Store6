@@ -100,10 +100,10 @@ jobs:
           # of `unstable` would pass silently on the compiler's third rendering — a bare, unprefixed
           # `value: X` line, which it emits for unknown/runtime stability.
           #
-          # iface_strict=1 is the calibration ruling for this branch: the shipped conf renders every
-          # probe parameter stable, including the interface-typed and generic ones. Set it to 0 only
-          # if a toolchain bump makes interface-typed parameters unprovable, which downgrades the
-          # iface tier to skippable-only and reports the residual instead of failing.
+          # iface_strict=1 asserts that the shipped conf renders every probe parameter stable,
+          # including the interface-typed and generic ones. Set it to 0 only if a toolchain bump
+          # makes interface-typed parameters unprovable, which downgrades the iface tier to
+          # skippable-only and reports the residual instead of failing.
           find "${reports_dir}" -name '*-composables.txt' | sort | xargs cat | awk -v iface_strict=1 '
             /fun / {
               tier = 0
@@ -120,7 +120,7 @@ jobs:
                   print "PARAM NOT STABLE (" label " tier): " $0
                   bad = 1
                 } else {
-                  print "INFO: non-stable iface-tier param (allowed under Ruling B): " $0
+                  print "INFO: non-stable iface-tier param (allowed when iface_strict=0): " $0
                 }
               }
             }

@@ -172,7 +172,7 @@ factory method.
 
 The inherited suites cover 15 source-of-truth contracts and 6 bookkeeping
 contracts on every target where you execute them. Their close and lifecycle
-semantics are final. No provisional issue-007 caveats remain.
+semantics are final.
 
 ## Compatibility statement
 
