@@ -20,7 +20,7 @@ internal val FetchPlan.servesResident: Boolean
         }
 
 /**
- * Returns elapsed age with the ratified wall-clock posture: missing metadata and backward clocks
+ * Returns elapsed age with the wall-clock posture: missing metadata and backward clocks
  * are zero, while positive subtraction overflow saturates to [Long.MAX_VALUE] milliseconds.
  */
 internal fun elapsedAge(
@@ -40,7 +40,7 @@ internal fun elapsedAge(
 }
 
 /**
- * The zero-configuration AC-6 seed policy table.
+ * The zero-configuration policy table.
  *
  * Negative wall-clock deltas are clamped to zero before evaluating [Freshness.MaxAge].
  */

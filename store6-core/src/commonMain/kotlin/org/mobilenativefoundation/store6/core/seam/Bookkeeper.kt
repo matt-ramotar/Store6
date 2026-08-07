@@ -29,8 +29,6 @@ import org.mobilenativefoundation.store6.core.StoreNamespace
  * means the full operation was applied, while throwing means it had no effect. Forget operations
  * remove key records but never reset namespace or global watermarks, and watermarks otherwise only
  * advance.
- *
- * Freeze candidate: this surface freezes only after issue 007 lands and Matt signs off; shapes may still change until then.
  */
 @ExperimentalStoreApi
 @SubclassOptInRequired(DelicateStoreApi::class)
@@ -101,15 +99,21 @@ public interface Bookkeeper {
  *
  * [durablyStale] reflects the exact watermark algebra `max(mark/ns/global) > (success ?: 0)`.
  * A failure-only record therefore reports false until a mark or watermark covers it.
- *
- * Freeze candidate: this surface freezes only after issue 007 lands and Matt signs off; shapes may still change until then.
  */
 @ExperimentalStoreApi
 public class KeyStatus(
+    /** Metadata from the latest recorded success, or null when none has been recorded. */
     public val meta: StoreMeta?,
+
+    /** The shared monotone sequence assigned to the latest success, or null when none exists. */
     public val lastSuccessSequence: Long?,
+
+    /** The time of the latest [Bookkeeper.recordFailure], null once a success clears it. */
     public val lastFailureAtEpochMillis: Long?,
+
+    /** Failures recorded since the latest success; zero once a success clears the streak. */
     public val consecutiveFailures: Int,
+
     /** Whether a key, namespace, or global stale sequence outranks this key's latest success. */
     public val durablyStale: Boolean,
 )

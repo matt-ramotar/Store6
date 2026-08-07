@@ -9,9 +9,6 @@ import org.mobilenativefoundation.store6.core.StoreKey
 /**
  * Engine-backed acknowledgement path for committing and refreshing source-of-truth values.
  *
- * Freeze candidate: this surface freezes only after issue 007 lands and Matt signs off; shapes may
- * still change until then.
- *
  * @param K the key type accepted by the owning Store
  * @param V the non-null value type committed by the owning Store
  */
@@ -49,6 +46,7 @@ public interface StoreWriteHandle<K : StoreKey, V : Any> {
      * When residence exists, this records bookkeeping success, clears durable staleness like a
      * `304 Not Modified`, and refreshes resident metadata and its commit epoch. Active streams may
      * observe one data re-emission with refreshed flags. With no resident value this does nothing.
+     * This call alone is not an observation mechanism.
      */
     public suspend fun confirmFresh(
         key: K,

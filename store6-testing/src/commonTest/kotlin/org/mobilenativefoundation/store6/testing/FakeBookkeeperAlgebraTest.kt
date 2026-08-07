@@ -18,14 +18,14 @@ class FakeBookkeeperAlgebraTest {
         bk.recordFailure(keyA, atEpochMillis = 10L)
         bk.recordFailure(keyA, atEpochMillis = 20L)
         val status = assertNotNull(bk.status(keyA))
-        assertFalse(status.durablyStale) // 006 pin: no success + no covering mark -> false (?: 0 zero floor)
+        assertFalse(status.durablyStale) // no success + no covering mark -> false (?: 0 zero floor)
         assertEquals(2, status.consecutiveFailures)
         assertEquals(20L, status.lastFailureAtEpochMillis)
         assertNull(status.lastSuccessSequence)
         bk.recordSuccess(keyA, meta)
         val cleared = assertNotNull(bk.status(keyA))
         assertEquals(0, cleared.consecutiveFailures)      // success resets the streak
-        assertNull(cleared.lastFailureAtEpochMillis)      // AND the timestamp (landed kit pin)
+        assertNull(cleared.lastFailureAtEpochMillis)      // AND the timestamp (kit pin)
     }
 
     @Test

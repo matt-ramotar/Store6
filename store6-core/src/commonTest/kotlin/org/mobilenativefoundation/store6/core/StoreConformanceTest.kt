@@ -23,7 +23,7 @@ import kotlin.time.Duration.Companion.seconds
 
 open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
 
-    // (a) THE 001 acceptance test — cold stream: Loading then Data(origin=FETCHER). TEST-1 emission-sequence seed.
+    // (a) the cold-stream acceptance test: Loading then Data(origin=FETCHER)
     @Test
     fun coldStream_noCachedValue_emitsLoadingThenDataFromFetcher() = runTest {
         val store = testStore<TestKey, String> { fetcher { "value-for-${it.canonicalId()}" } }
@@ -32,13 +32,13 @@ open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
             val data = assertIs<StoreResult.Data<String>>(awaitItem())
             assertEquals("value-for-1", data.value)
             assertEquals(Origin.FETCHER, data.origin)
-            expectNoEvents() // live, not completed (FS-1)
+            expectNoEvents() // live, not completed
             cancelAndIgnoreRemainingEvents()
         }
         store.close()
     }
 
-    // (b1) fetcher throws -> stream emits Error and stays live (FS-5: stream never throws)
+    // (b1) fetcher throws -> stream emits Error and stays live (the stream never throws)
     @Test
     fun fetcherThrows_streamEmitsErrorAndStaysLive() = runTest {
         val store = testStore<TestKey, String> { fetcher { throw IllegalStateException("boom") } }
@@ -52,7 +52,7 @@ open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
         store.close()
     }
 
-    // (b2) fetcher throws -> get throws StoreException carrying StoreError.Fetch (FS-2/FS-5)
+    // (b2) fetcher throws -> get throws StoreException carrying StoreError.Fetch
     @Test
     fun fetcherThrows_getThrowsStoreException() = runTest {
         val store = testStore<TestKey, String> { fetcher { throw IllegalStateException("boom") } }
@@ -61,7 +61,7 @@ open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
         store.close()
     }
 
-    // (c) single-flight smoke: two concurrent collectors, one fetcher invocation. C-01/C-02 seed.
+    // (c) single-flight smoke: two concurrent collectors, one fetcher invocation
     @Test
     fun twoConcurrentCollectors_singleFetcherInvocation() = runTest {
         var calls = 0
@@ -86,7 +86,7 @@ open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
         store.close()
     }
 
-    // (d) pins the 001 get-posture: a resident value is served without a refetch (validator arrives in 004)
+    // (d) a resident value is served without a refetch
     @Test
     fun getAfterStreamCommitted_servesResidentValueWithoutRefetch() = runTest {
         var calls = 0
@@ -265,8 +265,8 @@ open class StoreConformanceTest : SourceOfTruthSubstitutionTest() {
     }
 }
 
-// 017 residual-deadline repair: Turbine's 3s default nested inside the 25s shadow; raise the
-// Turbine deadline above the shadow so runTest provides the only effective timeout (D0, PR #15).
+// Turbine's 3s default nests inside the 25s shadow; raise the Turbine deadline above the
+// shadow so runTest provides the only effective timeout.
 private val TEST_TIMEOUT = 25.seconds
 private val TURBINE_DEADLINE = 30.seconds // strictly > TEST_TIMEOUT: the shadow must fire first
 

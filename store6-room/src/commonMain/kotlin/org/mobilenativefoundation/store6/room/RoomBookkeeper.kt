@@ -19,7 +19,7 @@ import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Durable Room [Bookkeeper] backed by the adapter-owned TD-6 sidecar.
+ * Durable Room [Bookkeeper] backed by the adapter-owned sidecar.
  *
  * Identity is exclusively `(namespace.value, canonicalId())`. One allocator persisted at
  * `store6.sequence` supplies the durable sequence shared by successes, per-key stale marks,
@@ -29,16 +29,13 @@ import kotlin.coroutines.cancellation.CancellationException
  * Room commits the user value and freshness metadata as two non-atomic durable steps. A crash
  * between them, or a sidecar write failure absorbed by this seam, can leave a persisted value
  * without durable freshness metadata. Rehydration conservatively treats that value as
- * age-unknown/stale. A future `RoomSourceOfTruth.withTransaction` capability can make both writes
- * atomic without changing the bookkeeping seam.
+ * age-unknown/stale.
  *
  * [recordSuccess], [recordFailure], and [forget] absorb storage failures; [status] returns null for
  * unavailable storage or invalid sidecar data. Cooperative caller cancellation always propagates.
  * A Room-internal cancellation from unavailable or closed storage is classified using the active
  * caller context and treated as the corresponding storage failure. Maintenance methods propagate
  * storage failures and remain transaction-atomic.
- *
- * This seam remains FREEZE CANDIDATE pending Matt signature.
  */
 @ExperimentalStoreApi
 public class RoomBookkeeper(

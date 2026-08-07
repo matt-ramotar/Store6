@@ -22,15 +22,15 @@ import kotlin.time.Duration.Companion.minutes
  * | Posture | Behaviors |
  * |---|---|
  * | Applicable | Cold-stream sequence, value/error channels, replay, resident serve, one-time
- * script consumption, stale-get SWR, Decision #37 demand-deferred invalidation, clear transitions,
- * Revalidated cycles, namespace isolation, close semantics, clock-derived age, and lifecycle-frame
- * survival through StateFlow/stateIn. |
+ * script consumption, stale-get SWR, demand-deferred invalidation, clear transitions,
+ * Revalidated cycles, namespace isolation, close semantics, clock-derived age, and
+ * lifecycle-frame survival through StateFlow/stateIn. |
  * | Engine-only | Fetch cancellation and non-cooperative fetchers, freshness-policy matrices,
  * dispatcher contention, backpressure conflation, overlay projection, key events, and runtime
  * access. Test those by composing the seam fakes into a real store. |
  *
- * There is no invalidate-divergence row: Decision #37 (Matt, 2026-07-20) aligned the fake to the
- * engine's stale-mark-only, next-demand consumption posture.
+ * There is no invalidate-divergence row: the fake is aligned to the engine's stale-mark-only,
+ * next-demand consumption posture.
  */
 @OptIn(ExperimentalStoreApi::class)
 class FakeStoreConformanceTest {
@@ -80,8 +80,8 @@ class FakeStoreConformanceTest {
         val store = FakeStore<TestingKey, String>()
         val ex = assertFailsWith<StoreException> { store.get(key) }
         assertIs<StoreError.Missing>(ex.error)
-        assertTrue(ex.message!!.contains("test/1"))            // FS-5: which key
-        assertTrue(ex.message!!.contains("enqueueFetchValue"))  // FS-5: the fix
+        assertTrue(ex.message!!.contains("test/1"))            // which key
+        assertTrue(ex.message!!.contains("enqueueFetchValue"))  // the fix
         store.close()
     }
 
@@ -164,8 +164,8 @@ class FakeStoreConformanceTest {
 
     @Test
     fun invalidate_activeStream_observesStaleDataThenScriptedRefetch_honestFlags() = runTest {
-        // Decision #37 aligned: the ACTIVE collector IS demand (the engine's active-stream replan
-        // analog) — it observes the stale frame, then drives consumption of the queued script.
+        // The ACTIVE collector IS demand (the engine's active-stream replan analog) — it
+        // observes the stale frame, then drives consumption of the queued script.
         val store = FakeStore<TestingKey, String>()
         store.setValue(key, "v1")
         store.stream(key).test {
@@ -188,7 +188,7 @@ class FakeStoreConformanceTest {
 
     @Test
     fun invalidate_withoutActiveDemand_getServesStaleThenRefreshCommitsBehind() = runTest {
-        // THE Decision #37 alignment pin (ruled by Matt, 2026-07-20): with NO active demand,
+        // With NO active demand,
         // invalidate defers scripted-staleness consumption to the next demand — engine parity:
         // get-after-invalidate serves the STALE value and fires the SWR refresh behind it. Under
         // the rejected eager design the first get would have returned "v2".
@@ -203,8 +203,8 @@ class FakeStoreConformanceTest {
 
     @Test
     fun invalidate_withoutActiveDemand_scriptRetainedForNextCollector() = runTest {
-        // Second #37 pin: the deferred script is consumed by the NEXT stream demand, which first
-        // observes the honest stale snapshot (isStale=true, refreshing=true because a script waits).
+        // The deferred script is consumed by the NEXT stream demand, which first observes the
+        // honest stale snapshot (isStale=true, refreshing=true because a script waits).
         val store = FakeStore<TestingKey, String>()
         store.setValue(key, "v1")
         store.enqueueFetchValue(key, "v2")
@@ -222,7 +222,7 @@ class FakeStoreConformanceTest {
 
     @Test
     fun invalidate_noScript_staleMarkOnly_noConsumptionNoError() = runTest {
-        // Third #37 pin: invalidate with an empty script is a pure stale-mark (epoch-bump analog);
+        // Invalidate with an empty script is a pure stale-mark (epoch-bump analog);
         // active collectors observe isStale=true, refreshing=false, and nothing else happens.
         val store = FakeStore<TestingKey, String>()
         store.setValue(key, "v1")
@@ -274,7 +274,7 @@ class FakeStoreConformanceTest {
         store.wallClock.advanceBy(2.minutes)
         store.stream(key).test {
             val data = assertIs<StoreResult.Data<String>>(awaitItem())
-            assertFalse(data.isStale)          // 304 cleared staleness (006 pin)
+            assertFalse(data.isStale)          // 304 cleared staleness
             assertEquals(2.minutes, data.age)  // age from the refreshed writtenAt
             cancelAndIgnoreRemainingEvents()
         }
@@ -328,10 +328,10 @@ class FakeStoreConformanceTest {
 
     @Test
     fun lifecycleFrames_surviveStateFlowConsumer() = runTest {
-        // Pins the dispatch pin (approved phase0 item 36): a stateIn consumer (the dominant
-        // ViewModel shape) observes every lifecycle frame — the StateFlow-conflation trap cannot
-        // swallow the stale/refreshing frame. The eagerly-shared collector is ACTIVE demand, so
-        // under Decision #37 it drives consumption of the queued script after the stale frame.
+        // Pins per-frame dispatch: a stateIn consumer (the dominant ViewModel shape) observes
+        // every lifecycle frame — the StateFlow-conflation trap cannot swallow the
+        // stale/refreshing frame. The eagerly-shared collector is ACTIVE demand, so it drives
+        // consumption of the queued script after the stale frame.
         val store = FakeStore<TestingKey, String>()
         store.setValue(key, "v1")
         val state: StateFlow<StoreResult<String>?> =
@@ -372,7 +372,7 @@ class FakeStoreConformanceTest {
 
     @Test
     fun close_isIdempotent_andOperationsAfterCloseFailFast() = runTest {
-        // Finalized by issue 007: pins verified against StoreCloseLifecycleTest in store6-core.
+        // Pins verified against StoreCloseLifecycleTest in store6-core.
         val store = FakeStore<TestingKey, String>()
         store.close()
         store.close() // no additional effect
@@ -383,7 +383,7 @@ class FakeStoreConformanceTest {
 
     @Test
     fun close_cancelsActiveCollectors() = runTest {
-        // Finalized by issue 007: pins verified against StoreCloseLifecycleTest in store6-core.
+        // Pins verified against StoreCloseLifecycleTest in store6-core.
         val store = FakeStore<TestingKey, String>()
         store.setValue(key, "v")
         val started = CompletableDeferred<Unit>()

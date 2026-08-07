@@ -11,24 +11,29 @@ import org.mobilenativefoundation.store6.core.StoreMeta
  *
  * [status] carries the durable bookkeeping posture captured before the corresponding engine-state
  * snapshot. A resident value with null [meta] is treated as conservatively stale.
- *
- * Freeze candidate: this surface freezes only after issue 007 lands and Matt signs off; shapes may still change until then.
  */
 @ExperimentalStoreApi
 public class FreshnessContext(
+    /** Whether an in-memory resident value existed in the snapshot this plan is made from. */
     public val hasResidentValue: Boolean,
+
+    /** The resident value's recorded freshness metadata, or null when it has none or is absent. */
     public val meta: StoreMeta?,
+
+    /** Whether the resident value was committed before the stale epoch this plan runs against. */
     public val epochStale: Boolean,
+
+    /** The freshness policy of the read being planned. */
     public val freshness: Freshness,
+
+    /** The wall-clock reading captured for this plan, in Unix epoch milliseconds. */
     public val nowEpochMillis: Long,
+
+    /** The durable bookkeeping posture captured before the corresponding engine-state snapshot. */
     public val status: KeyStatus? = null,
 )
 
-/**
- * Selects the fetch plan for one coherent [FreshnessContext].
- *
- * Freeze candidate: this surface freezes only after issue 007 lands and Matt signs off; shapes may still change until then.
- */
+/** Selects the fetch plan for one coherent [FreshnessContext]. */
 @ExperimentalStoreApi
 @SubclassOptInRequired(DelicateStoreApi::class)
 public interface FreshnessValidator {
@@ -36,35 +41,21 @@ public interface FreshnessValidator {
     public fun plan(context: FreshnessContext): FetchPlan
 }
 
-/**
- * Fetch action selected by a [FreshnessValidator].
- *
- * Freeze candidate: this surface freezes only after issue 007 lands and Matt signs off; shapes may still change until then.
- */
+/** Fetch action selected by a [FreshnessValidator]. */
 @ExperimentalStoreApi
 public sealed interface FetchPlan {
     /**
      * Skips fetching. Skip with no resident value yields [StoreError.Missing] (get throws, stream
      * emits Error).
-     *
-     * Freeze candidate: this surface freezes only after issue 007 lands and Matt signs off; shapes may still change until then.
      */
     public data object Skip : FetchPlan
 
-    /**
-     * Performs an unconditional fetch and optionally serves the resident value while it runs.
-     *
-     * Freeze candidate: this surface freezes only after issue 007 lands and Matt signs off; shapes may still change until then.
-     */
+    /** Performs an unconditional fetch and optionally serves the resident value while it runs. */
     public class Fetch(
         public val servesResidentWhileFetching: Boolean,
     ) : FetchPlan
 
-    /**
-     * Performs a conditional fetch for [etag] and optionally serves residence while it runs.
-     *
-     * Freeze candidate: this surface freezes only after issue 007 lands and Matt signs off; shapes may still change until then.
-     */
+    /** Performs a conditional fetch for [etag] and optionally serves residence while it runs. */
     public class Conditional(
         public val etag: String,
         public val servesResidentWhileFetching: Boolean,

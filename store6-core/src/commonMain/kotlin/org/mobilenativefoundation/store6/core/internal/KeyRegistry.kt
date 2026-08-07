@@ -9,7 +9,7 @@ import org.mobilenativefoundation.store6.core.StoreKey
 /**
  * Owns at most one [KeyEngine] per canonical [KeyId], refcounted, with quiescent-only LRU idling.
  *
- * Structure (engine-design §7, reconciled with the landed registry):
+ * Structure:
  * - [active] holds engines with refCount >= 1 or a not-yet-idled zero-ref engine awaiting its
  *   fetch reference release; [idle] holds only quiescent zero-ref engines in LRU (insertion)
  *   order. The maps are disjoint. Eviction reads only [idle], and acquisition removes from
@@ -18,13 +18,13 @@ import org.mobilenativefoundation.store6.core.StoreKey
  *   duration), every bulk-maintenance sweep entry, and every fetch job (via
  *   [EngineResidencyHooks]) holds one reference.
  * - Eviction destroys only derived state; durable truth lives in the source of truth and
- *   bookkeeper, so a recreated engine is semantically identical (issue 006's hydration
- *   stamping). Total resident engines <= active references + maxIdle.
- * - Bulk sweeps retain each snapshotted engine for the action's duration, preserving the landed
+ *   bookkeeper, so a recreated engine is semantically identical: hydration restamps freshness
+ *   from the bookkeeper's persisted status. Total resident engines <= active references + maxIdle.
+ * - Bulk sweeps retain each snapshotted engine for the action's duration, preserving the
  *   double-sweep-under-fence semantics: watermarks cover engines missed by a snapshot; an engine
  *   inserted between bulk-clear sweeps is included by purge or remains fenced until maintenance
  *   releases.
- * - Creation still runs [verifyStableCanonicalId] once per residency (FS-6).
+ * - Creation still runs [verifyStableCanonicalId] once per residency.
  */
 internal class KeyRegistry<K : StoreKey, V : Any>(
     private val maxIdle: Int,
@@ -109,7 +109,7 @@ internal class KeyRegistry<K : StoreKey, V : Any>(
                 handle.refCount -= 1
                 if (handle.refCount > 0) return@withLock emptyList()
                 // A non-quiescent zero-ref engine holds an in-flight fetch whose own reference
-                // release re-runs this check; leaving it active is the engine-design §7 shape.
+                // release re-runs this check, so it deliberately stays active until then.
                 if (!handle.engine.isQuiescentForIdle()) return@withLock emptyList()
                 active.remove(id)
                 if (maxIdle == 0) {

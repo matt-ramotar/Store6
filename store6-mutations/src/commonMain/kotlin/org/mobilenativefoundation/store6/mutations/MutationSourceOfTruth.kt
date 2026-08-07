@@ -21,9 +21,8 @@ import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
  * unset.
  *
  * The factory forwards this exact instance to both the delegated core Store and the mutation
- * engine; core's inaccessible internal default is never substituted, and Issue 024 can select and
- * report its explicit non-transactional fallback because this retained default is visible to it
- * (D9). Certified against `SourceOfTruthContractKit`:
+ * engine; core's inaccessible internal default is never substituted. Certified against
+ * `SourceOfTruthContractKit`:
  *
  * - Each row lives in a per-identity versioned state cell keyed on
  *   `(namespace.value, canonicalId())`. Every collection of [reader] immediately first emits the
@@ -38,8 +37,7 @@ import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
  *   means the mutation was applied and its final row notification published, while throwing means
  *   it was not applied.
  *
- * Cells are intentionally unbounded, matching the core default's posture until the issue 007
- * lifecycle policy applies here.
+ * Cells are intentionally unbounded, matching the core default's posture.
  */
 internal class MutationSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<K, V> {
     private class Row<V : Any>(

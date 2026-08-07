@@ -30,7 +30,7 @@ import kotlin.time.Duration.Companion.seconds
 @OptIn(ExperimentalStoreApi::class, ExperimentalCoroutinesApi::class)
 class SourceOfTruthConformanceTest {
 
-    // C-05 shape: values arriving via fetch commit are attributed FETCHER.
+    // Values arriving via fetch commit are attributed FETCHER.
     @Test
     fun originHonesty_fetchCommit_emitsFetcher() = runTest {
         var calls = 0
@@ -69,7 +69,7 @@ class SourceOfTruthConformanceTest {
         }
     }
 
-    // C-06 shape: external data is delivered as SOT/stale before its one active-demand revalidation.
+    // External data is delivered as SOT/stale before its one active-demand revalidation.
     @Test
     fun originHonesty_externalSotWrite_emitsSotToActiveStream() = runTest {
         var calls = 0
@@ -107,7 +107,7 @@ class SourceOfTruthConformanceTest {
         store.close()
     }
 
-    // C-04 shape: the memory fast path serves without waiting for the pipeline, stamped MEMORY.
+    // The memory fast path serves without waiting for the pipeline, stamped MEMORY.
     @Test
     fun originHonesty_memoryFastPath_reStampsMemory() = runTest {
         val store = store<TestKey, String> { fetcher { "v" } }
@@ -220,7 +220,7 @@ class SourceOfTruthConformanceTest {
         }
     }
 
-    // R7: resubscribe after clear may duplicate, never lose; cleared value never replays.
+    // Resubscribe after clear may duplicate, never lose; cleared value never replays.
     @Test
     fun resubscribeAfterClear_duplicatesNotLosses() = runTest {
         var calls = 0
@@ -335,7 +335,7 @@ class SourceOfTruthConformanceTest {
         }
     }
 
-    // FR-10: a pre-populated SoT serves without a fetch under LocalOnly.
+    // A pre-populated SoT serves without a fetch under LocalOnly.
     @Test
     fun localOnly_prePopulatedSot_getServesWithoutFetcher() = runTest {
         var calls = 0
@@ -350,7 +350,7 @@ class SourceOfTruthConformanceTest {
         store.close()
     }
 
-    // FS-6 + hydration: unknown provenance serves and triggers exactly one revalidation.
+    // Hydration: unknown provenance serves and triggers exactly one revalidation.
     @Test
     fun cachedOrFetch_hydratedRow_servesThenRevalidatesExactlyOnce() = runTest {
         var calls = 0
@@ -391,7 +391,7 @@ class SourceOfTruthConformanceTest {
         }
     }
 
-    // FS-1: persisted truth participates in startup before its revalidation can overwrite it.
+    // Persisted truth participates in startup before its revalidation can overwrite it.
     @Test
     fun cachedOrFetch_prePopulatedSot_streamServesSotBeforeRevalidation() = runTest {
         var calls = 0
@@ -485,8 +485,8 @@ class SourceOfTruthConformanceTest {
     }
 }
 
-// 017 residual-deadline repair: Turbine's 3s default nested inside the 25s shadow; raise the
-// Turbine deadline above the shadow so runTest provides the only effective timeout (D0, PR #15).
+// Turbine's 3s default nests inside the 25s shadow; raise the Turbine deadline above the
+// shadow so runTest provides the only effective timeout.
 private val TEST_TIMEOUT = 25.seconds
 private val TURBINE_DEADLINE = 30.seconds // strictly > TEST_TIMEOUT: the shadow must fire first
 

@@ -37,13 +37,13 @@ import kotlin.time.Duration.Companion.milliseconds
  * Revalidated outcome refreshes its write time and clears staleness; without residence it becomes
  * Missing on both channels.
  *
- * Invalidation implements Decision #37 (Matt, 2026-07-20): it is a stale-mark only and never
- * consumes a script. A stale Data frame reports `refreshing` from whether a script is currently
- * pending. Scripted staleness is consumed at the next demand from an active collector, a later
- * stream after its stale snapshot, or behind a stale [get] read. One CAS consumption site allows at
- * most one winner across concurrent collectors. With no demand, the queued outcome is retained;
- * with no queued outcome, the stale frame has `refreshing=false` and no synthetic error. There is
- * no invalidate divergence from the engine's demand-deferred posture.
+ * Invalidation is a stale-mark only and never consumes a script. A stale Data frame reports
+ * `refreshing` from whether a script is currently pending. Scripted staleness is consumed at the
+ * next demand from an active collector, a later stream after its stale snapshot, or behind a
+ * stale [get] read. One CAS consumption site allows at most one winner across concurrent
+ * collectors. With no demand, the queued outcome is retained; with no queued outcome, the stale
+ * frame has `refreshing=false` and no synthetic error. There is no invalidate divergence from the
+ * engine's demand-deferred posture.
  *
  * Clear drops residence, emits Loading to active collectors, and retains the script for later
  * demand. Namespace and global operations sweep resident keys. Durable watermarks are deliberately
@@ -56,15 +56,15 @@ import kotlin.time.Duration.Companion.milliseconds
  * `runtime()` returns null by design. [FakeStore] produces no KeyEvents and performs no overlay
  * projection; runtime, events, overlays, and freshness-policy behavior belong to a real store.
  *
- * The seam consumed here is a FREEZE CANDIDATE, not frozen: freeze sign-off remains held until
- * issue 007 lands and Matt signs off. [close] is synchronous and idempotent. Active collectors are
- * cancelled; later [Store] operations fail immediately, and stream checks closure both when called
- * and when collection starts. Those exception types, post-close behavior, and the exact message
- * text were finalized by issue 007 against the engine's close lifecycle.
+ * [close] is synchronous and idempotent. Active collectors are cancelled; later [Store] operations
+ * fail immediately, and stream checks closure both when called and when collection starts. Those
+ * exception types, post-close behavior, and the exact message text are pinned against the engine's
+ * close lifecycle.
  */
 @ExperimentalStoreApi
 @OptIn(DelicateStoreApi::class)
 public class FakeStore<K : StoreKey, V : Any>(
+    /** The clock every write time and age is measured against; advance it to age values. */
     public val wallClock: TestWallClock = TestWallClock(),
 ) : Store<K, V> {
     private data class Cell<V : Any>(
@@ -96,13 +96,22 @@ public class FakeStore<K : StoreKey, V : Any>(
     private val closed = MutableStateFlow(false)
     private val recorded = MutableStateFlow<List<FakeStoreInteraction>>(emptyList())
 
+    /** Every recorded [Store] call, in call order, since construction or the last clear. */
     public val interactions: List<FakeStoreInteraction>
         get() = recorded.value
 
+    /** Empties [interactions]; recording continues for later calls. */
     public fun clearInteractions() {
         recorded.value = emptyList()
     }
 
+    /**
+     * Seeds [key] with a resident [value] without consuming any scripted outcome.
+     *
+     * The write time is read from [wallClock], so [StoreResult.Data.age] is measured from the
+     * clock's current reading. [origin] and [isStale] are recorded verbatim on the seeded value.
+     * Active collectors of [key] receive the resulting Data frame.
+     */
     public fun setValue(
         key: K,
         value: V,
@@ -137,10 +146,24 @@ public class FakeStore<K : StoreKey, V : Any>(
         }
     }
 
+    /**
+     * Appends a scripted successful fetch to [key]'s FIFO queue.
+     *
+     * When demand consumes it the cell commits [value] with [Origin.FETCHER] at the current
+     * [wallClock] reading and clears staleness. Enqueueing alone emits nothing.
+     */
     public fun enqueueFetchValue(key: K, value: V) {
         enqueue(key, Scripted.Value(value))
     }
 
+    /**
+     * Appends a scripted fetch failure to [key]'s FIFO queue.
+     *
+     * When demand consumes it, [error] reaches a stream collector as a [StoreResult.Error] value
+     * carrying [servedStale]. A [get] with no resident value throws [error] as a [StoreException];
+     * a [get] that has residence returns the resident value instead. Either way the resident value
+     * and its staleness are left as they were.
+     */
     public fun enqueueFetchError(
         key: K,
         error: StoreError,
@@ -149,6 +172,13 @@ public class FakeStore<K : StoreKey, V : Any>(
         enqueue(key, Scripted.Failure(error, servedStale))
     }
 
+    /**
+     * Appends a scripted not-modified confirmation to [key]'s FIFO queue.
+     *
+     * Consuming it against a resident value refreshes the write time, clears staleness, and emits
+     * [StoreResult.Revalidated] carrying [age]. Consuming it with no resident value is an error on
+     * both channels instead ([StoreError.Missing]), since there is nothing to confirm.
+     */
     public fun enqueueFetchRevalidated(
         key: K,
         age: Duration = Duration.ZERO,
@@ -212,8 +242,8 @@ public class FakeStore<K : StoreKey, V : Any>(
         val cell = cells.value[idOf(key)]
         val resident = cell?.value
         if (resident != null) {
-            // Decision #37 SWR mirror: return stale residence and commit one queued outcome behind
-            // this read. The next read observes the committed refresh.
+            // Stale-while-revalidate mirror: return stale residence and commit one queued outcome
+            // behind this read. The next read observes the committed refresh.
             val head = cell.script.firstOrNull()
             if (cell.isStale && head != null) consumeIfStale(key, head)
             return resident
@@ -269,10 +299,7 @@ public class FakeStore<K : StoreKey, V : Any>(
         cells.value.keys.forEach(::clearCell)
     }
 
-    /**
-     * Closes this fake synchronously and idempotently.
-     * Close semantics finalized by issue 007.
-     */
+    /** Closes this fake synchronously and idempotently. */
     override fun close() {
         if (!closed.compareAndSet(expect = false, update = true)) return
         record(FakeStoreInteraction.Close)
@@ -369,8 +396,8 @@ public class FakeStore<K : StoreKey, V : Any>(
 
     /**
      * Consumes the script head against a stale resident. This is the single demand-driven CAS
-     * consumption site for invalidated cells under Decision #37, called from stale [get] demand
-     * and from the stream collector loop for active or later stream demand.
+     * consumption site for invalidated cells, called from stale [get] demand and from the stream
+     * collector loop for active or later stream demand.
      */
     private fun consumeIfStale(key: K, expectedHead: Scripted<V>) {
         val id = idOf(key)
@@ -434,9 +461,9 @@ public class FakeStore<K : StoreKey, V : Any>(
     }
 
     /**
-     * Decision #37 (ruled by Matt, 2026-07-20): invalidate is a stale-mark only, the engine's
-     * epoch-bump analog. It appends the stale re-emission frame for active collectors and never
-     * consumes a script; stale get, active stream, or later stream demand owns consumption.
+     * Invalidate is a stale-mark only, the engine's epoch-bump analog. It appends the stale
+     * re-emission frame for active collectors and never consumes a script; stale get, active
+     * stream, or later stream demand owns consumption.
      */
     private fun invalidateCell(id: Pair<String, String>) {
         cells.update { map ->
@@ -484,10 +511,10 @@ public class FakeStore<K : StoreKey, V : Any>(
     }
 
     private companion object {
-        // Finalized by issue 007: core keeps STORE_CLOSED_MESSAGE internal by design (FS-5 —
-        // diagnostics are review-gated text, not ABI). This literal is pinned by the close
-        // conformance tests here and by StoreCloseLifecycleTest in store6-core; change both
-        // pins together if the message ever changes.
+        // Core keeps STORE_CLOSED_MESSAGE internal by design (diagnostics are review-gated text,
+        // not ABI). This literal is pinned by the close conformance tests here and by
+        // StoreCloseLifecycleTest in store6-core; change both pins together if the message ever
+        // changes.
         private const val CLOSED_MESSAGE = "Store is closed."
     }
 }

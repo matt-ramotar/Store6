@@ -32,7 +32,7 @@ import kotlin.coroutines.CoroutineContext
  * mutation has applied its final row or absence and published the matching notification; a
  * mutation that throws has not been applied.
  *
- * Every user-row mutation and its matching TD-6 metadata mutation execute in one [Transacter]
+ * Every user-row mutation and its matching metadata mutation execute in one [Transacter]
  * transaction, closing the durable user-row/sidecar atomicity boundary. The supplied query and
  * mutation callbacks must use the same [SqlDriver] passed to this adapter so user rows, their
  * transaction, and the sidecar remain coherent.
@@ -51,15 +51,14 @@ import kotlin.coroutines.CoroutineContext
  * Write/read round-trip law: after [write] returns normally, a fresh [reader] collection for the
  * same key first emits the written value. Constructor setup, mutation callbacks, and
  * [withTransaction] statements execute on the calling context with no internal dispatching;
- * reader query work uses [readContext], which defaults to [Dispatchers.Default].
+ * reader query work uses [readContext], which defaults to [Dispatchers.Default]. A null
+ * `wallClock` selects the adapter's own system clock.
  *
  * Present behavior supports synchronous [Transacter] implementations only. A [withTransaction]
  * block must complete without suspension and remain on its calling thread; a genuine suspension
  * fails and rolls back the enclosing transaction. The adapter cancels the block's child job before
  * reporting that failure, preventing cooperatively cancellable work from resuming after rollback.
  * Non-cooperative suspension is unsupported.
- *
- * Seam status: FREEZE CANDIDATE awaiting Matt signature; never frozen.
  *
  * @param K the key type used to locate a row
  * @param V the non-null row type
