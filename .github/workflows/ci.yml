@@ -12,10 +12,11 @@ permissions:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    # Issue 031: the authored Lincheck budget measured ~58-59m locally and 2h40m-3h13m hosted at
-    # the merged 023 bytes (and once 9h23m locally at 022 bytes). The default jvmTest excludes it
-    # via the build-gated filter in store6-mutations/build.gradle.kts (census-guarded below); the
-    # scheduled "Store6 full mutations JVM suite" workflow runs the full suite daily.
+    # The store6-mutations Lincheck budget measured ~58-59m locally and 2h40m-3h13m hosted
+    # at the current suite (and once 9h23m locally at an earlier revision). The default
+    # jvmTest excludes it via the build-gated filter in store6-mutations/build.gradle.kts
+    # (census-guarded below); the scheduled "Store6 full mutations JVM suite" workflow runs
+    # the full suite daily.
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -52,7 +53,7 @@ jobs:
       - name: Build and Test with Coverage
         run: ./gradlew clean build koverXmlReport --stacktrace
 
-      - name: Census — default jvmTest must execute exactly the non-Lincheck suites (Issue 031)
+      - name: Census — default jvmTest must execute exactly the non-Lincheck suites
         shell: bash
         run: |
           set -euo pipefail
