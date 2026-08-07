@@ -16,7 +16,10 @@ concurrency:
 jobs:
   linux-build-test:
     runs-on: ubuntu-latest
-    # The authored Lincheck budget runs inside :store6-mutations:build and takes about 62 minutes.
+    # Issue 031: the authored Lincheck budget measured ~58-59m locally and 2h40m-3h13m hosted at
+    # the merged 023 bytes (and once 9h23m locally at 022 bytes). The default jvmTest excludes it
+    # via the build-gated filter in store6-mutations/build.gradle.kts (census-guarded below); the
+    # scheduled "Store6 full mutations JVM suite" workflow runs the full suite daily.
     timeout-minutes: 120
     env:
       # Kotlin JS/Wasm lock tasks must see one complete project graph across separate Gradle steps.
@@ -157,6 +160,15 @@ jobs:
           -Pkotlin.native.enableKlibsCrossCompilation=true
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
+
+      - name: Census — default jvmTest must execute exactly the non-Lincheck suites (Issue 031)
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=$(( $(find store6-mutations/src/commonTest store6-mutations/src/jvmTest -name '*Test.kt' | wc -l | tr -d ' ') - 1 ))
+          executed=$(find store6-mutations/build/test-results/jvmTest -name 'TEST-*.xml' | wc -l | tr -d ' ')
+          echo "expected=${expected} executed=${executed}"
+          [ "${expected}" -eq "${executed}" ]
 
       - name: Build Store6 mutation journal support
         run: >

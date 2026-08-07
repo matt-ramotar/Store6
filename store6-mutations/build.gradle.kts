@@ -40,3 +40,13 @@ tasks.withType<Test>().configureEach {
         )
     }
 }
+
+tasks.named("jvmTest", org.jetbrains.kotlin.gradle.targets.jvm.tasks.KotlinJvmTest::class) {
+    // Issue 031 (RD-2=b): the authored Lincheck budget exceeds every default hosted lane.
+    // The scheduled full-suite workflow passes -Pstore6.fullJvmSuite to run it; nothing else does.
+    if (!providers.gradleProperty("store6.fullJvmSuite").isPresent) {
+        filter {
+            excludeTestsMatching("org.mobilenativefoundation.store6.mutations.MutationJournalLincheckTest")
+        }
+    }
+}
