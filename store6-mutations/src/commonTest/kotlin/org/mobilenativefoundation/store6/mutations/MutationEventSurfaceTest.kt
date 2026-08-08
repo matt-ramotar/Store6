@@ -3,6 +3,7 @@
 package org.mobilenativefoundation.store6.mutations
 
 import app.cash.turbine.test
+import app.cash.turbine.withTurbineTimeout
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.test.TestResult
@@ -247,5 +248,13 @@ private fun enqueuedAt(sequence: Long): MutationEnqueued =
         mutatorId = "append",
     )
 
+// Turbine's 3s default would nest inside the 25s shadow. Raising the Turbine deadline above
+// the shadow makes runTest the only effective timeout.
+private val TEST_TIMEOUT = 25.seconds
+private val TURBINE_DEADLINE = 30.seconds // strictly > TEST_TIMEOUT: the shadow must fire first
+
 private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
-    coroutineRunTest(timeout = 25.seconds, testBody = testBody)
+    coroutineRunTest(timeout = TEST_TIMEOUT) {
+        val scope = this
+        withTurbineTimeout(TURBINE_DEADLINE) { scope.testBody() }
+    }
