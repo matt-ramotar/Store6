@@ -40,3 +40,15 @@ tasks.withType<Test>().configureEach {
         )
     }
 }
+
+tasks.named("jvmTest", org.jetbrains.kotlin.gradle.targets.jvm.tasks.KotlinJvmTest::class) {
+    // The Lincheck model-checking budget exceeds every default hosted CI lane: measured
+    // 2h40m-3h13m on hosted runners vs ~58-59m locally at the current suite, and once
+    // 9h23m locally at an earlier revision. The scheduled full-suite workflow passes
+    // -Pstore6.fullJvmSuite to run it; nothing else does.
+    if (!providers.gradleProperty("store6.fullJvmSuite").isPresent) {
+        filter {
+            excludeTestsMatching("org.mobilenativefoundation.store6.mutations.MutationJournalLincheckTest")
+        }
+    }
+}
