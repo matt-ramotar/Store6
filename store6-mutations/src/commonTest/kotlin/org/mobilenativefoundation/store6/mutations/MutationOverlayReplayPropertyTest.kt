@@ -7,9 +7,12 @@ package org.mobilenativefoundation.store6.mutations
 
 import app.cash.turbine.ReceiveTurbine
 import app.cash.turbine.test
+import app.cash.turbine.withTurbineTimeout
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runTest as coroutineRunTest
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.Store
@@ -35,7 +38,7 @@ import kotlin.time.Duration.Companion.seconds
 class MutationOverlayReplayPropertyTest {
     @Test
     fun overlayProjection_isDeterministicUnderReplayPermutationsOfConfirmedInterleavings() =
-        runTest(timeout = 25.seconds) {
+        runTest {
             val fixture = replayFixture()
             val cases = fixedReplayCases() + generatedReplayCases()
 
@@ -76,7 +79,7 @@ class MutationOverlayReplayPropertyTest {
 
     @Test
     fun identityDefaultOverlay_isNoOp_onFallbackPath() =
-        runTest(timeout = 25.seconds) {
+        runTest {
             var plainFetches = 0
             var mutationFetches = 0
             val plainSource = FakeSourceOfTruth<MutationsTestKey, String>()
@@ -123,7 +126,7 @@ class MutationOverlayReplayPropertyTest {
 
     @Test
     fun retiredIntent_neverReprojectsOldBase_onFallbackPath() =
-        runTest(timeout = 25.seconds) {
+        runTest {
             val storage = InMemoryMutationJournalStorage()
             val source = CountingPlainSourceOfTruth<MutationsTestKey, String>()
             val fixture = fallbackAppendFixture()
@@ -656,3 +659,14 @@ private const val GENERATED_REPLAY_CASES: Int = 64
 private const val REPLAY_CLIENT_ID: String = "property-client"
 private const val FALLBACK_CLIENT_ID: String = "client-0"
 private const val ABSENT_MARKER: String = "<absent>"
+
+// Turbine's 3s default would nest inside the 25s shadow. Raising the Turbine deadline above
+// the shadow makes runTest the only effective timeout.
+private val TEST_TIMEOUT = 25.seconds
+private val TURBINE_DEADLINE = 30.seconds // strictly > TEST_TIMEOUT: the shadow must fire first
+
+private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
+    coroutineRunTest(timeout = TEST_TIMEOUT) {
+        val scope = this
+        withTurbineTimeout(TURBINE_DEADLINE) { scope.testBody() }
+    }
