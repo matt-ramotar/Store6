@@ -220,8 +220,8 @@ abstract class StoreRevalidationConformance : SourceOfTruthSubstitutionTest() {
 
 class StoreRevalidationConformanceTest : StoreRevalidationConformance()
 
-// Turbine's 3s default nests inside the 25s shadow; raise the Turbine deadline above the
-// shadow so runTest provides the only effective timeout.
+// Turbine's 3s default would nest inside the 25s shadow. Raising the Turbine deadline above
+// the shadow makes runTest the only effective timeout.
 private val TEST_TIMEOUT = 25.seconds
 private val TURBINE_DEADLINE = 30.seconds // strictly > TEST_TIMEOUT: the shadow must fire first
 
