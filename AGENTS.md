@@ -6,9 +6,13 @@ comments, commit messages, and pull-request bodies.
 
 ## Documentation discipline
 
-If the `authoring:documentation-discipline` and `authoring:code-documentation` skills are
-available in your environment, invoke them before documentation work; they carry the full
-rules. The core rules below apply either way.
+The full rules are embedded in this repository as skills:
+`.claude/skills/documentation-discipline/` (governs every sentence) and
+`.claude/skills/code-documentation/` (governs evidence, artifact shape, mutation, and
+verification; composes with the discipline skill). Agents with skill support invoke them by
+name before documentation work; agents without it read the `SKILL.md` files and their
+`references/` directly. The core rules below are the load-bearing summary and apply either
+way.
 
 ### The master test
 
