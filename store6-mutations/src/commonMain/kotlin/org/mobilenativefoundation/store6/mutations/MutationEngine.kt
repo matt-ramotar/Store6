@@ -212,18 +212,25 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     ?: MutationRuntimeState<Any>(),
         )
 
-    // Lost-wakeup-free per-terminal-identity signals, both mutation-owned stateful monotonic
-    // counters:
+    // Lost-wakeup-free per-identity signals, all mutation-owned stateful monotonic counters:
     // - [aliasRevisionSignals] advances only inside the NonCancellable retirement/activation
     //   handoff of a redirect's source identity; a live facade stream re-resolves on a strictly
     //   newer value and swaps delegates.
     // - [resolutionPulseSignals] advances on every activation AND on every explicit non-stream
     //   facade/drain resolution attempt-or-success for an identity; a facade stream waiting
-    //   after a resolver failure retries on a strictly newer value. A stream's own attempt
-    //   never advances either signal.
+    //   after a resolver failure retries on a strictly newer value. A stream's own resolution
+    //   attempt never advances either alias-routing signal.
+    // - [emittedProjectionStampSignals] advances for the terminal target before an alias
+    //   publication emits Overlay.changes.
+    // - [appliedProjectionStampSignals] catches up monotonically for the actual writer identity
+    //   after successful projection.
     private val aliasRevisionSignals =
         MutableStateFlow<Map<KeyIdentity, MutableStateFlow<Long>>>(emptyMap())
     private val resolutionPulseSignals =
+        MutableStateFlow<Map<KeyIdentity, MutableStateFlow<Long>>>(emptyMap())
+    private val emittedProjectionStampSignals =
+        MutableStateFlow<Map<KeyIdentity, MutableStateFlow<Long>>>(emptyMap())
+    private val appliedProjectionStampSignals =
         MutableStateFlow<Map<KeyIdentity, MutableStateFlow<Long>>>(emptyMap())
 
     // The contiguous locally retired prefix, in-memory form, advertised on pushes.
@@ -254,13 +261,26 @@ internal class MutationEngine<K : StoreKey, V : Any>(
      * Store stamps a changed projection with `OVERLAY` origin, zero age, and no staleness.
      * `OVERLAY` is therefore the pending-write affordance; staleness is not. The shared [changes]
      * stream remains live and never completes or fails.
+     *
+     * The facade-internal applied-stamp write records the actual writer key and is a deliberate
+     * exception to [Overlay.apply]'s pure contract. It remains non-blocking and occurs once per
+     * successfully accepted trigger.
      */
     internal val overlay: Overlay<K, V> =
         object : Overlay<K, V> {
             override fun apply(
                 key: K,
                 base: V?,
-            ): V? = projectAll(key, base)
+            ): V? {
+                val writer = key.identity()
+                val terminal = terminalIdentityOf(writer)
+                val observedAtEntry = emittedProjectionStampSignal(terminal).value
+                val projected = projectAll(key, base)
+                appliedProjectionStampSignal(writer).update { current ->
+                    maxOf(current, observedAtEntry)
+                }
+                return projected
+            }
 
             override val changes: Flow<StoreKey> = this@MutationEngine.changes
         }
@@ -984,6 +1004,12 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     internal fun resolutionPulse(identity: KeyIdentity): StateFlow<Long> =
         resolutionPulseSignal(identity)
 
+    internal fun emittedProjectionStamp(identity: KeyIdentity): StateFlow<Long> =
+        emittedProjectionStampSignal(identity)
+
+    internal fun appliedProjectionStamp(identity: KeyIdentity): StateFlow<Long> =
+        appliedProjectionStampSignal(identity)
+
     /** Active subscriptions on [identity]'s resolution pulse; release-verification test door. */
     internal fun resolutionPulseSubscriptions(identity: KeyIdentity): Int =
         resolutionPulseSignal(identity).subscriptionCount.value
@@ -1174,6 +1200,12 @@ internal class MutationEngine<K : StoreKey, V : Any>(
 
     private fun resolutionPulseSignal(identity: KeyIdentity): MutableStateFlow<Long> =
         signalFor(resolutionPulseSignals, identity)
+
+    private fun emittedProjectionStampSignal(identity: KeyIdentity): MutableStateFlow<Long> =
+        signalFor(emittedProjectionStampSignals, identity)
+
+    private fun appliedProjectionStampSignal(identity: KeyIdentity): MutableStateFlow<Long> =
+        signalFor(appliedProjectionStampSignals, identity)
 
     private fun signalFor(
         signals: MutableStateFlow<Map<KeyIdentity, MutableStateFlow<Long>>>,
@@ -3504,6 +3536,9 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                         cacheLiveKey(aliasPublication.terminalTarget, targetKey)
                         phases.remove(entry.mutationId)
                         completedAttempts.remove(entry.mutationId)
+                        emittedProjectionStampSignal(aliasPublication.terminalTarget).update { stamp ->
+                            stamp + 1L
+                        }
                         aliasRevisionSignal(aliasPublication.source).update { revision ->
                             revision + 1L
                         }
@@ -3999,6 +4034,8 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                         retiredMutationId = entry.mutationId,
                     )
                 }
+                val terminalTarget = aliasRouter.terminalOf(target)
+                emittedProjectionStampSignal(terminalTarget).update { stamp -> stamp + 1L }
                 cacheLiveKey(target, targetKey)
                 phases.remove(entry.mutationId)
                 completedAttempts.remove(entry.mutationId)

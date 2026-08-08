@@ -6,9 +6,14 @@
 package org.mobilenativefoundation.store6.mutations
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -17,6 +22,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.transformWhile
+import kotlinx.coroutines.launch
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Store
@@ -123,6 +129,23 @@ public class MutationStore<K : StoreKey, V : Any> internal constructor(
                         if (!woke) throw CancellationException("Store is closed.")
                     }
                     is TerminalKeyResolution.Resolved -> {
+                        val requiredProjectionStamp =
+                            emittedProjectionStamp(resolution.identity).value
+                        when (
+                            awaitProjectionFence(
+                                key = resolution.key,
+                                requiredProjectionStamp = requiredProjectionStamp,
+                                appliedProjectionStamps =
+                                    appliedProjectionStamp(resolution.identity),
+                                aliasRevisions = aliasRevisions,
+                                aliasSnapshot = aliasSnapshot,
+                            )
+                        ) {
+                            ProjectionFenceOutcome.Applied -> Unit
+                            ProjectionFenceOutcome.Rerouted -> continue
+                            ProjectionFenceOutcome.Closed ->
+                                throw CancellationException("Store is closed.")
+                        }
                         var completedNormally = false
                         var rerouted = false
                         val guarded =
@@ -323,6 +346,12 @@ public class MutationStore<K : StoreKey, V : Any> internal constructor(
     internal val sourceOfTruthRetainedByEngine: SourceOfTruth<K, V>
         get() = engine.sourceOfTruth
 
+    internal fun emittedProjectionStamp(identity: KeyIdentity): StateFlow<Long> =
+        engine.emittedProjectionStamp(identity)
+
+    internal fun appliedProjectionStamp(identity: KeyIdentity): StateFlow<Long> =
+        engine.appliedProjectionStamp(identity)
+
     internal fun durableEffectsForInspection(mutationId: String): List<MutationEffectRecord> =
         engine.durableEffectsSnapshot(mutationId)
 
@@ -345,6 +374,74 @@ public class MutationStore<K : StoreKey, V : Any> internal constructor(
             throw IllegalStateException("Store is closed.")
         }
     }
+
+    private suspend fun awaitProjectionFence(
+        key: K,
+        requiredProjectionStamp: Long,
+        appliedProjectionStamps: StateFlow<Long>,
+        aliasRevisions: StateFlow<Long>,
+        aliasSnapshot: Long,
+    ): ProjectionFenceOutcome =
+        coroutineScope {
+            val pin =
+                launch(start = CoroutineStart.UNDISPATCHED) {
+                    try {
+                        delegate.stream(key, Freshness.LocalOnly).collect {}
+                    } catch (failure: Throwable) {
+                        if (!closed.value) throw failure
+                    }
+                }
+            try {
+                readyProjectionFenceOutcome(
+                    requiredProjectionStamp = requiredProjectionStamp,
+                    appliedProjectionStamps = appliedProjectionStamps,
+                    aliasRevisions = aliasRevisions,
+                    aliasSnapshot = aliasSnapshot,
+                ) ?: run {
+                    merge(
+                        appliedProjectionStamps
+                            .filter { stamp -> stamp >= requiredProjectionStamp }
+                            .map { ProjectionFenceOutcome.Applied },
+                        aliasRevisions
+                            .filter { revision -> revision > aliasSnapshot }
+                            .map { ProjectionFenceOutcome.Rerouted },
+                        closed.filter { it }.map { ProjectionFenceOutcome.Closed },
+                    ).first()
+                    checkNotNull(
+                        readyProjectionFenceOutcome(
+                            requiredProjectionStamp = requiredProjectionStamp,
+                            appliedProjectionStamps = appliedProjectionStamps,
+                            aliasRevisions = aliasRevisions,
+                            aliasSnapshot = aliasSnapshot,
+                        ),
+                    ) {
+                        "Projection fence woke without a satisfied outcome."
+                    }
+                }
+            } finally {
+                pin.cancelAndJoin()
+            }
+        }
+
+    private fun readyProjectionFenceOutcome(
+        requiredProjectionStamp: Long,
+        appliedProjectionStamps: StateFlow<Long>,
+        aliasRevisions: StateFlow<Long>,
+        aliasSnapshot: Long,
+    ): ProjectionFenceOutcome? {
+        if (closed.value) return ProjectionFenceOutcome.Closed
+        if (aliasRevisions.value > aliasSnapshot) return ProjectionFenceOutcome.Rerouted
+        if (appliedProjectionStamps.value < requiredProjectionStamp) return null
+        if (closed.value) return ProjectionFenceOutcome.Closed
+        if (aliasRevisions.value > aliasSnapshot) return ProjectionFenceOutcome.Rerouted
+        return ProjectionFenceOutcome.Applied
+    }
+}
+
+private enum class ProjectionFenceOutcome {
+    Applied,
+    Rerouted,
+    Closed,
 }
 
 /** One element of the alias-guarded facade stream: an emission, completion, or reroute marker. */
