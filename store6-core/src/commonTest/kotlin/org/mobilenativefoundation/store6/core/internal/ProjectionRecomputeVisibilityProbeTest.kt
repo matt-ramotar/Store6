@@ -32,16 +32,15 @@ import kotlin.test.assertEquals
 import kotlin.time.Duration.Companion.seconds
 
 /**
- * Issue 032 decisive experiment: with a projection recompute pending for an accepted overlay
- * change, is a freshly attached reader served the previous Ready snapshot, and does it then
- * converge once the recompute completes?
+ * Records whether a freshly attached reader receives the previous Ready snapshot while a
+ * projection recompute is pending for an accepted overlay change, then asserts convergence after
+ * the recompute completes.
  *
  * The probe reconstructs the alias-activation handoff's core-visible shape without the
  * mutations machinery: an overlay whose projected value changes, a change signal accepted by
  * the key's single writer, no residence-revision advance, and the recompute held at the
- * engine's own projection-apply gate while a fresh collector attaches. The probe asserts only
- * convergence; the first-frame observation is the recorded measurement, printed for the
- * archived test output. Neither F-ruling is encoded as an assertion.
+ * engine's own projection-apply gate while a fresh collector attaches. The probe asserts
+ * convergence. The printed first-frame observations are measurements, not behavioral assertions.
  */
 @OptIn(ExperimentalStoreApi::class, DelicateStoreApi::class)
 class ProjectionRecomputeVisibilityProbeTest {
