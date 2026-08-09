@@ -351,7 +351,7 @@ internal open class StorageBackedMutationJournal<V : Any>(
 
     override fun identities(): Set<KeyIdentity> = runtimeState.snapshots.value.entries.keys
 
-    /** One immutable cache capture for inspection paths that must not split alias and entry reads. */
+    /** One immutable cache capture for projection and inspection paths that must not split alias and entry reads. */
     internal fun runtimeSnapshot(): MutationRuntimeSnapshot<V> = runtimeState.snapshots.value
 
     /** Reads all nine record groups in one storage transaction; no consumer code runs inside. */
@@ -560,6 +560,8 @@ internal class InMemoryAliasRouter(
     fun terminalOf(identity: KeyIdentity): KeyIdentity {
         return terminalIdentity(identity, runtimeState.aliasesSnapshot())
     }
+
+    fun aliasesSnapshot(): Map<KeyIdentity, AliasEdge> = runtimeState.aliasesSnapshot()
 
     /**
      * Validates one acknowledged canonical target at ack receipt and prepares, but does not

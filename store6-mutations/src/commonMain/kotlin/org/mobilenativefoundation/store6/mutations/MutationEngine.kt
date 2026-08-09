@@ -932,9 +932,15 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         if (cache == null) {
             return pendingRows(aliasRouter.terminalOf(identity))
         }
+        val tombstones = hydratedTombstones.toList()
         val snapshot = cache.runtimeSnapshot()
         val terminal = terminalIdentity(identity, snapshot.aliases)
-        return replayableEntries(terminal, snapshot.entries[terminal].orEmpty())
+        return replayableEntries(
+            identity = terminal,
+            entries = snapshot.entries[terminal].orEmpty(),
+            aliases = snapshot.aliases,
+            tombstones = tombstones,
+        )
             .sortedBy { entry -> entry.clientSequence }
             .map { entry -> pendingRow(terminal, entry) }
     }
@@ -946,12 +952,22 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     internal suspend fun pendingWrites(): List<PendingIntent> {
         ensureHydrated()
         val cache = journal as? StorageBackedMutationJournal<V>
-        val entriesByIdentity =
-            cache?.runtimeSnapshot()?.entries
-                ?: journal.identities().associateWith(journal::pendingSnapshot)
+        val entriesByIdentity: Map<KeyIdentity, List<JournalEntry<V>>>
+        val aliases: Map<KeyIdentity, AliasEdge>
+        val tombstones: List<MutationKeyTombstoneRecord>
+        if (cache == null) {
+            entriesByIdentity = journal.identities().associateWith(journal::pendingSnapshot)
+            aliases = aliasRouter.aliasesSnapshot()
+            tombstones = hydratedTombstones.toList()
+        } else {
+            tombstones = hydratedTombstones.toList()
+            val snapshot = cache.runtimeSnapshot()
+            entriesByIdentity = snapshot.entries
+            aliases = snapshot.aliases
+        }
         return entriesByIdentity
             .flatMap { (identity, entries) ->
-                replayableEntries(identity, entries).map { entry ->
+                replayableEntries(identity, entries, aliases, tombstones).map { entry ->
                     entry.clientSequence to pendingRow(identity, entry)
                 }
             }
@@ -972,8 +988,23 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         key: K,
         base: V?,
     ): V? {
+        val identity = key.identity()
+        val cache = journal as? StorageBackedMutationJournal<V>
+        val entries: List<JournalEntry<V>>
+        val aliases: Map<KeyIdentity, AliasEdge>
+        val tombstones: List<MutationKeyTombstoneRecord>
+        if (cache == null) {
+            entries = journal.pendingSnapshot(identity)
+            aliases = aliasRouter.aliasesSnapshot()
+            tombstones = hydratedTombstones.toList()
+        } else {
+            tombstones = hydratedTombstones.toList()
+            val snapshot = cache.runtimeSnapshot()
+            entries = snapshot.entries[identity].orEmpty()
+            aliases = snapshot.aliases
+        }
         var projected: MutationPresence<V> = presenceOf(base)
-        for (entry in orderedPending(key.identity())) {
+        for (entry in orderedPending(identity, entries, aliases, tombstones)) {
             projected = project(projected, entry).value
         }
         return (projected as? MutationPresence.Present)?.value
@@ -1251,28 +1282,40 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         liveKeys.update { current -> current + (identity to key) }
     }
 
-    private fun orderedPending(identity: KeyIdentity): List<JournalEntry<V>> =
-        replayableEntries(identity, journal.pendingSnapshot(identity))
+    private fun orderedPending(
+        identity: KeyIdentity,
+        entries: List<JournalEntry<V>>,
+        aliases: Map<KeyIdentity, AliasEdge>,
+        tombstones: List<MutationKeyTombstoneRecord>,
+    ): List<JournalEntry<V>> =
+        replayableEntries(identity, entries, aliases, tombstones)
             .sortedBy { entry -> entry.clientSequence }
 
     private fun replayableEntries(
         identity: KeyIdentity,
         entries: List<JournalEntry<V>>,
+        aliases: Map<KeyIdentity, AliasEdge>,
+        tombstones: List<MutationKeyTombstoneRecord>,
     ): List<JournalEntry<V>> {
-        val terminal = aliasRouter.terminalOf(identity)
+        val terminal = terminalIdentity(identity, aliases)
         val watermark =
-            hydratedTombstones
+            tombstones
                 .filter { tombstone ->
                     tombstone.createdByClientId == clientId &&
                         tombstone.state == MutationTombstoneState.ACTIVE &&
-                        aliasRouter.terminalOf(tombstone.identity()) == terminal
+                        terminalIdentity(tombstone.identity(), aliases) == terminal
                 }.maxOfOrNull { tombstone -> tombstone.createdBySequence }
                 ?: return entries
         return entries.filter { entry -> entry.clientSequence > watermark }
     }
 
-    private fun pendingRows(identity: KeyIdentity): List<PendingIntent> =
-        orderedPending(identity).map { entry -> pendingRow(identity, entry) }
+    private fun pendingRows(identity: KeyIdentity): List<PendingIntent> {
+        val entries = journal.pendingSnapshot(identity)
+        val aliases = aliasRouter.aliasesSnapshot()
+        val tombstones = hydratedTombstones.toList()
+        return orderedPending(identity, entries, aliases, tombstones)
+            .map { entry -> pendingRow(identity, entry) }
+    }
 
     private fun pendingRow(
         identity: KeyIdentity,
@@ -3738,8 +3781,11 @@ internal class MutationEngine<K : StoreKey, V : Any>(
             if (owner != null && owner.identity != aliasRouter.terminalOf(identity)) {
                 return@withLock null
             }
+            val entries = journal.pendingSnapshot(identity)
+            val aliases = aliasRouter.aliasesSnapshot()
+            val tombstones = hydratedTombstones.toList()
             val pending =
-                replayableEntries(identity, journal.pendingSnapshot(identity))
+                replayableEntries(identity, entries, aliases, tombstones)
                     .filter { entry -> entry.clientSequence <= sequenceBound }
             val hinted =
                 initialEntry?.takeIf { candidate ->
@@ -4024,7 +4070,10 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                 if (cache == null) {
                     journal.retire(source, entry.mutationId)
                     aliasRouter.publishActivation(source)
-                    for (sibling in orderedPending(source)) {
+                    val siblings = journal.pendingSnapshot(source)
+                    val aliases = aliasRouter.aliasesSnapshot()
+                    val tombstones = hydratedTombstones.toList()
+                    for (sibling in orderedPending(source, siblings, aliases, tombstones)) {
                         journal.rehome(source, target, sibling)
                     }
                 } else {
