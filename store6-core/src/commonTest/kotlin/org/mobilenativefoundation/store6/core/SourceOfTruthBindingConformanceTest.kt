@@ -939,7 +939,9 @@ class SourceOfTruthBindingConformanceTest {
                 assertEquals("seed", assertIs<StoreResult.Data<String>>(first.awaitItem()).value)
                 assertEquals("seed", assertIs<StoreResult.Data<String>>(second.awaitItem()).value)
                 firstFetchStarted.await()
-                sourceOfTruth.liveReaderStarted.await()
+                withContext(Dispatchers.Default) {
+                    sourceOfTruth.awaitLiveReaderSubscription()
+                }
                 assertEquals(1, fetchCalls)
 
                 releaseFetch.complete(Unit)
@@ -1796,15 +1798,17 @@ class SourceOfTruthBindingConformanceTest {
     private class QueuedAbsentWriteSourceOfTruth : SingleRowTestSourceOfTruth<String> {
         private val liveRows = kotlinx.coroutines.flow.MutableSharedFlow<String?>()
         private var readerCalls = 0
-        val liveReaderStarted = CompletableDeferred<Unit>()
         val queuedAbsentEmitted = CompletableDeferred<Unit>()
         val releaseWriterEcho = CompletableDeferred<Unit>()
 
         override fun reader(key: TestKey): Flow<String?> {
             readerCalls += 1
             if (readerCalls == 1) return flow { emit("seed") }
-            liveReaderStarted.complete(Unit)
             return liveRows
+        }
+
+        suspend fun awaitLiveReaderSubscription() {
+            liveRows.subscriptionCount.first { count -> count > 0 }
         }
 
         override suspend fun write(
