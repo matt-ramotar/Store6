@@ -31,7 +31,6 @@ import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.StoreResults
 import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
 import org.mobilenativefoundation.store6.core.seam.WallClock
-import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJournalStorage
 import org.mobilenativefoundation.store6.mutations.storage.MutationAckRecord
 import org.mobilenativefoundation.store6.mutations.storage.MutationAttemptRecord
 import org.mobilenativefoundation.store6.mutations.storage.MutationClientRecord
@@ -111,10 +110,20 @@ internal sealed interface TerminalKeyResolution<out K : StoreKey> {
     ) : TerminalKeyResolution<Nothing>
 }
 
+internal class FacadeSignalSnapshot(
+    val terminalIdentity: KeyIdentity,
+    val aliasRevisions: StateFlow<Long>,
+    val aliasRevisionBaseline: Long,
+    val resolutionPulses: StateFlow<Long>,
+    val resolutionPulseBaseline: Long,
+    val requiredProjectionStamp: Long,
+    val targetAppliedProjectionStamps: StateFlow<Long>,
+)
+
 internal class MutationEngine<K : StoreKey, V : Any>(
     private val registry: MutatorRegistry<K, V>,
     private val server: MutationServer<K, V>,
-    private val journal: MutationJournal<V> = InMemoryMutationJournal(),
+    private val journal: StorageBackedMutationJournal<V> = InMemoryMutationJournal(),
     // The exact Bookkeeper/SourceOfTruth instances installed in the delegated Store are
     // retained here; ordered base capture reads [bookkeeper].
     internal val bookkeeper: Bookkeeper = MutationBookkeeper(),
@@ -148,12 +157,11 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     private val hydration = Mutex()
     private val globalDrainPass = Mutex()
     private val retirementPass = Mutex()
+    private val aliasPublicationMutex = Mutex()
     private val drainScheduler = IdentityDrainScheduler()
     private val namespaceDrainScheduler = NamespaceDrainScheduler()
     private val durableJournal =
-        (journal as? StorageBackedMutationJournal<V>)?.takeIf { candidate ->
-            candidate.hydrateOnFirstUse && valueCodec != null
-        }
+        journal.takeIf { candidate -> candidate.hydrateOnFirstUse && valueCodec != null }
     private var hydrated = durableJournal == null
     private var nextMutationSequence = 0L
     private val signalSink = MutableSharedFlow<StoreKey>(replay = 1)
@@ -204,26 +212,29 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     // full-pair redirects with PENDING/ACTIVE states plus generation-idempotency receipts.
     private val aliasRouter =
         InMemoryAliasRouter(
-            storage =
-                (journal as? StorageBackedMutationJournal<V>)?.storage
-                    ?: InMemoryMutationJournalStorage(),
-            runtimeState =
-                (journal as? StorageBackedMutationJournal<V>)?.runtimeState
-                    ?: MutationRuntimeState<Any>(),
+            storage = journal.storage,
+            runtimeState = journal.runtimeState,
         )
 
-    // Lost-wakeup-free per-terminal-identity signals, both mutation-owned stateful monotonic
-    // counters:
+    // Lost-wakeup-free per-identity signals, all mutation-owned stateful monotonic counters:
     // - [aliasRevisionSignals] advances only inside the NonCancellable retirement/activation
     //   handoff of a redirect's source identity; a live facade stream re-resolves on a strictly
     //   newer value and swaps delegates.
     // - [resolutionPulseSignals] advances on every activation AND on every explicit non-stream
     //   facade/drain resolution attempt-or-success for an identity; a facade stream waiting
-    //   after a resolver failure retries on a strictly newer value. A stream's own attempt
-    //   never advances either signal.
+    //   after a resolver failure retries on a strictly newer value. A stream's own resolution
+    //   attempt never advances either alias-routing signal.
+    // - [emittedProjectionStampSignals] advances for the terminal target before a durable alias
+    //   retirement emits Overlay.changes.
+    // - [appliedProjectionStampSignals] catches up monotonically for the actual writer identity
+    //   after successful projection.
     private val aliasRevisionSignals =
         MutableStateFlow<Map<KeyIdentity, MutableStateFlow<Long>>>(emptyMap())
     private val resolutionPulseSignals =
+        MutableStateFlow<Map<KeyIdentity, MutableStateFlow<Long>>>(emptyMap())
+    private val emittedProjectionStampSignals =
+        MutableStateFlow<Map<KeyIdentity, MutableStateFlow<Long>>>(emptyMap())
+    private val appliedProjectionStampSignals =
         MutableStateFlow<Map<KeyIdentity, MutableStateFlow<Long>>>(emptyMap())
 
     // The contiguous locally retired prefix, in-memory form, advertised on pushes.
@@ -254,13 +265,26 @@ internal class MutationEngine<K : StoreKey, V : Any>(
      * Store stamps a changed projection with `OVERLAY` origin, zero age, and no staleness.
      * `OVERLAY` is therefore the pending-write affordance; staleness is not. The shared [changes]
      * stream remains live and never completes or fails.
+     *
+     * The facade-internal applied-stamp write records the actual writer key and is a deliberate
+     * exception to [Overlay.apply]'s pure contract. It remains non-blocking and occurs once per
+     * successfully accepted trigger.
      */
     internal val overlay: Overlay<K, V> =
         object : Overlay<K, V> {
             override fun apply(
                 key: K,
                 base: V?,
-            ): V? = projectAll(key, base)
+            ): V? {
+                val writer = key.identity()
+                val terminal = terminalIdentityOf(writer)
+                val observedAtEntry = emittedProjectionStampSignal(terminal).value
+                val projected = projectAll(key, base)
+                appliedProjectionStampSignal(writer).update { current ->
+                    maxOf(current, observedAtEntry)
+                }
+                return projected
+            }
 
             override val changes: Flow<StoreKey> = this@MutationEngine.changes
         }
@@ -908,13 +932,17 @@ internal class MutationEngine<K : StoreKey, V : Any>(
 
     /** Snapshot terminal routing and rows together in durable client-sequence order. */
     internal fun pendingForIdentity(identity: KeyIdentity): List<PendingIntent> {
-        val cache = journal as? StorageBackedMutationJournal<V>
-        if (cache == null) {
-            return pendingRows(aliasRouter.terminalOf(identity))
-        }
-        val snapshot = cache.runtimeSnapshot()
-        val terminal = terminalIdentity(identity, snapshot.aliases)
-        return replayableEntries(terminal, snapshot.entries[terminal].orEmpty())
+        val tombstones = hydratedTombstones.toList()
+        val snapshot = journal.runtimeSnapshot()
+        val aliases = snapshot.aliases
+        val terminal = terminalIdentity(identity, aliases)
+        val entries = snapshot.entries[terminal].orEmpty()
+        return replayableEntries(
+            identity = terminal,
+            entries = entries,
+            aliases = aliases,
+            tombstones = tombstones,
+        )
             .sortedBy { entry -> entry.clientSequence }
             .map { entry -> pendingRow(terminal, entry) }
     }
@@ -925,13 +953,13 @@ internal class MutationEngine<K : StoreKey, V : Any>(
      */
     internal suspend fun pendingWrites(): List<PendingIntent> {
         ensureHydrated()
-        val cache = journal as? StorageBackedMutationJournal<V>
-        val entriesByIdentity =
-            cache?.runtimeSnapshot()?.entries
-                ?: journal.identities().associateWith(journal::pendingSnapshot)
+        val tombstones = hydratedTombstones.toList()
+        val snapshot = journal.runtimeSnapshot()
+        val entriesByIdentity = snapshot.entries
+        val aliases = snapshot.aliases
         return entriesByIdentity
             .flatMap { (identity, entries) ->
-                replayableEntries(identity, entries).map { entry ->
+                replayableEntries(identity, entries, aliases, tombstones).map { entry ->
                     entry.clientSequence to pendingRow(identity, entry)
                 }
             }
@@ -952,8 +980,13 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         key: K,
         base: V?,
     ): V? {
+        val identity = key.identity()
+        val tombstones = hydratedTombstones.toList()
+        val snapshot = journal.runtimeSnapshot()
+        val entries = snapshot.entries[identity].orEmpty()
+        val aliases = snapshot.aliases
         var projected: MutationPresence<V> = presenceOf(base)
-        for (entry in orderedPending(key.identity())) {
+        for (entry in orderedPending(identity, entries, aliases, tombstones)) {
             projected = project(projected, entry).value
         }
         return (projected as? MutationPresence.Present)?.value
@@ -983,6 +1016,28 @@ internal class MutationEngine<K : StoreKey, V : Any>(
      */
     internal fun resolutionPulse(identity: KeyIdentity): StateFlow<Long> =
         resolutionPulseSignal(identity)
+
+    internal fun emittedProjectionStamp(identity: KeyIdentity): StateFlow<Long> =
+        emittedProjectionStampSignal(identity)
+
+    internal fun appliedProjectionStamp(identity: KeyIdentity): StateFlow<Long> =
+        appliedProjectionStampSignal(identity)
+
+    internal suspend fun facadeSignalSnapshot(identity: KeyIdentity): FacadeSignalSnapshot =
+        aliasPublicationMutex.withLock {
+            val terminal = terminalIdentityOf(identity)
+            val aliasRevisions = aliasRevisionSignal(terminal)
+            val resolutionPulses = resolutionPulseSignal(terminal)
+            FacadeSignalSnapshot(
+                terminalIdentity = terminal,
+                aliasRevisions = aliasRevisions,
+                aliasRevisionBaseline = aliasRevisions.value,
+                resolutionPulses = resolutionPulses,
+                resolutionPulseBaseline = resolutionPulses.value,
+                requiredProjectionStamp = emittedProjectionStampSignal(terminal).value,
+                targetAppliedProjectionStamps = appliedProjectionStampSignal(terminal),
+            )
+        }
 
     /** Active subscriptions on [identity]'s resolution pulse; release-verification test door. */
     internal fun resolutionPulseSubscriptions(identity: KeyIdentity): Int =
@@ -1175,6 +1230,12 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     private fun resolutionPulseSignal(identity: KeyIdentity): MutableStateFlow<Long> =
         signalFor(resolutionPulseSignals, identity)
 
+    private fun emittedProjectionStampSignal(identity: KeyIdentity): MutableStateFlow<Long> =
+        signalFor(emittedProjectionStampSignals, identity)
+
+    private fun appliedProjectionStampSignal(identity: KeyIdentity): MutableStateFlow<Long> =
+        signalFor(appliedProjectionStampSignals, identity)
+
     private fun signalFor(
         signals: MutableStateFlow<Map<KeyIdentity, MutableStateFlow<Long>>>,
         identity: KeyIdentity,
@@ -1219,28 +1280,32 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         liveKeys.update { current -> current + (identity to key) }
     }
 
-    private fun orderedPending(identity: KeyIdentity): List<JournalEntry<V>> =
-        replayableEntries(identity, journal.pendingSnapshot(identity))
+    private fun orderedPending(
+        identity: KeyIdentity,
+        entries: List<JournalEntry<V>>,
+        aliases: Map<KeyIdentity, AliasEdge>,
+        tombstones: List<MutationKeyTombstoneRecord>,
+    ): List<JournalEntry<V>> =
+        replayableEntries(identity, entries, aliases, tombstones)
             .sortedBy { entry -> entry.clientSequence }
 
     private fun replayableEntries(
         identity: KeyIdentity,
         entries: List<JournalEntry<V>>,
+        aliases: Map<KeyIdentity, AliasEdge>,
+        tombstones: List<MutationKeyTombstoneRecord>,
     ): List<JournalEntry<V>> {
-        val terminal = aliasRouter.terminalOf(identity)
+        val terminal = terminalIdentity(identity, aliases)
         val watermark =
-            hydratedTombstones
+            tombstones
                 .filter { tombstone ->
                     tombstone.createdByClientId == clientId &&
                         tombstone.state == MutationTombstoneState.ACTIVE &&
-                        aliasRouter.terminalOf(tombstone.identity()) == terminal
+                        terminalIdentity(tombstone.identity(), aliases) == terminal
                 }.maxOfOrNull { tombstone -> tombstone.createdBySequence }
                 ?: return entries
         return entries.filter { entry -> entry.clientSequence > watermark }
     }
-
-    private fun pendingRows(identity: KeyIdentity): List<PendingIntent> =
-        orderedPending(identity).map { entry -> pendingRow(identity, entry) }
 
     private fun pendingRow(
         identity: KeyIdentity,
@@ -3494,21 +3559,26 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                         ) ?: return@withLock null
                     val aliasPublication = requireNotNull(commit.aliasPublication)
                     mutations.withLock {
-                        requireNotNull(durableJournal).publishAliasRetirement(
-                            source = aliasPublication.source,
-                            terminalTarget = aliasPublication.terminalTarget,
-                            retiredMutationId = entry.mutationId,
-                        )
-                        publishDurableTombstoneReplacements(commit)
-                        publishDurableRetirementAccounting(entry, commit)
-                        cacheLiveKey(aliasPublication.terminalTarget, targetKey)
-                        phases.remove(entry.mutationId)
-                        completedAttempts.remove(entry.mutationId)
-                        aliasRevisionSignal(aliasPublication.source).update { revision ->
-                            revision + 1L
+                        aliasPublicationMutex.withLock {
+                            requireNotNull(durableJournal).publishAliasRetirement(
+                                source = aliasPublication.source,
+                                terminalTarget = aliasPublication.terminalTarget,
+                                retiredMutationId = entry.mutationId,
+                            )
+                            publishDurableTombstoneReplacements(commit)
+                            publishDurableRetirementAccounting(entry, commit)
+                            cacheLiveKey(aliasPublication.terminalTarget, targetKey)
+                            phases.remove(entry.mutationId)
+                            completedAttempts.remove(entry.mutationId)
+                            emittedProjectionStampSignal(aliasPublication.terminalTarget).update { stamp ->
+                                stamp + 1L
+                            }
+                            aliasRevisionSignal(aliasPublication.source).update { revision ->
+                                revision + 1L
+                            }
+                            bumpResolutionPulse(aliasPublication.source)
+                            bumpResolutionPulse(aliasPublication.terminalTarget)
                         }
-                        bumpResolutionPulse(aliasPublication.source)
-                        bumpResolutionPulse(aliasPublication.terminalTarget)
                     }
                     commit
                 }
@@ -3699,12 +3769,16 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         initialEntry: JournalEntry<V>? = null,
     ): DrainHead<V>? =
         mutations.withLock {
+            val tombstones = hydratedTombstones.toList()
+            val snapshot = journal.runtimeSnapshot()
+            val entries = snapshot.entries[identity].orEmpty()
+            val aliases = snapshot.aliases
             val owner = durableNamespaceOwners()[identity.namespace]
-            if (owner != null && owner.identity != aliasRouter.terminalOf(identity)) {
+            if (owner != null && owner.identity != terminalIdentity(identity, aliases)) {
                 return@withLock null
             }
             val pending =
-                replayableEntries(identity, journal.pendingSnapshot(identity))
+                replayableEntries(identity, entries, aliases, tombstones)
                     .filter { entry -> entry.clientSequence <= sequenceBound }
             val hinted =
                 initialEntry?.takeIf { candidate ->
@@ -3985,20 +4059,11 @@ internal class MutationEngine<K : StoreKey, V : Any>(
             mutations.withLock {
                 val activation = aliasRouter.activationRecord(source, wallClock.nowEpochMillis())
                 activation?.let { record -> aliasRouter.persistActivation(record) }
-                val cache = journal as? StorageBackedMutationJournal<V>
-                if (cache == null) {
-                    journal.retire(source, entry.mutationId)
-                    aliasRouter.publishActivation(source)
-                    for (sibling in orderedPending(source)) {
-                        journal.rehome(source, target, sibling)
-                    }
-                } else {
-                    cache.publishAliasRetirement(
-                        source = source,
-                        terminalTarget = target,
-                        retiredMutationId = entry.mutationId,
-                    )
-                }
+                journal.publishAliasRetirement(
+                    source = source,
+                    terminalTarget = target,
+                    retiredMutationId = entry.mutationId,
+                )
                 cacheLiveKey(target, targetKey)
                 phases.remove(entry.mutationId)
                 completedAttempts.remove(entry.mutationId)

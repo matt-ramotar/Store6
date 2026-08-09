@@ -11,13 +11,17 @@ import app.cash.turbine.withTurbineTimeout
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest as coroutineRunTest
+import kotlinx.coroutines.withContext
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.Store
@@ -30,6 +34,10 @@ import org.mobilenativefoundation.store6.core.store
 import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
 import org.mobilenativefoundation.store6.core.seam.runtime
 import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJournalStorage
+import org.mobilenativefoundation.store6.mutations.storage.MutationAliasState
+import org.mobilenativefoundation.store6.mutations.storage.MutationJournalStorage
+import org.mobilenativefoundation.store6.mutations.storage.MutationJournalTransaction
+import org.mobilenativefoundation.store6.mutations.storage.MutationKeyAliasRecord
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -42,11 +50,12 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * The same-process canonical alias facade and the facade conversion-error/liveness contract.
- * Everything here exercises the in-memory preview — normalized full-pair redirects,
+ * Most tests here exercise the in-memory preview — normalized full-pair redirects,
  * sequence-merged sibling re-homing, the lost-wakeup-free per-terminal-identity revision
  * signals, and explicit keyed facade routing.
  *
- * The durable model is deliberately out of scope here and is proven elsewhere:
+ * The public-facade projection-fence regression exercises the durable storage seam. The durable
+ * model's broader contract is proven elsewhere:
  * - `MutationJournalContractTest.kt::aliasEdgesAndActivation_roundTripAcrossRestart`
  * - `MutationAckOrchestrationTest.kt::ackAliasActivationRebasesQueuedSourceAndTargetSiblings`
  * - `MutationConflictTest.kt::serverWinsCancellationAfterCommit_stillPublishesOverlayRevision`
@@ -1113,6 +1122,229 @@ class MutationAliasFacadeTest {
     }
 
     @Test
+    fun publicFacadeFreshAttachAfterAliasPublication_firstFrameIsCompleteOverlay() = runTest {
+        val mutations = AliasMutationSet()
+        val backend = FakeBackend()
+        val source = MutationsTestKey("fence-source")
+        val target = MutationsTestKey("fence-target")
+        val secondPushEntered = CompletableDeferred<Unit>()
+        val releaseSecondPush = CompletableDeferred<Unit>()
+        var pushCount = 0
+        backend.pushBehavior = { key, value ->
+            pushCount += 1
+            if (pushCount == 2) {
+                secondPushEntered.complete(Unit)
+                releaseSecondPush.await()
+            }
+            MutationPresentAck(
+                authoritative = value,
+                etag = "etag-$pushCount",
+                canonicalKey = target.takeIf { key.canonicalId() == source.canonicalId() },
+            )
+        }
+        val gatedStorage =
+            AliasActivationCommitGateStorage(
+                source = source.identity(),
+                target = target.identity(),
+            )
+        val users =
+            mutationStore(
+                registry = mutations.registry,
+                server = backend,
+                keyResolver = MutationsTestKeyResolver,
+                valueCodecVersion = 1,
+                valueCodec = FixtureStringArgsCodec,
+            ) {
+                fetcher { backend.load(it) }
+                journalStorage(gatedStorage)
+            }
+
+        users.mutate(source, mutations.rename, "head")
+        users.mutate(source, mutations.append, "+tail")
+        val drain =
+            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                users.drain(source)
+            }
+
+        try {
+            gatedStorage.commitEntered.await()
+            val targetHeadObserved = CompletableDeferred<Unit>()
+            val targetResidence =
+                backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    users.stream(target, Freshness.LocalOnly).collect { result ->
+                        if (result is StoreResult.Data && result.value == "head") {
+                            targetHeadObserved.complete(Unit)
+                        }
+                    }
+                }
+            try {
+                targetHeadObserved.await()
+                assertFalse(targetResidence.isCompleted)
+
+                var freshAttach: Deferred<StoreResult<String>>? = null
+                val stampObserver =
+                    backgroundScope.launch(
+                        context = Dispatchers.Unconfined,
+                        start = CoroutineStart.UNDISPATCHED,
+                    ) {
+                        val applied = users.appliedProjectionStamp(target.identity())
+                        users
+                            .emittedProjectionStamp(target.identity())
+                            .first { emitted -> emitted > applied.value }
+                        freshAttach =
+                            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                                users
+                                    .stream(source, Freshness.LocalOnly)
+                                    .first { result -> result is StoreResult.Data }
+                            }
+                        testScheduler.runCurrent()
+                    }
+                try {
+                    gatedStorage.releaseCommit.complete(Unit)
+                    secondPushEntered.await()
+
+                    stampObserver.join()
+                    val firstData =
+                        assertIs<StoreResult.Data<String>>(
+                            checkNotNull(freshAttach).await(),
+                        )
+                    assertEquals("head+tail", firstData.value)
+                    assertEquals(Origin.OVERLAY, firstData.origin)
+                } finally {
+                    try {
+                        stampObserver.cancelAndJoin()
+                    } finally {
+                        freshAttach?.cancelAndJoin()
+                    }
+                }
+            } finally {
+                targetResidence.cancelAndJoin()
+            }
+        } finally {
+            gatedStorage.releaseCommit.complete(Unit)
+            releaseSecondPush.complete(Unit)
+            try {
+                drain.await()
+            } finally {
+                users.close()
+            }
+        }
+    }
+
+    @Test
+    fun freshSourceAttachWhenRuntimeAliasBecomesActive_firstFrameIsCompleteOverlay() = runTest {
+        val mutations = AliasMutationSet()
+        val backend = FakeBackend()
+        val source = MutationsTestKey("runtime-fence-source")
+        val target = MutationsTestKey("runtime-fence-target")
+        val secondPushEntered = CompletableDeferred<Unit>()
+        val releaseSecondPush = CompletableDeferred<Unit>()
+        var pushCount = 0
+        backend.pushBehavior = { key, value ->
+            pushCount += 1
+            if (pushCount == 2) {
+                secondPushEntered.complete(Unit)
+                releaseSecondPush.await()
+            }
+            MutationPresentAck(
+                authoritative = value,
+                etag = "etag-$pushCount",
+                canonicalKey = target.takeIf { key.canonicalId() == source.canonicalId() },
+            )
+        }
+        val gatedStorage =
+            AliasActivationCommitGateStorage(
+                source = source.identity(),
+                target = target.identity(),
+            )
+        val journal =
+            StorageBackedMutationJournal<String>(
+                storage = gatedStorage,
+                registrations = mutations.registry.registrations,
+                hydrateOnFirstUse = true,
+            )
+        val harness = aliasHarness(mutations.registry, backend, journal = journal)
+        val users = harness.users
+
+        users.mutate(source, mutations.rename, "head")
+        users.mutate(source, mutations.append, "+tail")
+        val drain =
+            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                users.drain(source)
+            }
+
+        try {
+            gatedStorage.commitEntered.await()
+            val targetHeadObserved = CompletableDeferred<Unit>()
+            val targetResidence =
+                backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    users.stream(target, Freshness.LocalOnly).collect { result ->
+                        if (result is StoreResult.Data && result.value == "head") {
+                            targetHeadObserved.complete(Unit)
+                        }
+                    }
+                }
+            try {
+                targetHeadObserved.await()
+                assertFalse(targetResidence.isCompleted)
+
+                var freshAttach: Deferred<StoreResult<String>>? = null
+                val snapshotObserver =
+                    backgroundScope.launch(
+                        context = Dispatchers.Unconfined,
+                        start = CoroutineStart.UNDISPATCHED,
+                    ) {
+                        journal.runtimeState.snapshots.first { snapshot ->
+                            if (
+                                snapshot.aliases[source.identity()]?.state ==
+                                AliasEdgeState.ACTIVE
+                            ) {
+                                freshAttach =
+                                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                                        users
+                                            .stream(source, Freshness.LocalOnly)
+                                            .first { result -> result is StoreResult.Data }
+                                    }
+                                testScheduler.runCurrent()
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                    }
+                try {
+                    gatedStorage.releaseCommit.complete(Unit)
+                    secondPushEntered.await()
+
+                    snapshotObserver.join()
+                    val firstData =
+                        assertIs<StoreResult.Data<String>>(
+                            checkNotNull(freshAttach).await(),
+                        )
+                    assertEquals("head+tail", firstData.value)
+                    assertEquals(Origin.OVERLAY, firstData.origin)
+                } finally {
+                    try {
+                        snapshotObserver.cancelAndJoin()
+                    } finally {
+                        freshAttach?.cancelAndJoin()
+                    }
+                }
+            } finally {
+                targetResidence.cancelAndJoin()
+            }
+        } finally {
+            gatedStorage.releaseCommit.complete(Unit)
+            releaseSecondPush.complete(Unit)
+            try {
+                drain.await()
+            } finally {
+                users.close()
+            }
+        }
+    }
+
+    @Test
     fun concurrentEnqueueDuringAliasActivation_rehomesAtTerminalIdentity() = runTest {
         val mutations = AliasMutationSet()
         val backend = FakeBackend()
@@ -1544,6 +1776,43 @@ private class AliasHarness(
     val users: MutationStore<MutationsTestKey, String>,
 )
 
+private class AliasActivationCommitGateStorage(
+    private val source: KeyIdentity,
+    private val target: KeyIdentity,
+) : MutationJournalStorage {
+    private val delegate = InMemoryMutationJournalStorage()
+    val commitEntered = CompletableDeferred<Unit>()
+    val releaseCommit = CompletableDeferred<Unit>()
+
+    override suspend fun <R> transaction(block: (MutationJournalTransaction) -> R): R {
+        var activationObserved = false
+        val result =
+            delegate.transaction { transaction ->
+                block(
+                    object : MutationJournalTransaction by transaction {
+                        override fun advanceAlias(record: MutationKeyAliasRecord) {
+                            transaction.advanceAlias(record)
+                            if (
+                                record.state == MutationAliasState.ACTIVE &&
+                                record.sourceNamespace == source.namespace &&
+                                record.sourceCanonicalId == source.canonicalId &&
+                                record.targetNamespace == target.namespace &&
+                                record.targetCanonicalId == target.canonicalId
+                            ) {
+                                activationObserved = true
+                            }
+                        }
+                    },
+                )
+            }
+        if (activationObserved) {
+            commitEntered.complete(Unit)
+            withContext(NonCancellable) { releaseCommit.await() }
+        }
+        return result
+    }
+}
+
 private class AliasRetireGateJournal(
     registrations: Map<String, MutatorRegistration<*, String>>,
 ) : StorageBackedMutationJournal<String>(
@@ -1726,7 +1995,7 @@ private fun aliasHarness(
     registry: MutatorRegistry<MutationsTestKey, String>,
     backend: FakeBackend,
     keyResolver: MutationKeyResolver<MutationsTestKey> = MutationsTestKeyResolver,
-    journal: MutationJournal<String> = InMemoryMutationJournal(),
+    journal: StorageBackedMutationJournal<String> = InMemoryMutationJournal(),
     engineWriteHandle: StoreWriteHandle<MutationsTestKey, String>? = null,
     nonSuspendingBaseValue: String? = null,
 ): AliasHarness {
