@@ -1232,6 +1232,119 @@ class MutationAliasFacadeTest {
     }
 
     @Test
+    fun freshSourceAttachWhenRuntimeAliasBecomesActive_firstFrameIsCompleteOverlay() = runTest {
+        val mutations = AliasMutationSet()
+        val backend = FakeBackend()
+        val source = MutationsTestKey("runtime-fence-source")
+        val target = MutationsTestKey("runtime-fence-target")
+        val secondPushEntered = CompletableDeferred<Unit>()
+        val releaseSecondPush = CompletableDeferred<Unit>()
+        var pushCount = 0
+        backend.pushBehavior = { key, value ->
+            pushCount += 1
+            if (pushCount == 2) {
+                secondPushEntered.complete(Unit)
+                releaseSecondPush.await()
+            }
+            MutationPresentAck(
+                authoritative = value,
+                etag = "etag-$pushCount",
+                canonicalKey = target.takeIf { key.canonicalId() == source.canonicalId() },
+            )
+        }
+        val gatedStorage =
+            AliasActivationCommitGateStorage(
+                source = source.identity(),
+                target = target.identity(),
+            )
+        val journal =
+            StorageBackedMutationJournal<String>(
+                storage = gatedStorage,
+                registrations = mutations.registry.registrations,
+                hydrateOnFirstUse = true,
+            )
+        val harness = aliasHarness(mutations.registry, backend, journal = journal)
+        val users = harness.users
+
+        users.mutate(source, mutations.rename, "head")
+        users.mutate(source, mutations.append, "+tail")
+        val drain =
+            backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                users.drain(source)
+            }
+
+        try {
+            gatedStorage.commitEntered.await()
+            val targetHeadObserved = CompletableDeferred<Unit>()
+            val targetResidence =
+                backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    users.stream(target, Freshness.LocalOnly).collect { result ->
+                        if (result is StoreResult.Data && result.value == "head") {
+                            targetHeadObserved.complete(Unit)
+                        }
+                    }
+                }
+            try {
+                targetHeadObserved.await()
+                assertFalse(targetResidence.isCompleted)
+
+                var freshAttach: Deferred<StoreResult<String>>? = null
+                val snapshotObserver =
+                    backgroundScope.launch(
+                        context = Dispatchers.Unconfined,
+                        start = CoroutineStart.UNDISPATCHED,
+                    ) {
+                        journal.runtimeState.snapshots.first { snapshot ->
+                            if (
+                                snapshot.aliases[source.identity()]?.state ==
+                                AliasEdgeState.ACTIVE
+                            ) {
+                                freshAttach =
+                                    backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
+                                        users
+                                            .stream(source, Freshness.LocalOnly)
+                                            .first { result -> result is StoreResult.Data }
+                                    }
+                                testScheduler.runCurrent()
+                                true
+                            } else {
+                                false
+                            }
+                        }
+                    }
+                try {
+                    gatedStorage.releaseCommit.complete(Unit)
+                    secondPushEntered.await()
+
+                    snapshotObserver.join()
+                    val firstData =
+                        assertIs<StoreResult.Data<String>>(
+                            checkNotNull(freshAttach).await(),
+                        )
+                    assertEquals("head+tail", firstData.value)
+                    assertEquals(Origin.OVERLAY, firstData.origin)
+                } finally {
+                    try {
+                        snapshotObserver.cancelAndJoin()
+                    } finally {
+                        freshAttach?.cancelAndJoin()
+                    }
+                }
+            } finally {
+                targetResidence.cancelAndJoin()
+            }
+        } finally {
+            gatedStorage.releaseCommit.complete(Unit)
+            releaseSecondPush.complete(Unit)
+            try {
+                drain.await()
+            } finally {
+                users.close()
+            }
+        }
+    }
+
+    @Test
     fun concurrentEnqueueDuringAliasActivation_rehomesAtTerminalIdentity() = runTest {
         val mutations = AliasMutationSet()
         val backend = FakeBackend()
