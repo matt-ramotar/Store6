@@ -110,6 +110,16 @@ internal sealed interface TerminalKeyResolution<out K : StoreKey> {
     ) : TerminalKeyResolution<Nothing>
 }
 
+internal class FacadeSignalSnapshot(
+    val terminalIdentity: KeyIdentity,
+    val aliasRevisions: StateFlow<Long>,
+    val aliasRevisionBaseline: Long,
+    val resolutionPulses: StateFlow<Long>,
+    val resolutionPulseBaseline: Long,
+    val requiredProjectionStamp: Long,
+    val targetAppliedProjectionStamps: StateFlow<Long>,
+)
+
 internal class MutationEngine<K : StoreKey, V : Any>(
     private val registry: MutatorRegistry<K, V>,
     private val server: MutationServer<K, V>,
@@ -147,6 +157,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     private val hydration = Mutex()
     private val globalDrainPass = Mutex()
     private val retirementPass = Mutex()
+    private val aliasPublicationMutex = Mutex()
     private val drainScheduler = IdentityDrainScheduler()
     private val namespaceDrainScheduler = NamespaceDrainScheduler()
     private val durableJournal =
@@ -1011,6 +1022,22 @@ internal class MutationEngine<K : StoreKey, V : Any>(
 
     internal fun appliedProjectionStamp(identity: KeyIdentity): StateFlow<Long> =
         appliedProjectionStampSignal(identity)
+
+    internal suspend fun facadeSignalSnapshot(identity: KeyIdentity): FacadeSignalSnapshot =
+        aliasPublicationMutex.withLock {
+            val terminal = terminalIdentityOf(identity)
+            val aliasRevisions = aliasRevisionSignal(terminal)
+            val resolutionPulses = resolutionPulseSignal(terminal)
+            FacadeSignalSnapshot(
+                terminalIdentity = terminal,
+                aliasRevisions = aliasRevisions,
+                aliasRevisionBaseline = aliasRevisions.value,
+                resolutionPulses = resolutionPulses,
+                resolutionPulseBaseline = resolutionPulses.value,
+                requiredProjectionStamp = emittedProjectionStampSignal(terminal).value,
+                targetAppliedProjectionStamps = appliedProjectionStampSignal(terminal),
+            )
+        }
 
     /** Active subscriptions on [identity]'s resolution pulse; release-verification test door. */
     internal fun resolutionPulseSubscriptions(identity: KeyIdentity): Int =
@@ -3532,24 +3559,26 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                         ) ?: return@withLock null
                     val aliasPublication = requireNotNull(commit.aliasPublication)
                     mutations.withLock {
-                        requireNotNull(durableJournal).publishAliasRetirement(
-                            source = aliasPublication.source,
-                            terminalTarget = aliasPublication.terminalTarget,
-                            retiredMutationId = entry.mutationId,
-                        )
-                        publishDurableTombstoneReplacements(commit)
-                        publishDurableRetirementAccounting(entry, commit)
-                        cacheLiveKey(aliasPublication.terminalTarget, targetKey)
-                        phases.remove(entry.mutationId)
-                        completedAttempts.remove(entry.mutationId)
-                        emittedProjectionStampSignal(aliasPublication.terminalTarget).update { stamp ->
-                            stamp + 1L
+                        aliasPublicationMutex.withLock {
+                            requireNotNull(durableJournal).publishAliasRetirement(
+                                source = aliasPublication.source,
+                                terminalTarget = aliasPublication.terminalTarget,
+                                retiredMutationId = entry.mutationId,
+                            )
+                            publishDurableTombstoneReplacements(commit)
+                            publishDurableRetirementAccounting(entry, commit)
+                            cacheLiveKey(aliasPublication.terminalTarget, targetKey)
+                            phases.remove(entry.mutationId)
+                            completedAttempts.remove(entry.mutationId)
+                            emittedProjectionStampSignal(aliasPublication.terminalTarget).update { stamp ->
+                                stamp + 1L
+                            }
+                            aliasRevisionSignal(aliasPublication.source).update { revision ->
+                                revision + 1L
+                            }
+                            bumpResolutionPulse(aliasPublication.source)
+                            bumpResolutionPulse(aliasPublication.terminalTarget)
                         }
-                        aliasRevisionSignal(aliasPublication.source).update { revision ->
-                            revision + 1L
-                        }
-                        bumpResolutionPulse(aliasPublication.source)
-                        bumpResolutionPulse(aliasPublication.terminalTarget)
                     }
                     commit
                 }

@@ -95,13 +95,14 @@ public class MutationStore<K : StoreKey, V : Any> internal constructor(
                     throw CancellationException("Store is closed.")
                 }
                 firstAttempt = false
-                val terminal = engine.terminalIdentityOf(key.identity())
-                val aliasRevisions = engine.aliasRevision(terminal)
-                val resolutionPulses = engine.resolutionPulse(terminal)
                 // Snapshot the mutation-owned stateful signals BEFORE resolving so an
                 // activation or facade attempt landing mid-resolution can never be lost.
-                val aliasSnapshot = aliasRevisions.value
-                val pulseSnapshot = resolutionPulses.value
+                val signalSnapshot = facadeSignalSnapshot(key.identity())
+                val terminal = signalSnapshot.terminalIdentity
+                val aliasRevisions = signalSnapshot.aliasRevisions
+                val resolutionPulses = signalSnapshot.resolutionPulses
+                val aliasSnapshot = signalSnapshot.aliasRevisionBaseline
+                val pulseSnapshot = signalSnapshot.resolutionPulseBaseline
                 val resolution = engine.resolveTerminalKey(key)
                 if (resolution.identity != terminal) {
                     // An activation moved the terminal between the snapshot and the attempt;
@@ -129,14 +130,13 @@ public class MutationStore<K : StoreKey, V : Any> internal constructor(
                         if (!woke) throw CancellationException("Store is closed.")
                     }
                     is TerminalKeyResolution.Resolved -> {
-                        val requiredProjectionStamp =
-                            emittedProjectionStamp(resolution.identity).value
                         when (
                             awaitProjectionFence(
                                 key = resolution.key,
-                                requiredProjectionStamp = requiredProjectionStamp,
+                                requiredProjectionStamp =
+                                    signalSnapshot.requiredProjectionStamp,
                                 appliedProjectionStamps =
-                                    appliedProjectionStamp(resolution.identity),
+                                    signalSnapshot.targetAppliedProjectionStamps,
                                 aliasRevisions = aliasRevisions,
                                 aliasSnapshot = aliasSnapshot,
                             )
@@ -373,6 +373,22 @@ public class MutationStore<K : StoreKey, V : Any> internal constructor(
         if (closed.value) {
             throw IllegalStateException("Store is closed.")
         }
+    }
+
+    private suspend fun facadeSignalSnapshot(identity: KeyIdentity): FacadeSignalSnapshot {
+        val snapshot =
+            merge(
+                flow<FacadeSignalSnapshot?> {
+                    emit(engine.facadeSignalSnapshot(identity))
+                },
+                closed
+                    .filter { it }
+                    .map<Boolean, FacadeSignalSnapshot?> { null },
+            ).first()
+        if (closed.value || snapshot == null) {
+            throw CancellationException("Store is closed.")
+        }
+        return snapshot
     }
 
     private suspend fun awaitProjectionFence(
