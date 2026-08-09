@@ -28,6 +28,7 @@ import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.KeyStatus
 import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
 import org.mobilenativefoundation.store6.core.seam.runtime
+import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJournalStorage
 import org.mobilenativefoundation.store6.testing.FakeBookkeeper
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -1160,52 +1161,28 @@ private class AppendMutation {
 
 private class RetireOrderingJournal(
     private val events: MutableList<String>,
-) : MutationJournal<String> {
-    private val delegate = InMemoryMutationJournal<String>()
-
-    override suspend fun append(
-        key: KeyIdentity,
-        entry: JournalEntry<String>,
-    ): String = delegate.append(key, entry)
-
+) : StorageBackedMutationJournal<String>(storage = InMemoryMutationJournalStorage()) {
     override suspend fun retire(
         key: KeyIdentity,
         mutationId: String,
     ) {
         assertEquals(listOf("apply", "confirmFresh"), events)
-        delegate.retire(key, mutationId)
+        super.retire(key, mutationId)
         events += "retire"
     }
-
-    override fun pendingSnapshot(key: KeyIdentity): List<JournalEntry<String>> =
-        delegate.pendingSnapshot(key)
-
-    override fun identities(): Set<KeyIdentity> = delegate.identities()
 }
 
 private class ClearOrderingJournal(
     private val events: MutableList<String>,
-) : MutationJournal<String> {
-    private val delegate = InMemoryMutationJournal<String>()
-
-    override suspend fun append(
-        key: KeyIdentity,
-        entry: JournalEntry<String>,
-    ): String = delegate.append(key, entry)
-
+) : StorageBackedMutationJournal<String>(storage = InMemoryMutationJournalStorage()) {
     override suspend fun retire(
         key: KeyIdentity,
         mutationId: String,
     ) {
         assertEquals(listOf("clear"), events)
-        delegate.retire(key, mutationId)
+        super.retire(key, mutationId)
         events += "retire"
     }
-
-    override fun pendingSnapshot(key: KeyIdentity): List<JournalEntry<String>> =
-        delegate.pendingSnapshot(key)
-
-    override fun identities(): Set<KeyIdentity> = delegate.identities()
 }
 
 private class RecordingWriteHandle(

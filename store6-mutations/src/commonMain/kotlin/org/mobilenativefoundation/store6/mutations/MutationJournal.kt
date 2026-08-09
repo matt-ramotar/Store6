@@ -561,8 +561,6 @@ internal class InMemoryAliasRouter(
         return terminalIdentity(identity, runtimeState.aliasesSnapshot())
     }
 
-    fun aliasesSnapshot(): Map<KeyIdentity, AliasEdge> = runtimeState.aliasesSnapshot()
-
     /**
      * Validates one acknowledged canonical target at ack receipt and prepares, but does not
      * persist or publish, an optional pending redirect edge: cross-namespace targets are

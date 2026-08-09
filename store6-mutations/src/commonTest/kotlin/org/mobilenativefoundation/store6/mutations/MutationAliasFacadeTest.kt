@@ -1726,7 +1726,7 @@ private fun aliasHarness(
     registry: MutatorRegistry<MutationsTestKey, String>,
     backend: FakeBackend,
     keyResolver: MutationKeyResolver<MutationsTestKey> = MutationsTestKeyResolver,
-    journal: MutationJournal<String> = InMemoryMutationJournal(),
+    journal: StorageBackedMutationJournal<String> = InMemoryMutationJournal(),
     engineWriteHandle: StoreWriteHandle<MutationsTestKey, String>? = null,
     nonSuspendingBaseValue: String? = null,
 ): AliasHarness {
