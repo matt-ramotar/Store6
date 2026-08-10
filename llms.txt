@@ -38,20 +38,6 @@
 - [SQLDelight adapter](/docs/store6/sqldelight): connect an existing SQLDelight schema with atomic value and metadata transactions.
 - [Compose integration](/docs/store6/compose): collect Store streams as Compose state without unstable recomposition.
 
-## Mutations
-
-- [Mutations overview](/docs/store6/mutations): the journalled write path, experimental posture, and adoption sequence.
-- [Mutations quickstart](/docs/store6/mutations/quickstart): register a typed intent, project it optimistically, push it, and observe the acknowledgement.
-- [Authoring mutators](/docs/store6/mutations/mutators): the five registration shapes, codecs, purity, and invalidation effects.
-- [Pending-write UI](/docs/store6/mutations/pending-write-ui): render optimistic overlay state without confusing it with staleness.
-- [MutationServer](/docs/store6/mutations/server): implement push, idempotency, acknowledgement, conflict, and retirement transport.
-- [Conflict resolution](/docs/store6/mutations/conflicts): select preconditions, merge into a new generation, or accept server-wins.
-- [Aliases and canonical rekeying](/docs/store6/mutations/aliases): move a provisional identity to its server-assigned canonical key.
-- [Draining and restart](/docs/store6/mutations/drain-and-restart): keyed and global drain behavior, backoff, hydration, and replay.
-- [Journal storage](/docs/store6/mutations/journal-storage): choose the in-memory default, SQLDelight, or a custom storage seam.
-- [Inspection and observability](/docs/store6/mutations/inspection): durable pending and dead-letter truth versus advisory event flows.
-- [Testing mutations](/docs/store6/mutations/testing): certify journal storage, crash boundaries, and projector purity.
-
 ## Project
 
 - [Stability](STABILITY.md): API tiers, the deprecation cycle, the release cadence commitment, how stability is verified from a released tag, and the mutations posture at alpha01.
