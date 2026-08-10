@@ -9,6 +9,7 @@ import org.mobilenativefoundation.store6.core.seam.KeyEvents
  * The mandatory `else` keeps consumers source-compatible with variants added in minor releases.
  */
 @OptIn(ExperimentalStoreApi::class)
+// docs:snippet:guides-extending-key-events
 public fun describeKeyEvent(event: KeyEvents): String =
     when (event) {
         is KeyEvents.Written -> "written(${event.key.canonicalId()}, ${event.origin})"
@@ -16,3 +17,4 @@ public fun describeKeyEvent(event: KeyEvents): String =
         is KeyEvents.Deleted -> "deleted(${event.key.canonicalId()})"
         else -> "unknown(${event.key.canonicalId()})"
     }
+// docs:snippet:end

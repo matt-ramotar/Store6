@@ -16,5 +16,7 @@ import org.mobilenativefoundation.store6.core.StoreKey
 @SubclassOptInRequired(DelicateStoreApi::class)
 public interface TransactionalSourceOfTruth<K : StoreKey, V : Any> : SourceOfTruth<K, V> {
     /** Runs [block] atomically with respect to writes made through this source. */
+    // docs:snippet:guides-persistence-transaction-signature
     public suspend fun <R> withTransaction(block: suspend () -> R): R
+    // docs:snippet:end
 }

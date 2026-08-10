@@ -206,6 +206,9 @@ jobs:
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
 
+      - name: Run Store6 mutations quickstart
+        run: ./gradlew :store6-mutations-quickstart:run --stacktrace
+
       - name: Census — default jvmTest must execute exactly the non-Lincheck suites
         shell: bash
         run: |
@@ -227,7 +230,7 @@ jobs:
         run: |
           set -euo pipefail
           status=0
-          for module in store6-extension-probe store6-testing store6-sqldelight store6-compose store6-compose-demo store6-room store6-benchmarks store6-devtools store6-devtools-inspector store6-devtools-demo store6-mutations store6-mutations-testing store6-mutations-sqldelight; do
+          for module in store6-extension-probe store6-testing store6-sqldelight store6-compose store6-compose-demo store6-room store6-benchmarks store6-devtools store6-devtools-inspector store6-devtools-demo store6-mutations store6-mutations-quickstart store6-mutations-testing store6-mutations-sqldelight; do
             source_dir="${module}/src"
             if [[ ! -d "${source_dir}" ]]; then
               echo "ERROR: expected extension source directory is missing: ${source_dir}" >&2

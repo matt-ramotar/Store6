@@ -36,6 +36,7 @@ import org.mobilenativefoundation.store6.core.StoreKey
  * projected stream then fails with a deterministic internal exception retaining the cause; the
  * engine never silently falls back to an unprojected value.
  */
+// docs:snippet:guides-extending-overlay-seam
 @ExperimentalStoreApi
 @SubclassOptInRequired(DelicateStoreApi::class)
 public interface Overlay<K : StoreKey, V : Any> {
@@ -48,3 +49,4 @@ public interface Overlay<K : StoreKey, V : Any> {
     /** Signals keys whose projection inputs changed without changing confirmed residence. */
     public val changes: Flow<StoreKey>
 }
+// docs:snippet:end

@@ -114,7 +114,7 @@ Call `close()` when the Store is no longer needed. It is synchronous and idempot
 | JVM desktop/server | `app.cash.sqldelight:sqlite-driver:2.1.0` | `JdbcSqliteDriver` | Supported |
 | JS and Wasm | `app.cash.sqldelight:web-worker-driver:2.1.0` | web-worker driver | Not yet supported; this adapter currently requires synchronous drivers |
 
-The published KMP artifact covers the canonical Store6 targets, but driver-backed execution is limited to targets for which SQLDelight provides a synchronous driver. JS and Wasm remain compile-only for this adapter today.
+The published KMP artifact covers the canonical Store6 targets, but driver-backed execution is limited to targets for which SQLDelight provides a synchronous driver. JS and Wasm remain compile-only for this adapter today. Each source-of-truth write stamps the sidecar's write time and clears its stored ETag. If Store later needs to fetch, the conditional request therefore carries no ETag until a later successful fetch records one.
 
 ## Timing
 

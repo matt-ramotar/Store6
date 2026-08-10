@@ -4,6 +4,8 @@
 source of truth for application values. The adapter adds two sidecar tables for
 freshness metadata and durable invalidation.
 
+The Store6 seam is a **freeze candidate, not frozen** — see [STABILITY.md](../STABILITY.md).
+
 ## 15-minute existing-database walkthrough
 
 The runnable sample starts with a version-1 database that contains only a
@@ -38,9 +40,9 @@ dependencies {
 }
 ```
 
-Room 3's Gradle plugin registers its extension as `room3` (not Room 2's `room`),
-so a schema directory is declared with `room3 { schemaDirectory(...) }`. Room 3
-also requires Kotlin ≥2.3 and, on Android, AGP ≥8.10.
+The `androidx.room3` Gradle plugin registers its extension as `room3` (not Room 2's `room`),
+so a schema directory is declared with `room3 { schemaDirectory(...) }`. This release line also
+requires Kotlin ≥2.3 and, on Android, AGP ≥8.10.
 
 Use the corresponding source set if your database is in a multiplatform
 module. This source-set opt-in also covers Room's generated DAO implementation;
@@ -78,7 +80,7 @@ bump and one migration.
 ```kotlin
 val addStore6Tables =
     object : Migration(1, 2) {
-        // Room 3's Migration.migrate is suspend. Store6RoomSchema.createTables is not:
+        // androidx.room3 Migration.migrate is suspend. Store6RoomSchema.createTables is not:
         // androidx.sqlite 2.7.0's execSQL is synchronous, so it is called directly.
         override suspend fun migrate(connection: SQLiteConnection) =
             Store6RoomSchema.createTables(connection)
@@ -176,7 +178,7 @@ semantics are final.
 
 ## Compatibility statement
 
-store6-room targets **Room 3.0.0** (`androidx.room3` — Room's KMP-first line),
+store6-room targets **androidx.room3 3.0.0** (Room's KMP-first line),
 pinned with Kotlin **2.3.20** and androidx.sqlite **2.7.0**. These versions are
 KLIB-ABI locked and Renovate-frozen; they move only with the repository's
 toolchain.
@@ -192,8 +194,8 @@ Supported targets:
 - tvosArm64
 - linuxX64
 
-**Gaps vs `store6-core`'s 12 targets: js, wasmJs, mingwX64, and iosX64.** Room 3
-publishes no iosX64 variant. js and wasmJs *are* Room-3-supported and are planned
+**Gaps vs `store6-core`'s 12 targets: js, wasmJs, mingwX64, and iosX64.**
+`androidx.room3` publishes no iosX64 variant. js and wasmJs *are* supported by that release line and are planned
 as a follow-up — they require a suspend schema API and async SQLite integration.
 Use `store6-sqldelight` or a custom source of truth on those targets meanwhile.
 
@@ -202,11 +204,11 @@ declares — and **minSdk 24+**. This repository builds the AAR at compileSdk 36
 An AAR built at minSdk 24 cannot be consumed by an application with a lower
 minimum.
 
-**Room 2.x is not supported by this artifact.** store6-room launched on Room 3;
-it never shipped a Room 2 release. Room 3 uses new coordinates, packages, and
+**Room 2.x is not supported by this artifact.** store6-room launched on the `androidx.room3` line;
+it never shipped a Room 2 release. That line uses new coordinates, packages, and
 type identity, and its native KLIBs require Kotlin ≥2.3 with AGP ≥8.10 — it is
 gated on both a toolchain move and a migration, not one or the other. Room 2
-applications should migrate the app database to Room 3 (Google documents 2.x/3.x
+applications should migrate the app database to `androidx.room3` (Google documents 2.x/3.x
 coexistence) or use `store6-sqldelight`.
 
 Tests execute on jvm, linuxX64, iosSimulatorArm64, and macosArm64. Android,

@@ -46,9 +46,11 @@ private object FakeApi {
  */
 public fun main(): Unit =
     runBlocking {
+        // docs:snippet:guides-fetchers-quickstart
         val users = store<UserKey, User> {
             fetcher { key -> FakeApi.getUser(key.id) }
         }
+        // docs:snippet:end
 
         users.stream(UserKey("1")).take(2).collect { result ->
             when (result) {
