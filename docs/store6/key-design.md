@@ -127,6 +127,27 @@ Once keys are right, the namespace-level operations become the tool you reach fo
 Which of invalidate and clear you want is its own decision, and it has its own guide:
 [Invalidate or Clear](invalidate-vs-clear.md).
 
+## Namespace equality
+
+Store's internal key registry derives the namespace component of key identity from
+`namespace.value`. The `Bookkeeper` contract likewise normalizes that component, and namespace
+operations, by the same value. `StoreNamespace` does not override `equals`, so direct equality
+between instances remains reference equality. Do not use that result to infer registry or
+bookkeeping matches: independently constructed namespaces with the same `.value` address the same
+namespace in both.
+
+## One store or many
+
+Namespaces partition the maintenance blast radius within one store: use them when records share a
+typed Store boundary but need separate `invalidateNamespace` or `clearNamespace` scopes.
+
+Freshness is not a store-topology choice. Each `stream` or `get` call selects its own `Freshness`
+policy, so callers using one store can make different read decisions.
+
+Use separate stores when domains need independent typed value, failure, and lifecycle boundaries.
+This separation does not make operations across stores atomic; no cross-store transaction is part
+of the `Store` contract.
+
 ---
 
-*Last verified: 2026-07-26 · `main` @ `c4fbaf4`, pre-6.0.0-alpha01*
+*Last verified: 2026-08-10 · `main` @ `a6a156e9`, pre-6.0.0-alpha01*

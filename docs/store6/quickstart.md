@@ -125,22 +125,23 @@ One detail worth naming so it does not read as magic: **`take(2)` is what ends t
 first two frames — `Loading`, then `Data` — and stops. In an app you collect for the lifetime of the
 screen instead, and `close()` the store when you are done with it.
 
+Continue with [the read contract](/docs/store6/concepts/read-contract) for result and failure
+semantics, then [freshness policies](/docs/store6/concepts/freshness) for choosing how each read
+uses resident and fetched data.
+
 ## Write path (experimental)
 
 > **Experimental.** `store6-mutations` is a separate artifact and every public symbol is
 > `@ExperimentalStoreApi`. It ships **with** 6.0.0-alpha01 — nothing here is published yet.
 >
-> **The spelling below is the ratified surface.** The mutations API review ran and ruled the
-> factory signature, presence algebra, and drain spelling (twenty rulings, 2026-08-01). The
-> module is still experimental — shapes can change in any release — but the snippet below now
-> matches the landed artifact.
+> **The spelling below is the current API surface.** The module is still experimental — shapes
+> can change in any release — but the snippet below matches the implementation.
 
 Optimistic writes go through a journal, so they survive being offline and survive process death.
 You get a mutation store instead of a plain one, and it is a `Store` — everything above still works.
 
-<!-- parity-anchored: MutationStore.kt (mutationStore factory), MutatorRegistry.kt (sugars),
-MutationsWalkingSkeletonTest.kt (the end-to-end tracer). Re-checked against the landed 021
-surface. -->
+<!-- Source anchors: MutationStore.kt (mutationStore factory), MutatorRegistry.kt (sugars),
+MutationsWalkingSkeletonTest.kt (the end-to-end tracer). -->
 
 ```kotlin
 @OptIn(ExperimentalStoreApi::class)   // required: the whole module is experimental
@@ -189,4 +190,4 @@ push possibly being re-sent. That tradeoff is stated in full in
 
 ---
 
-*Last verified: 2026-07-26 · `main` @ `c4fbaf4`, pre-6.0.0-alpha01*
+*Last verified: 2026-08-10 · `main` @ `a6a156e9`, pre-6.0.0-alpha01*

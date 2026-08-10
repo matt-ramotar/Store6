@@ -15,6 +15,8 @@ line here and its test ever disagree, the test is right and this page is a bug.
 
 ## Freshness
 
+See [Freshness policies](/docs/store6/concepts/freshness) for the complete per-call policy contract.
+
 - **The default is `Freshness.CachedOrFetch`.** An absent key fetches; a resident fresh value is
   served without a second fetch (`defaultFreshness_isCachedOrFetch_zeroConfig`).
 - **`MaxAge` within its bound serves the resident value without a second fetch**
@@ -46,8 +48,11 @@ line here and its test ever disagree, the test is right and this page is a bug.
 
 ## Cache and memory
 
+See [Memory and lifecycle](/docs/store6/concepts/memory-and-lifecycle) for eviction and
+store-lifecycle guidance.
+
 - **In-memory source of truth and in-memory bookkeeper by default.** Nothing is written to disk
-  until you install persistence (`StoreBuilder.kt:181`, `StoreBuilder.kt:52`).
+  until you install persistence (`StoreBuilder.kt:180`, `StoreBuilder.kt:52`).
 - **Idle residency is capped at 128 keys.** Quiescent engines park in an idle set bounded by that
   cap, and the zero-config cap is the same as an explicit `maxIdleKeys(128)`
   (`defaultMaxIdleKeys_matchesExplicit128Cap`, `quiescentKeys_parkInIdle_boundedByMaxIdleKeys`).
@@ -75,6 +80,9 @@ line here and its test ever disagree, the test is right and this page is a bug.
   `getAfterStreamCommitted_servesResidentValueWithoutRefetch`).
 
 ## Emission
+
+See [the read contract](/docs/store6/concepts/read-contract) for the complete result-kind and origin
+semantics.
 
 - **Attribution is honest.** A network commit is `Origin.FETCHER`
   (`preSubscribedCollectors_waitThroughQueuedAbsentThenDeliverWriterCurrentEcho`); an external
@@ -108,7 +116,7 @@ window's millisecond value is an internal constant, and this page deliberately d
 
 - **A fetcher is required**, and installing a source of truth does not substitute for one.
   `store<K, V> { }` without `fetcher { }`, `fetcherOfResult { }`, or `fetcher(Fetcher)` fails at
-  build time with a message that says so (`StoreBuilder.kt:177-180`).
+  build time with a message that says so (`StoreBuilder.kt:176-179`).
 - **Telemetry is unset**, and the engine takes a null fast path rather than paying for a no-op sink
   (`StoreBuilder.kt:58`).
 - **Overlay is unset.** With no overlay installed, nothing is projected onto reads
@@ -119,4 +127,4 @@ window's millisecond value is an internal constant, and this page deliberately d
 *Every test named above lives under
 [`store6-core/src/commonTest/kotlin/org/mobilenativefoundation/store6/core/`](../../store6-core/src/commonTest/kotlin/org/mobilenativefoundation/store6/core/).*
 
-*Last verified: 2026-07-26 · `main` @ `c4fbaf4`, pre-6.0.0-alpha01*
+*Last verified: 2026-08-10 · `main` @ `a6a156e9`, pre-6.0.0-alpha01*
