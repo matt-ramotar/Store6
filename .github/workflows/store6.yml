@@ -5,15 +5,59 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+    types: [ opened, synchronize, reopened, labeled, unlabeled ]
 
 permissions:
   contents: read
 
 concurrency:
-  group: store6-${{ github.ref }}
+  group: store6-${{ github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && 'docs-sync-guard' || 'validation' }}
   cancel-in-progress: true
 
 jobs:
+  docs-sync-guard:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Require documentation sync acknowledgment
+        shell: bash
+        env:
+          DOCS_SYNC_ACK: ${{ contains(github.event.pull_request.labels.*.name, 'docs-sync-ack') }}
+        run: |
+          set -euo pipefail
+          source_list=.github/docs-sync-sources.txt
+
+          if [[ ! -s "${source_list}" ]]; then
+            echo "ERROR: ${source_list} must be non-empty." >&2
+            exit 1
+          fi
+          if ! LC_ALL=C sort -c "${source_list}"; then
+            echo "ERROR: ${source_list} must be sorted." >&2
+            exit 1
+          fi
+
+          changed_sources="$(
+            comm -12 \
+              <(LC_ALL=C sort "${source_list}") \
+              <(git diff --name-only origin/main...HEAD | LC_ALL=C sort)
+          )"
+          if [[ -z "${changed_sources}" || "${DOCS_SYNC_ACK}" == "true" ]]; then
+            exit 0
+          fi
+
+          printf 'Documentation sources changed:\n%s\n' "${changed_sources}" >&2
+          cat >&2 <<'EOF'
+          This PR edits sources published to the docs site (listed in .github/docs-sync-sources.txt; pinned by store-docs evidence/T4-store6-source-lock.json). Merging makes the site stale until the docs repo re-pins. Add the 'docs-sync-ack' label to proceed; the docs repo's scheduled drift check will open the re-pin PR after merge. If your edit inserts or deletes lines in STABILITY.md, ROADMAP.md, store6-compose/README.md, or store6-sqldelight/README.md above an existing section, prefer appending — the site applies line-anchored publication transforms to these files.
+          EOF
+          exit 1
+
   linux-build-test:
     runs-on: ubuntu-latest
     # The store6-mutations Lincheck budget measured ~58-59m locally and 2h40m-3h13m hosted
