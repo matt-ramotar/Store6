@@ -21,5 +21,5 @@ the same immutable generation with the same idempotency key again, so endpoints 
 or keyed by mutation identity. Once `ACKED` is durable, recovery may repeat adoption, effects, or
 retirement but never calls `push` again for that generation.
 
-Use the [Store 6 overview](/docs/store6/overview) for guides and examples. Read APIs are in the
-[store6-core reference](/reference/store6-core/index.html).
+Return to [Docs home](/docs), or use the [Store 6 overview](/docs/store6/overview) for guides and
+examples. Read APIs are in the [store6-core reference](/reference/store6-core/index.html).

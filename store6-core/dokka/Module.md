@@ -11,5 +11,5 @@ The `org.mobilenativefoundation.store6.core.seam` package is a freeze candidate,
 types are currently marked `@ExperimentalStoreApi`, so implementing a fetcher, source of truth,
 bookkeeper, clock, telemetry sink, or overlay is an explicit opt-in.
 
-Use the [Store 6 overview](/docs/store6/overview) for guides and examples. Writing APIs are in the
-[store6-mutations reference](/reference/store6-mutations/index.html).
+Return to [Docs home](/docs), or use the [Store 6 overview](/docs/store6/overview) for guides and
+examples. Writing APIs are in the [store6-mutations reference](/reference/store6-mutations/index.html).
