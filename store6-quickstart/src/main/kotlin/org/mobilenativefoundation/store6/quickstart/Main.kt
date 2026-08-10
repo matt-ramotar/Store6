@@ -53,12 +53,14 @@ public fun main(): Unit =
         // docs:snippet:end
 
         users.stream(UserKey("1")).take(2).collect { result ->
+            // docs:snippet:migration-store-result-when
             when (result) {
                 is StoreResult.Loading -> println("Loading…")
                 is StoreResult.Data -> println("Data(name=${result.value.name}, origin=${result.origin})")
                 is StoreResult.Revalidated -> println("Revalidated(age=${result.age})")
                 is StoreResult.Error -> println("Error(${result.error})")
             }
+            // docs:snippet:end
         }
         println("get: ${users.get(UserKey("2")).name}")
         users.close()
