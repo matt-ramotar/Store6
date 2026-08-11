@@ -13,7 +13,7 @@ class RenameProjectorContractTest :
     private var ambientLocaleTag: String = "en-US"
 
     override fun createSubject() =
-        mutatorPuritySubject(
+        mutatorPuritySubject<UserKey, User, Rename, Pair<String, String>>(
             id = "rename",
             version = 1,
             codec = RenameCodec,
