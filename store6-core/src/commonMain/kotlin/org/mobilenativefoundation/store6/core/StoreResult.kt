@@ -20,10 +20,10 @@ public sealed interface StoreResult<out V> {
         /** The value produced by the store. */
         public val value: V,
 
-        /** The source from which [value] was obtained. */
+        /** The source from which `value` was obtained. */
         public val origin: Origin,
 
-        /** Elapsed time since [value] was committed to the store. */
+        /** Elapsed time since `value` was committed to the store. */
         public val age: Duration,
 
         /**
@@ -41,7 +41,7 @@ public sealed interface StoreResult<out V> {
      * the not-modified signal of a conditional fetch.
      *
      * Emitted when a conditional fetch returns not-modified: the value is server-confirmed fresh,
-     * metadata is refreshed, and [age] is the elapsed time since the last commit measured at
+     * metadata is refreshed, and `age` is the elapsed time since the last commit measured at
      * revalidation. Revalidated is a lifecycle signal: `conflateLatestData` never conflates it
      * away in favor of another kind; for a blocked collector a newer `Revalidated` supersedes an
      * older queued one, so the kind itself is never lost.

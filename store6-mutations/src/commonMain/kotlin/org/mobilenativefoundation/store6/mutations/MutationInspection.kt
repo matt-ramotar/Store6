@@ -62,7 +62,7 @@ public enum class MutationFailureKind {
  * A normalized, restart-safe failure record.
  *
  * A raw `StoreError` or `Throwable` is never persisted and never carried here. Sanitization
- * contract: [detail] is at most 128 UTF-8 bytes and [message] at most 1,024 UTF-8 bytes, each
+ * contract: `detail` is at most 128 UTF-8 bytes and `message` at most 1,024 UTF-8 bytes, each
  * truncated at a code-point boundary after control-character and stack-trace sanitization. The
  * library alone constructs failures.
  */

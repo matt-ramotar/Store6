@@ -97,7 +97,7 @@ public interface Bookkeeper {
 /**
  * Immutable bookkeeping state for one canonical key.
  *
- * [durablyStale] reflects the exact watermark algebra `max(mark/ns/global) > (success ?: 0)`.
+ * `durablyStale` reflects the exact watermark algebra `max(mark/ns/global) > (success ?: 0)`.
  * A failure-only record therefore reports false until a mark or watermark covers it.
  */
 @ExperimentalStoreApi

@@ -16,7 +16,7 @@ import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.kotlin.dsl.configure
 import org.gradle.kotlin.dsl.get
 import org.gradle.kotlin.dsl.withType
-import org.jetbrains.dokka.gradle.DokkaTask
+import org.jetbrains.dokka.gradle.DokkaExtension
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
@@ -213,11 +213,30 @@ fun Project.configureAtomicFu() =
 fun Project.configureDokka() {
     val moduleDocumentation = layout.projectDirectory.file("dokka/Module.md")
 
-    tasks.withType<DokkaTask>().configureEach {
+    extensions.configure<DokkaExtension> {
+        dokkaPublications.named("html") {
+            outputDirectory.set(layout.buildDirectory.dir("dokka/html"))
+        }
         dokkaSourceSets.configureEach {
             reportUndocumented.set(false)
             skipDeprecated.set(true)
             jdkVersion.set(11)
+            externalDocumentationLinks.register("kotlinx-coroutines") {
+                url("https://kotlinlang.org/api/kotlinx.coroutines/")
+                packageListUrl("https://kotlinlang.org/api/kotlinx.coroutines/package-list")
+            }
+            if (project.name == "store6-mutations") {
+                externalDocumentationLinks.register("store6-core") {
+                    url("https://store.mobilenativefoundation.org/reference/store6-core/")
+                    packageListUrl.set(
+                        rootProject
+                            .project(":store6-core")
+                            .layout.buildDirectory
+                            .file("dokka/html/store6-core/package-list")
+                            .map { it.asFile.toURI() },
+                    )
+                }
+            }
         }
 
         if (moduleDocumentation.asFile.isFile) {
@@ -225,6 +244,17 @@ fun Project.configureDokka() {
                 includes.from(moduleDocumentation)
             }
         }
+    }
+
+    if (project.name == "store6-mutations") {
+        tasks.named("dokkaGeneratePublicationHtml").configure {
+            dependsOn(":store6-core:dokkaGeneratePublicationHtml")
+        }
+    }
+    tasks.register("dokkaHtml") {
+        group = "documentation"
+        description = "Generates Dokka HTML documentation."
+        dependsOn("dokkaGeneratePublicationHtml")
     }
 }
 

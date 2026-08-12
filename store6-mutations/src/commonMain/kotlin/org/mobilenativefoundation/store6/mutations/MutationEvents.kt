@@ -64,7 +64,7 @@ public class MutationEnqueued internal constructor(
 ) : MutationIntentEvent
 
 /**
- * One transport invocation began. [attempt] is the one-based transport invocation ordinal,
+ * One transport invocation began. `attempt` is the one-based transport invocation ordinal,
  * attempted after the `INFLIGHT` transition becomes durable but before transport.
  */
 @ExperimentalStoreApi
@@ -80,7 +80,7 @@ public class MutationAttempted internal constructor(
     @ExperimentalStoreApi
     public val generation: Int,
 
-    /** The one-based transport invocation ordinal for [generation]. */
+    /** The one-based transport invocation ordinal for `generation`. */
     @ExperimentalStoreApi
     public val attempt: Int,
 ) : MutationIntentEvent
