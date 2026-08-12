@@ -52,6 +52,12 @@
 - [Inspection and observability](/docs/store6/mutations/inspection): durable pending and dead-letter truth versus advisory event flows.
 - [Testing mutations](/docs/store6/mutations/testing): certify journal storage, crash boundaries, and projector purity.
 
+## Migration
+
+- [Migrate from Store 5](/docs/store6/migration/from-store5): map Store 5 concepts and APIs to Store 6, including side-by-side adoption and rollback boundaries.
+- [Component map](/docs/store6/migration/component-map): translate Store 5 components, policies, and extension points to their Store 6 equivalents.
+- [Migrate from Store 4](/docs/store6/migration/from-store4): move through Store 5 or adopt Store 6 directly, with explicit compatibility and validation checkpoints.
+
 ## Project
 
 - [Stability](STABILITY.md): API tiers, the deprecation cycle, the release cadence commitment, how stability is verified from a released tag, and the mutations posture at alpha01.
