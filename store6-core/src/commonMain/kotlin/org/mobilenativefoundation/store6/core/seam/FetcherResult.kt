@@ -20,14 +20,14 @@ import org.mobilenativefoundation.store6.core.StoreResult
  * @param V the non-null value type produced by the fetcher
  */
 public sealed interface FetcherResult<out V : Any> {
-    /** A fetched [value], optionally identified by [etag]. */
+    /** A fetched `value`, optionally identified by `etag`. */
     public class Success<V : Any>(
         public val value: V,
         public val etag: String? = null,
     ) : FetcherResult<V>
 
     /**
-     * The resident value is unchanged and its metadata should be refreshed with [etag].
+     * The resident value is unchanged and its metadata should be refreshed with `etag`.
      *
      * @property etag the refreshed ETag, or null to keep the previously recorded tag
      */
@@ -35,7 +35,7 @@ public sealed interface FetcherResult<out V : Any> {
         public val etag: String? = null,
     ) : FetcherResult<Nothing>
 
-    /** A fetch failure equivalent to throwing [cause] from the fetcher. */
+    /** A fetch failure equivalent to throwing `cause` from the fetcher. */
     public class Error(
         public val cause: Throwable,
     ) : FetcherResult<Nothing>

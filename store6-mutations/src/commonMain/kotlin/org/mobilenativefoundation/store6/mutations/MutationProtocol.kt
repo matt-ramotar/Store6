@@ -168,11 +168,11 @@ public class MutationPreconditionCandidate<K : StoreKey, V : Any> internal const
 /**
  * The immutable, library-built transport request for one attempt generation.
  *
- * [identity] alone selects the backend entity and feeds preconditions and idempotency. [key] is
+ * `identity` alone selects the backend entity and feeds preconditions and idempotency. `key` is
  * process-local adapter context; fields beyond its already-validated namespace and canonical id
  * are non-authoritative and may differ across retries. Store6 reconstructs every retry of the
  * same semantic generation from the same defensively copied blobs, so a retry carries the same
- * base, mine, metadata, advertised prefix, and [idempotencyKey]. A merge that changes payload
+ * base, mine, metadata, advertised prefix, and `idempotencyKey`. A merge that changes payload
  * persists generation `g + 1` and a new idempotency key before its first send.
  *
  * Transport cancellation is not failure: once a push has entered `INFLIGHT`, a thrown
@@ -182,8 +182,8 @@ public class MutationPreconditionCandidate<K : StoreKey, V : Any> internal const
  * later keys in the same client namespace cannot begin transport until it parks or retires,
  * while keys in different namespaces remain eligible to progress.
  *
- * [baseMeta] strengthens the existence/value precondition when present; `baseMeta == null` never
- * means an unconditional write — [base] itself is always a precondition.
+ * `baseMeta` strengthens the existence/value precondition when present; `baseMeta == null` never
+ * means an unconditional write — `base` itself is always a precondition.
  */
 @ExperimentalStoreApi
 public class MutationPush<K : StoreKey, V : Any> internal constructor(
@@ -300,7 +300,7 @@ public sealed interface MutationAck<out K : StoreKey, out V : Any> {
 /**
  * A confirmed present outcome, adopted through write-handle apply then fresh confirmation.
  *
- * [canonicalKey] optionally redirects a provisional identity to its same-namespace canonical
+ * `canonicalKey` optionally redirects a provisional identity to its same-namespace canonical
  * identity; `null` means the identity is unchanged. A retry of one generation idempotency key
  * must return the same canonical target or the intent parks as a protocol violation.
  */

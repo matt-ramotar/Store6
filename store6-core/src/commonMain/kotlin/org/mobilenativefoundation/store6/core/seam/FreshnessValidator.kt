@@ -9,8 +9,8 @@ import org.mobilenativefoundation.store6.core.StoreMeta
 /**
  * The value and bookkeeping facts used to plan a read.
  *
- * [status] carries the durable bookkeeping posture captured before the corresponding engine-state
- * snapshot. A resident value with null [meta] is treated as conservatively stale.
+ * `status` carries the durable bookkeeping posture captured before the corresponding engine-state
+ * snapshot. A resident value with null `meta` is treated as conservatively stale.
  */
 @ExperimentalStoreApi
 public class FreshnessContext(
@@ -55,7 +55,7 @@ public sealed interface FetchPlan {
         public val servesResidentWhileFetching: Boolean,
     ) : FetchPlan
 
-    /** Performs a conditional fetch for [etag] and optionally serves residence while it runs. */
+    /** Performs a conditional fetch for `etag` and optionally serves residence while it runs. */
     public class Conditional(
         public val etag: String,
         public val servesResidentWhileFetching: Boolean,

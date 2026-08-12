@@ -44,7 +44,7 @@ import org.mobilenativefoundation.store6.mutations.storage.MutationKeyTombstoneR
  * and routes every key-taking operation through the canonical alias table.
  *
  * This facade deliberately withholds the raw engine write handle. Calling `runtime()` on it
- * returns `null`; [keyEvents] is re-published so advisory access survives that narrowing, and it
+ * returns `null`; `keyEvents` is re-published so advisory access survives that narrowing, and it
  * gains no `Rekeyed` variant. [close] marks the facade closed before closing its delegate, and
  * mutation operations then fail with Store's exact closed-store contract.
  *

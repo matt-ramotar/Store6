@@ -7,7 +7,7 @@ import org.mobilenativefoundation.store6.mutations.MutationFailureKind
 import org.mobilenativefoundation.store6.mutations.MutationPresenceState
 
 /**
- * Stable persisted execution-phase names. Storage implementations persist [name], never ordinal.
+ * Stable persisted execution-phase names. Storage implementations persist `name`, never ordinal.
  *
  * [PARKED] and [RETIRED] are the two terminal phases: a parked execution carries an active failure
  * id and appears only in dead letters, and a retired one carries its retirement time and appears in
@@ -81,7 +81,7 @@ public class MutationClientRecord(
     }
 }
 
-/** Immutable durable intent. [argsBlob] is copied on construction and every read. */
+/** Immutable durable intent. `argsBlob` is copied on construction and every read. */
 @ExperimentalStoreApi
 public class MutationIntentRecord(
     @ExperimentalStoreApi public val rowId: Long,
@@ -128,14 +128,14 @@ public class MutationExecutionRecord(
     @ExperimentalStoreApi public val currentGeneration: Int,
 
     /**
-     * Completed network attempts for [currentGeneration]; never negative, and zero while
-     * [currentGeneration] is zero.
+     * Completed network attempts for `currentGeneration`; never negative, and zero while
+     * `currentGeneration` is zero.
      */
     @ExperimentalStoreApi public val attempt: Int,
 
     /**
      * When the latest network attempt completed, in Unix epoch milliseconds. Non-null exactly
-     * when [attempt] is nonzero.
+     * when `attempt` is nonzero.
      */
     @ExperimentalStoreApi public val lastAttemptAt: Long?,
 

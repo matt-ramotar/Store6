@@ -28,18 +28,18 @@ public abstract class KeyEvents internal constructor() {
     /** Key whose engine produced this advisory event. */
     public abstract val key: StoreKey
 
-    /** Reports a successful writer commit with its installed [origin]. */
+    /** Reports a successful writer commit with its installed `origin`. */
     public class Written internal constructor(
         override val key: StoreKey,
         public val origin: Origin,
     ) : KeyEvents()
 
-    /** Reports a successful stale mark for [key]. */
+    /** Reports a successful stale mark for `key`. */
     public class Invalidated internal constructor(
         override val key: StoreKey,
     ) : KeyEvents()
 
-    /** Reports a successful destructive removal for [key]. */
+    /** Reports a successful destructive removal for `key`. */
     public class Deleted internal constructor(
         override val key: StoreKey,
     ) : KeyEvents()

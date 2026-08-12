@@ -50,7 +50,7 @@ public sealed class StoreError {
         public val message: String,
     ) : StoreError()
 
-    /** Indicates that no value exists for [key] and none could be produced. */
+    /** Indicates that no value exists for `key` and none could be produced. */
     public class Missing internal constructor(
         /** The key for which no value exists. */
         public val key: StoreKey,

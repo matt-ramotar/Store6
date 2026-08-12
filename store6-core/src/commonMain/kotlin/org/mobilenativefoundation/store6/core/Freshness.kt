@@ -19,7 +19,7 @@ public sealed interface Freshness {
 
     /**
      * Serve a locally available value only when it has known freshness metadata, has not been
-     * invalidated, and its age does not exceed [notOlderThan]; otherwise withhold it and fetch a
+     * invalidated, and its age does not exceed `notOlderThan`; otherwise withhold it and fetch a
      * fresh value.
      */
     public class MaxAge(
