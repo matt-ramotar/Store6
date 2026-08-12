@@ -210,11 +210,21 @@ fun Project.configureAtomicFu() =
         transformJs = false
     }
 
-fun Project.configureDokka() = tasks.withType<DokkaTask>().configureEach {
-    dokkaSourceSets.configureEach {
-        reportUndocumented.set(false)
-        skipDeprecated.set(true)
-        jdkVersion.set(11)
+fun Project.configureDokka() {
+    val moduleDocumentation = layout.projectDirectory.file("dokka/Module.md")
+
+    tasks.withType<DokkaTask>().configureEach {
+        dokkaSourceSets.configureEach {
+            reportUndocumented.set(false)
+            skipDeprecated.set(true)
+            jdkVersion.set(11)
+        }
+
+        if (moduleDocumentation.asFile.isFile) {
+            dokkaSourceSets.matching { it.name == "commonMain" }.configureEach {
+                includes.from(moduleDocumentation)
+            }
+        }
     }
 }
 
