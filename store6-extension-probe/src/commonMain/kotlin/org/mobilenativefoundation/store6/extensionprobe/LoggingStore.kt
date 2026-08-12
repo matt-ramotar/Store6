@@ -8,6 +8,7 @@ import org.mobilenativefoundation.store6.core.Store
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreResult
 
+// docs:snippet:guides-extending-logging-store
 /** A public-API decorator whose `runtime()` is null because it exposes its own affordances. */
 @OptIn(DelicateStoreApi::class)
 public class LoggingStore<K : StoreKey, V : Any>(
@@ -29,3 +30,4 @@ public class LoggingStore<K : StoreKey, V : Any>(
             )
         }
 }
+// docs:snippet:end

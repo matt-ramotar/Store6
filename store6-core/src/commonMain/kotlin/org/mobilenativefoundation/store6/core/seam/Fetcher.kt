@@ -19,8 +19,10 @@ import org.mobilenativefoundation.store6.core.StoreKey
 @SubclassOptInRequired(DelicateStoreApi::class)
 public interface Fetcher<K : StoreKey, V : Any> {
     /** Retrieves [key], conditionally against [etag] when one is supplied by the engine. */
+    // docs:snippet:guides-fetchers-seam-signature
     public suspend fun fetch(
         key: K,
         etag: String?,
     ): FetcherResult<V>
+    // docs:snippet:end
 }

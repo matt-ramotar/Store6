@@ -22,12 +22,14 @@ import org.mobilenativefoundation.store6.mutations.MutationFailureKind
  * mutation accepted-state handoff. The engine synchronously publishes the corresponding overlay or
  * alias revision after commit and before external completion or cancellation becomes observable.
  */
+// docs:snippet:mutations-journal-storage-interface
 @ExperimentalStoreApi
 @SubclassOptInRequired(DelicateStoreApi::class)
 public interface MutationJournalStorage {
     /** Runs [block] as one serializable, exception-atomic unit of work. */
     public suspend fun <R> transaction(block: (MutationJournalTransaction) -> R): R
 }
+// docs:snippet:end
 
 /** Scoped reads and mutations available only inside [MutationJournalStorage.transaction]. */
 @ExperimentalStoreApi

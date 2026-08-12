@@ -150,24 +150,24 @@ crash-matrix and soak lanes green in production-representative apps, and at leas
 production adopters reporting. If those are not met, it stays experimental and the review repeats.
 Nothing graduates because a date arrived.
 
-### (b) The two-step durable ack posture
+### (b) The durable acknowledgement posture
 
-When a mutation is acknowledged by the server, the alpha writes the echo through and retires the
-journal row in two steps rather than one atomic step: **it adopts the server echo first and retires
-the journal row last.** The transactional path does the opposite — write and retire inside one
-transaction, then adopt — and it is safe there precisely because it is atomic. The non-transactional
-fallback has no atomicity, so it must invert the order: **a crash before retire leaves a replayable
-pending intent, while a crash after an early retire loses the write outright.**
+Every public mutation store has a journal storage, including the in-memory default, which does not
+survive process restart. After the server returns an acknowledgement, Store records the receipt, any
+pending alias or tombstone, and the `ACKED` execution phase in one journal transaction. Only after
+it commits does Store adopt the result, apply effects, and finalize retirement.
 
-This is the same conservative crash-window stance already ratified for reads: prefer doing work
-twice over losing it.
+If the server accepts a push before the local acknowledgement commits, the intent remains `INFLIGHT`;
+a later drain can resend the same immutable generation and key. Durable storage preserves that replay.
+This is the same conservative crash-window stance used for reads: prefer doing work twice over
+losing it.
 
-The consequence, stated so you meet it in this document rather than in production: because restart
-replay re-pushes pending intents, **a crash inside that ack window can result in the same push being
-re-sent.** Design your server endpoints for the mutations you care about to be idempotent, or key
-them by the mutation identity.
+Once `ACKED` is committed, recovery resumes adoption, effects, and retirement without calling
+`MutationServer.push` again for that generation. Those post-acknowledgement steps may repeat
+conservatively after a failure, but the accepted write is not sent twice from that durable phase.
 
-Closing that window — making the ack path atomic — is beta01 work, not alpha01 work.
+The consequence: design mutation endpoints to treat a repeated idempotency key as the same request.
+This covers the remote-acceptance window before the local acknowledgement transaction commits.
 
 ### (c) The surface has been reviewed — and stays experimental
 

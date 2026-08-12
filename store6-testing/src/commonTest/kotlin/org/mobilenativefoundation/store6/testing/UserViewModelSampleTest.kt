@@ -22,6 +22,7 @@ private sealed class UserUiState {
     class Failed(val error: StoreError) : UserUiState()
 }
 
+// docs:snippet:guides-testing-fake-store-view-model
 private class UserViewModel(store: Store<UserKey, User>, key: UserKey, scope: CoroutineScope) {
     val state: StateFlow<UserUiState> =
         store.stream(key)
@@ -58,3 +59,4 @@ class UserViewModelSampleTest {
         fake.close()
     }
 }
+// docs:snippet:end

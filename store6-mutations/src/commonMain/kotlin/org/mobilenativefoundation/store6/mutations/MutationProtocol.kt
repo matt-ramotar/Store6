@@ -249,6 +249,7 @@ public class MutationPush<K : StoreKey, V : Any> internal constructor(
  * )
  * ```
  */
+// docs:snippet:mutations-server-interface
 @ExperimentalStoreApi
 public interface MutationServer<K : StoreKey, V : Any> {
     /**
@@ -280,6 +281,7 @@ public interface MutationServer<K : StoreKey, V : Any> {
     @ExperimentalStoreApi
     public suspend fun retire(request: MutationRetirement): MutationRetirementAck
 }
+// docs:snippet:end
 
 /**
  * The backend's acknowledgement of one pushed generation.
