@@ -239,15 +239,14 @@ class PagingInvalidationTest {
         assertEquals(listOf("value"), generation.refresh().data)
         assertEquals(1, store.activeCollectors)
 
-        val collectorsFinished = async { store.awaitActiveCollectors(0) }
         generation.invalidate()
         invalidated.awaitCount(1)
-        collectorsFinished.await()
+        store.awaitCollectorCompletions(1)
+        assertEquals(0, store.activeCollectors)
         assertEquals(1, store.collectorStarts)
         assertEquals(1, store.collectorCompletions)
 
         store.close()
-        collectorsFinished.join()
     }
 
     @Test

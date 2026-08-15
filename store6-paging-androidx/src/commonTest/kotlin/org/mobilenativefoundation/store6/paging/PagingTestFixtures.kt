@@ -129,6 +129,10 @@ internal class TrackingPageStore(
     suspend fun awaitActiveCollectors(expected: Int) {
         active.first { it == expected }
     }
+
+    suspend fun awaitCollectorCompletions(expected: Int) {
+        completions.first { it == expected }
+    }
 }
 
 internal fun Store<PageKey, Page>.standardPagingFactory(
