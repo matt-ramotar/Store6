@@ -13,8 +13,8 @@ ktlintGradle = "12.1.0"
 jacocoGradlePlugin = "0.8.12"
 mavenPublishPlugin = "0.34.0"
 moleculeGradlePlugin = "1.2.1"
-pagingCompose = "3.3.0-alpha02"
-pagingRuntime = "3.2.1"
+# androidx.paging KMP line (paging-common/testing); 3.5.1 = latest stable 2026-08-12. No Intel targets since 3.4.0-rc01.
+paging = "3.5.1"
 spotlessPluginGradle = "6.4.1"
 skie = "0.10.13"
 junit = "4.13.2"
@@ -52,8 +52,8 @@ lincheck = "2.39"
 
 [libraries]
 android-gradle-plugin = { group = "com.android.tools.build", name = "gradle", version.ref = "androidGradlePlugin" }
-androidx-paging-compose = { module = "androidx.paging:paging-compose", version.ref = "pagingCompose" }
-androidx-paging-runtime = { module = "androidx.paging:paging-runtime", version.ref = "pagingRuntime" }
+androidx-paging-common = { module = "androidx.paging:paging-common", version.ref = "paging" }
+androidx-paging-testing = { module = "androidx.paging:paging-testing", version.ref = "paging" }
 kotlin-gradle-plugin = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "baseKotlin" }
 kotlin-serialization-plugin = { group = "org.jetbrains.kotlin", name = "kotlin-serialization", version.ref = "baseKotlin" }
 dokka-gradle-plugin = { group = "org.jetbrains.dokka", name = "dokka-gradle-plugin", version.ref = "dokkaGradlePlugin" }
