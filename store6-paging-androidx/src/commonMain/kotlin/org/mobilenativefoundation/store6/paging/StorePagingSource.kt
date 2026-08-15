@@ -15,6 +15,7 @@ import org.mobilenativefoundation.store6.core.seam.StoreResults
 internal class StorePagingSource<K : StoreKey, V : Any, PK : Any, Item : Any>(
     private val store: Store<K, V>,
     private val config: StorePagingConfig<K, V, PK, Item>,
+    private val generationWatcher: GenerationWatcher<K, V>,
 ) : PagingSource<PK, Item>() {
     override val jumpingSupported: Boolean = false
 
@@ -30,20 +31,34 @@ internal class StorePagingSource<K : StoreKey, V : Any, PK : Any, Item : Any>(
                 is LoadParams.Prepend -> LoadType.PREPEND
             }
         val key = config.pageKey(params.key, params.loadSize)
-        val terminal =
-            store.stream(key, config.freshness(loadType))
-                .first { result -> result !is StoreResult.Loading }
+        val baseline = generationWatcher.baseline(key, config.freshness(loadType))
+        if (baseline == null) return LoadResult.Invalid()
 
-        if (invalid) return LoadResult.Invalid()
+        if (invalid) {
+            generationWatcher.discard(key, baseline)
+            return LoadResult.Invalid()
+        }
 
         val loadResult =
-            when (terminal) {
-                is StoreResult.Data -> terminal.toPage(key)
-                is StoreResult.Error -> terminal.toLoadError()
-                is StoreResult.Revalidated -> residentAfterRevalidation(key)
-                is StoreResult.Loading -> error("Loading was selected as a terminal store result.")
+            try {
+                when (val terminal = baseline.result) {
+                    is StoreResult.Data -> terminal.toPage(key)
+                    is StoreResult.Error -> terminal.toLoadError()
+                    is StoreResult.Revalidated -> residentAfterRevalidation(key)
+                    is StoreResult.Loading ->
+                        error("Loading was selected as a terminal store result.")
+                }
+            } catch (failure: Throwable) {
+                generationWatcher.discard(key, baseline)
+                throw failure
             }
 
+        if (invalid || loadResult !is LoadResult.Page) {
+            generationWatcher.discard(key, baseline)
+            return if (invalid) LoadResult.Invalid() else loadResult
+        }
+
+        generationWatcher.watch(key, baseline)
         return if (invalid) LoadResult.Invalid() else loadResult
     }
 

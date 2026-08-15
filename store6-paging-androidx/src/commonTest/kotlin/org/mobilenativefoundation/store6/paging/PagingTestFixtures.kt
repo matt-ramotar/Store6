@@ -3,10 +3,15 @@
 package org.mobilenativefoundation.store6.paging
 
 import androidx.paging.InvalidatingPagingSourceFactory
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Store
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
@@ -89,6 +94,42 @@ internal class ScriptedPageFetcher : Fetcher<PageKey, Page> {
 
 internal fun pageStore(fetcher: ScriptedPageFetcher): Store<PageKey, Page> =
     store { fetcher(fetcher) }
+
+internal class TrackingPageStore(
+    private val delegate: Store<PageKey, Page>,
+) : Store<PageKey, Page> by delegate {
+    private val active = MutableStateFlow(0)
+    private val starts = MutableStateFlow(0)
+    private val completions = MutableStateFlow(0)
+
+    val activeCollectors: Int
+        get() = active.value
+
+    val collectorStarts: Int
+        get() = starts.value
+
+    val collectorCompletions: Int
+        get() = completions.value
+
+    override fun stream(
+        key: PageKey,
+        freshness: Freshness,
+    ): Flow<org.mobilenativefoundation.store6.core.StoreResult<Page>> =
+        flow {
+            starts.update { it + 1 }
+            active.update { it + 1 }
+            try {
+                delegate.stream(key, freshness).collect { emit(it) }
+            } finally {
+                active.update { it - 1 }
+                completions.update { it + 1 }
+            }
+        }
+
+    suspend fun awaitActiveCollectors(expected: Int) {
+        active.first { it == expected }
+    }
+}
 
 internal fun Store<PageKey, Page>.standardPagingFactory(
     query: String = "query",
