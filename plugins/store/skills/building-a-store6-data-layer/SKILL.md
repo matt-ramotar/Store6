@@ -38,7 +38,7 @@ Route: legacy Store 4/5 code present → `migrating-to-store6`.
 
 | Mistake | Reality |
 | --- | --- |
-| `Store.Builder` / `StoreBuilder` / `Fetcher.of` / builder `.freshness` / `Validator` / `.cachePolicy` | `store { fetcher { } }`. TTL is per-read `MaxAge` plus durable invalidation. |
+| `Store.Builder` / `StoreBuilder.from` / `Fetcher.of` / builder `.freshness` / `Validator` / `.cachePolicy` | `store { fetcher { } }` (the DSL receiver is `StoreBuilder`, not a Store 5 factory). TTL is per-read `MaxAge` plus durable invalidation. |
 | `RetryPolicy` / retry wrapper around the store | Retries live in the fetcher body. The engine retries zero times. |
 | `MemoryPolicy(maxSize = 50)` or any row-count cap | No data-cap knob exists. `maxIdleKeys` (default 128) bounds idle engines, not rows. Say so honestly. |
 | Bare `String` / data class key without `StoreKey` | Implement `StoreKey` (`namespace` + `canonicalId()`). Distinct record types get distinct namespaces. |
@@ -49,7 +49,7 @@ Route: legacy Store 4/5 code present → `migrating-to-store6`.
 
 ## Red flags: stop and open a reference
 
-About to type `StoreBuilder`, `Store.Builder`, `Fetcher.of`, `SourceOfTruth.of`, `Validator`, `.cachePolicy`, `.ttl`, `.freshness(` on the builder, `RetryPolicy`, `MemoryPolicy`, `RoomPersister`, `Read.`/`ReadResult`, a retry/backoff argument on the builder, a bare-`String` key, or any `store6-room` / `store6-sqldelight` / compose / Swift name not in the references? Stop. That spelling does not exist. Open the matching reference before writing the line.
+About to type `StoreBuilder.from`, `Store.Builder`, `Fetcher.of`, `SourceOfTruth.of`, `Validator`, `.cachePolicy`, `.ttl`, `.freshness(` on the builder, `RetryPolicy`, `MemoryPolicy`, `RoomPersister`, `Read.`/`ReadResult`, a retry/backoff argument on the builder, a bare-`String` key, or any `store6-room` / `store6-sqldelight` / compose / Swift name not in the references? Stop. Open the matching reference before writing the line.
 
 ## References
 
