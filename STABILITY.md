@@ -67,9 +67,9 @@ its test matrix are green; if that work misses beta01, those two ship `@Experime
 outside the frozen tier and the rest of core freezes on schedule. CI enforces the 13-file list on
 every pull request, so the seam cannot grow quietly.
 
-Promised but not in the alpha01 line: `store6-store5-interop` and `store6-paging-androidx`, both
-tracking to 6.0.0. An artifact that misses a train gets its target release named here. It does not
-get dropped silently.
+Promised: `store6-store5-interop`, tracking to 6.0.0 and not in the alpha01 line, and
+`store6-paging-androidx` (issue 035), which joins the line in the first release it is green for.
+An artifact that misses a train gets its target release named here. It does not get dropped silently.
 
 ## 4. Deprecation cycle
 
