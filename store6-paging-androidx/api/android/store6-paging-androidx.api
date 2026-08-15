@@ -13,3 +13,12 @@ public final class org/mobilenativefoundation/store6/paging/StorePagingBuilder {
 	public final fun refreshKey (Lkotlin/jvm/functions/Function1;)V
 }
 
+public abstract class org/mobilenativefoundation/store6/paging/StoreRemoteMediator : androidx/paging/RemoteMediator {
+	public fun <init> (Lorg/mobilenativefoundation/store6/core/Store;)V
+	public final fun load (Landroidx/paging/LoadType;Landroidx/paging/PagingState;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun nextKey (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;)Ljava/lang/Object;
+	public abstract fun pageKey (Ljava/lang/Object;I)Lorg/mobilenativefoundation/store6/core/StoreKey;
+	public fun prevKey (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;)Ljava/lang/Object;
+	public fun refreshFreshness ()Lorg/mobilenativefoundation/store6/core/Freshness;
+}
+
