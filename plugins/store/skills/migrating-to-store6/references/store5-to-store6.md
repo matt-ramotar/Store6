@@ -76,7 +76,8 @@ Origins:
 | `Cache` | `MEMORY` |
 | `SourceOfTruth` | `SOT` |
 | `Fetcher(name)` | `FETCHER` |
-| No analog | `OVERLAY`: an optimistic projection above committed data (mutations only, `stream` only) |
+| `Initial` | No analog. Store 6 has no `Initial` response kind, and `Loading` carries no origin. |
+| No analog | `OVERLAY`: an optimistic projection above committed data, visible on `stream` only. The mutation engine installs one, and core's experimental `overlay(...)` builder seam can too. |
 
 Helpers `requireData()`, `dataOrNull()`, and `throwIfError()` do not carry over. The two doors replace them. `get` returns a value or throws `StoreException`. `stream` emits results and never throws retrieval failures: a `Freshness.MustBeFresh` initial-cycle failure emits one error and completes the flow, and every other failure leaves the flow live.
 

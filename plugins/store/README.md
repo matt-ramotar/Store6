@@ -8,4 +8,4 @@ Skills for applications using [Store](https://github.com/MobileNativeFoundation/
 
 ## Maintenance
 
-Skill content derives from this repository's source and documentation. Every API spelling is verified against a named commit, recorded in the "Last verified" line at the bottom of each SKILL.md. When `main` moves in ways that touch a documented surface, re-verify and update the stamp.
+Skill content derives from this repository's source and documentation. Every API spelling is verified against a named commit, recorded in the "Last verified" line at the bottom of each SKILL.md. When `main` moves in ways that touch a documented surface, re-verify, update the stamp, and bump the version in `.claude-plugin/plugin.json`.

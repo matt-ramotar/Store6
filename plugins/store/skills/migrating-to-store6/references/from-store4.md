@@ -15,10 +15,10 @@ Store 5 added `MutableStore`, `Validator`, fallback mechanisms, write-conflict r
 | Converter | No direct analog. Conversion lives in fetcher and persistence callbacks |
 | Read sites | `get(key, freshness)` for a point read, `stream(key, freshness)` for an ongoing flow |
 
-Two Store 4-era read spellings and their translations:
+Two Store 4-era read patterns and their translations:
 
-- `store.fresh(key)` → `get(key, Freshness.MustBeFresh)` when the caller needs one fresh value.
-- `store.cached(key, refresh = true)` → an ongoing `stream(key)` plus deliberate `invalidate(key)` when the caller requests a refresh. Not a one-call mechanical rename.
+- `store.fresh(key)` (a Store 4 extension retained through Store 5) → `get(key, Freshness.MustBeFresh)` when the caller needs one fresh value.
+- `store.stream(StoreRequest.cached(key, refresh = true))` (`StoreRequest` is Store 4's request type) → an ongoing `stream(key)` plus deliberate `invalidate(key)` when the caller requests a refresh. Not a one-call mechanical rename.
 
 ## Coexistence
 
