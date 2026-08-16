@@ -2,6 +2,7 @@ import org.jetbrains.kotlin.gradle.plugin.mpp.apple.XCFramework
 
 plugins {
     id("org.jetbrains.kotlin.multiplatform")
+    id("org.mobilenativefoundation.store.store6.swift-dump.skie")
     alias(libs.plugins.skie)
 }
 
@@ -36,4 +37,9 @@ kotlin {
             }
         }
     }
+}
+
+store6SwiftDump {
+    surfaceName.set("store6-swift")
+    frameworkName.set("Store6Kotlin")
 }
