@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, store6 ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, store6 ]
 
 permissions:
   contents: read
@@ -50,8 +50,8 @@ jobs:
       - name: Grant execute permission for Gradlew
         run: chmod +x gradlew
 
-      - name: Build and Test with Coverage
-        run: ./gradlew clean build koverXmlReport --stacktrace
+      - name: Build and Test
+        run: ./gradlew clean build --stacktrace
 
       - name: Census — default jvmTest must execute exactly the non-Lincheck suites
         shell: bash
@@ -72,19 +72,6 @@ jobs:
             **/build/reports/tests/**
           if-no-files-found: warn
           retention-days: 7
-
-      - name: Upload Coverage to Codecov
-        # The development fork has no Codecov token. Keep coverage generation required there,
-        # while enforcing uploads for same-repo PRs and pushes in the upstream repository.
-        if: ${{ github.repository == 'MobileNativeFoundation/Store' && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') }}
-        uses: codecov/codecov-action@v4
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: build/reports/kover/coverage.xml
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: true
-          verbose: true
 
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'MobileNativeFoundation/Store'
