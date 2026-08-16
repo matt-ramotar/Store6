@@ -4,6 +4,7 @@ Skills for applications using [Store](https://github.com/MobileNativeFoundation/
 
 ## Skills
 
+- `building-a-store6-data-layer`: designing a new Store 6 data layer (keys, freshness, persistence, platform consumption) when there is no Store 4/5 code to migrate.
 - `migrating-to-store6`: translating Store 4 / Store 5 code to the Store 6 API.
 
 ## Maintenance
