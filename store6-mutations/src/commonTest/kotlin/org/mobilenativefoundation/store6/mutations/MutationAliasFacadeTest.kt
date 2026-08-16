@@ -1042,9 +1042,12 @@ class MutationAliasFacadeTest {
                 cancelledDrain.join()
                 assertTrue(cancelledDrain.isCancelled)
 
-                // Both accepted-state key-change signals survived the cancellation.
-                assertTrue(provisionalObserved.isCompleted)
-                assertTrue(canonicalObserved.isCompleted)
+                // Both accepted-state key-change signals survived the cancellation. Their
+                // emissions completed inside the NonCancellable handoff before join() returned,
+                // but the observing collector is dispatched separately, so await its
+                // observations instead of asserting synchronous completion.
+                provisionalObserved.await()
+                canonicalObserved.await()
 
                 // The live provisional stream switched to the canonical delegate stream.
                 val confirmed = awaitNonOverlayValue("draft")
