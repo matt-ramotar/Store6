@@ -115,7 +115,16 @@ class RealtimeInvalidationTest {
             store.stream(key).test {
                 awaitDataValue("fetched-1")
                 binding.apply(RealtimeMessage.Deleted(key))
-                assertIs<StoreResult.Loading>(awaitItem())
+                // Fenced clear: an already-active pipeline may queue one duplicate pre-clear
+                // Data frame. Drain it exactly; Loading then refetched data must still follow.
+                var frame = awaitItem()
+                var queuedPreClearReplays = 0
+                while (frame !is StoreResult.Loading) {
+                    queuedPreClearReplays += 1
+                    assertEquals(1, queuedPreClearReplays, "more than one queued pre-clear replay")
+                    assertEquals("fetched-1", assertIs<StoreResult.Data<String>>(frame).value)
+                    frame = awaitItem()
+                }
                 awaitDataValue("fetched-2")
                 assertEquals(2, fetcher.fetches)
                 cancelAndIgnoreRemainingEvents()
