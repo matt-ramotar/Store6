@@ -1,6 +1,6 @@
 # Documentation plugin
 
-Contributor-facing skills for documentation work inside this repository. App teams that use Store should load [`plugins/store`](../../store), not this package.
+Skills for Store contributors.
 
 ## Skills
 

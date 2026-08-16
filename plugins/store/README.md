@@ -1,6 +1,6 @@
 # Store plugin
 
-Skills for applications using [Store](https://github.com/MobileNativeFoundation/Store) (`org.mobilenativefoundation.store`). They are consumer-facing: an app team loads them into the codebase that uses Store. The contributor-facing counterpart is [`plugins/internal/documentation`](../internal/documentation) and applies only to work inside this repository.
+Skills for developers using Store.
 
 This package is an Agent Plugin directory: `plugin.json` at the plugin root and skills as immediate children of `skills/`.
 

@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "store",
   "version": "0.3.0",
-  "description": "Skills for applications using Store (org.mobilenativefoundation.store): building a Store 6 data layer and migrating from Store 4/5.",
+  "description": "Skills for developers using Store",
   "author": {
     "name": "Matt Ramotar",
     "email": "matt.ramotar@uber.com"
