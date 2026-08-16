@@ -46,6 +46,9 @@ project(':store6-paging-androidx-sample').projectDir = file('store6-paging-andro
 include ':store6-graphql'
 include ':store6-graphql-sample'
 project(':store6-graphql-sample').projectDir = file('store6-graphql/sample')
+include ':store6-realtime'
+include ':store6-realtime-sample'
+project(':store6-realtime-sample').projectDir = file('store6-realtime/sample')
 include ':store6-benchmarks'
 include ':store6-devtools'
 include ':store6-devtools-inspector'
