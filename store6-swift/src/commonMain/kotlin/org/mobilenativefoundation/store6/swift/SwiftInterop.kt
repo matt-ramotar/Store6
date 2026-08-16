@@ -29,9 +29,9 @@ public class SwiftStoreKey(
     override fun canonicalId(): String = id
 
     override fun equals(other: Any?): Boolean =
-        other is SwiftStoreKey && other.namespace == namespace && other.id == id
+        other is SwiftStoreKey && other.namespace.value == namespace.value && other.id == id
 
-    override fun hashCode(): Int = 31 * namespace.hashCode() + id.hashCode()
+    override fun hashCode(): Int = 31 * namespace.value.hashCode() + id.hashCode()
 
     override fun toString(): String = "SwiftStoreKey(namespace=${namespace.value}, id=$id)"
 }
