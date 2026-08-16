@@ -5,18 +5,21 @@
 
 package org.mobilenativefoundation.store6.realtime.sample
 
-import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
-import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
+import org.mobilenativefoundation.store6.core.seam.KeyEvents
+import org.mobilenativefoundation.store6.core.seam.runtime
 import org.mobilenativefoundation.store6.core.store
 import org.mobilenativefoundation.store6.realtime.RealtimeMessage
 import org.mobilenativefoundation.store6.realtime.realtimeBinding
@@ -43,12 +46,23 @@ private suspend fun runSample() {
         check(backend.fetches == 1)
         println("Scene 1: cold get; name=${cold.name}; fetches=1")
 
-        binding.apply(RealtimeMessage.Upsert(key, User("42", "User 42 pushed"), etag = "push-1"))
-        val adopted =
-            store.stream(key, Freshness.LocalOnly)
-                .filterIsInstance<StoreResult.Data<User>>()
-                .first { data -> data.value.name == "User 42 pushed" }
-        check(adopted.origin == Origin.SOT)
+        val runtime = checkNotNull(store.runtime())
+        coroutineScope {
+            val sotWrite = CompletableDeferred<Unit>()
+            val collector =
+                launch(start = CoroutineStart.UNDISPATCHED) {
+                    runtime.keyEvents.collect { event ->
+                        if (event is KeyEvents.Written && event.origin == Origin.SOT) {
+                            sotWrite.complete(Unit)
+                        }
+                    }
+                }
+            binding.apply(
+                RealtimeMessage.Upsert(key, User("42", "User 42 pushed"), etag = "push-1"),
+            )
+            sotWrite.await()
+            collector.cancel()
+        }
         check(store.get(key).name == "User 42 pushed")
         check(backend.fetches == 1)
         println("Scene 2: Upsert adopted as SOT; fetches still 1")

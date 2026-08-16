@@ -84,13 +84,13 @@ class RealtimeAdoptionTest {
 
         try {
             assertEquals("fetched-1", store.get(key))
-            assertEquals(listOf(null), fetcher.etags)
+            assertEquals(listOf<String?>(null), fetcher.etags)
 
             binding.apply(RealtimeMessage.Upsert(key, "pushed", etag = "push-etag"))
             store.invalidate(key)
             assertEquals("fetched-2", store.get(key, Freshness.MustBeFresh))
 
-            assertEquals(listOf(null, "push-etag"), fetcher.etags)
+            assertEquals(listOf<String?>(null, "push-etag"), fetcher.etags)
             assertEquals(2, fetcher.fetches)
         } finally {
             store.close()
