@@ -6,7 +6,7 @@ name: Store6 Swift facade dump bootstrap
 
 on:
   push:
-    branches: [ matt-ramotar/store6-swift-spm-facade-c70f ]
+    branches: [ matt-ramotar/store6-swift-facade-c70f ]
 
 permissions:
   contents: read
