@@ -57,7 +57,6 @@ internal class RecordingFetcher : Fetcher<RealtimeTestKey, String> {
     val etags = mutableListOf<String?>()
     var fetches: Int = 0
         private set
-    var nextValue: (Int) -> String = { call -> "fetched-$call" }
 
     override suspend fun fetch(
         key: RealtimeTestKey,
@@ -65,7 +64,7 @@ internal class RecordingFetcher : Fetcher<RealtimeTestKey, String> {
     ): FetcherResult<String> {
         fetches += 1
         etags += etag
-        return FetcherResult.Success(nextValue(fetches), etag = "server-$fetches")
+        return FetcherResult.Success("fetched-$fetches", etag = "server-$fetches")
     }
 }
 

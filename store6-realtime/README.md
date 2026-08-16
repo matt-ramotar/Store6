@@ -98,6 +98,8 @@ separate passes.
 
 ## Telemetry
 
-`Store.invalidate*`, `Store.clear`, `StoreWriteHandle.apply`, and `confirmFresh` already
-produce `KeyEvents` and, when telemetry is configured, `StoreTelemetry` callbacks. This
-artifact adds no event vocabulary and does not decide a wire format.
+`Store.invalidate*` and `Store.clear` produce `KeyEvents` and, when telemetry is configured,
+`StoreTelemetry` callbacks. `StoreWriteHandle.apply` emits `KeyEvents.Written(origin = SOT)`.
+`confirmFresh` emits no events. An active stream that re-emits after either fires
+`StoreTelemetry.onServe` when telemetry is configured. This artifact adds no event vocabulary
+and does not decide a wire format.

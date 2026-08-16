@@ -13,14 +13,17 @@ import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.seam.runtime
 import org.mobilenativefoundation.store6.core.store
+import org.mobilenativefoundation.store6.testing.FakeBookkeeper
 import org.mobilenativefoundation.store6.testing.FakeStore
 import org.mobilenativefoundation.store6.testing.FakeStoreInteraction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.seconds
 
 class RealtimeInvalidationTest {
@@ -47,17 +50,28 @@ class RealtimeInvalidationTest {
     @Test
     fun changedNamespace_marksResidentAndCoversNeverFetchedKey() = runTest {
         val fetcher = RecordingFetcher()
-        val store = store<RealtimeTestKey, String> { fetcher(fetcher) }
+        val bookkeeper = FakeBookkeeper()
+        val store =
+            store<RealtimeTestKey, String> {
+                fetcher(fetcher)
+                bookkeeper(bookkeeper)
+            }
         val binding = realtimeBinding(store)
         val resident = RealtimeTestKey("resident")
         val unseen = RealtimeTestKey("unseen")
 
         try {
             assertEquals("fetched-1", store.get(resident))
+            assertEquals("fetched-1", store.get(resident, Freshness.MaxAge(1.days)))
+            assertEquals(1, fetcher.fetches)
+            assertNull(bookkeeper.status(unseen))
+
             binding.apply(RealtimeMessage.ChangedNamespace(REALTIME_NAMESPACE))
-            assertEquals("fetched-2", store.get(resident, Freshness.MustBeFresh))
-            assertEquals("fetched-3", store.get(unseen, Freshness.MustBeFresh))
-            assertEquals(3, fetcher.fetches)
+
+            assertTrue(assertNotNull(bookkeeper.status(resident)).durablyStale)
+            assertTrue(assertNotNull(bookkeeper.status(unseen)).durablyStale)
+            assertEquals("fetched-2", store.get(resident, Freshness.MaxAge(1.days)))
+            assertEquals(2, fetcher.fetches)
         } finally {
             store.close()
         }
@@ -66,14 +80,24 @@ class RealtimeInvalidationTest {
     @Test
     fun changedAll_marksResidentStale() = runTest {
         val fetcher = RecordingFetcher()
-        val store = store<RealtimeTestKey, String> { fetcher(fetcher) }
+        val bookkeeper = FakeBookkeeper()
+        val store =
+            store<RealtimeTestKey, String> {
+                fetcher(fetcher)
+                bookkeeper(bookkeeper)
+            }
         val binding = realtimeBinding(store)
         val key = RealtimeTestKey("global")
 
         try {
             assertEquals("fetched-1", store.get(key))
+            assertEquals("fetched-1", store.get(key, Freshness.MaxAge(1.days)))
+            assertEquals(1, fetcher.fetches)
+
             binding.apply(RealtimeMessage.ChangedAll)
-            assertEquals("fetched-2", store.get(key, Freshness.MustBeFresh))
+
+            assertTrue(assertNotNull(bookkeeper.status(key)).durablyStale)
+            assertEquals("fetched-2", store.get(key, Freshness.MaxAge(1.days)))
             assertEquals(2, fetcher.fetches)
         } finally {
             store.close()
@@ -181,8 +205,10 @@ class RealtimeInvalidationTest {
         try {
             assertNull(store.runtime())
             assertEquals("v1-mutation", store.get(key))
+            assertEquals("v1-mutation", store.get(key, Freshness.MaxAge(1.days)))
+            assertEquals(1, fetches)
             binding.apply(RealtimeMessage.Upsert(key, "ignored", etag = "etag"))
-            assertEquals("v2-mutation", store.get(key, Freshness.MustBeFresh))
+            assertEquals("v2-mutation", store.get(key, Freshness.MaxAge(1.days)))
             assertEquals(2, fetches)
         } finally {
             store.close()
