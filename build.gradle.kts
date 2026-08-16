@@ -93,6 +93,7 @@ tasks.register("refreshSwiftDumps") {
         ":store6-swift-dumps-skie:refreshSwiftDump",
         ":store6-swift-dumps-mutations-objc:refreshSwiftDump",
         ":store6-swift-dumps-mutations-skie:refreshSwiftDump",
+        ":store6-swift:refreshSwiftDump",
     )
 }
 
@@ -102,5 +103,6 @@ tasks.register("checkSwiftDumps") {
         ":store6-swift-dumps-skie:checkSwiftDump",
         ":store6-swift-dumps-mutations-objc:checkSwiftDump",
         ":store6-swift-dumps-mutations-skie:checkSwiftDump",
+        ":store6-swift:checkSwiftDump",
     )
 }
