@@ -3,8 +3,10 @@ package org.mobilenativefoundation.store6.swift
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.mobilenativefoundation.store6.core.Freshness
+import org.mobilenativefoundation.store6.core.StoreException
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class SwiftInteropTest {
@@ -51,6 +53,14 @@ class SwiftInteropTest {
         val error = storeStates(store, key, Freshness.CachedOrFetch)
             .first { it.kind == StoreStateKind.ERROR }
         assertTrue(error.error != null)
+    }
+
+    @Test
+    fun storeGet_throwsStoreExceptionForFailedFetch() = runTest {
+        val store = swiftStore { _, completion -> completion(null, "backend unavailable") }
+        assertFailsWith<StoreException> {
+            storeGet(store, SwiftStoreKey("users", "4"), Freshness.MustBeFresh)
+        }
     }
 
     @Test

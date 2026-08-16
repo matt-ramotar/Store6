@@ -48,7 +48,9 @@ public struct StoreClient<Key: StoreKeyRepresentable, Value> {
     ) async throws -> Value {
         let anyValue: Any
         do {
-            anyValue = try await kotlinStore.get(key: key.kotlinKey, freshness: freshness.kotlin)
+            // The global storeGet wrapper carries the @Throws declaration; calling the protocol
+            // member directly would make a failing read fatal at the bridge instead of catchable.
+            anyValue = try await storeGet(store: kotlinStore, key: key.kotlinKey, freshness: freshness.kotlin)
         } catch {
             throw Self.mapped(error)
         }

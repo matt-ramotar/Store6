@@ -7,10 +7,12 @@ import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.Store
 import org.mobilenativefoundation.store6.core.StoreError
+import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.store
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.time.Duration.Companion.milliseconds
@@ -135,3 +137,15 @@ public fun swiftStore(
 /** Freshness.MaxAge from plain milliseconds; Duration cannot be constructed across the bridge. */
 public fun maxAgeFreshness(notOlderThanMillis: Long): Freshness =
     Freshness.MaxAge(notOlderThanMillis.milliseconds)
+
+/**
+ * Typed read with a declared error conversion. Store.get declares no @Throws, so a StoreException
+ * crossing the Objective-C bridge from it terminates the process; this wrapper's @Throws makes the
+ * failure a catchable NSError on the Swift side instead.
+ */
+@Throws(StoreException::class, CancellationException::class)
+public suspend fun storeGet(
+    store: Store<StoreKey, Any>,
+    key: StoreKey,
+    freshness: Freshness,
+): Any = store.get(key, freshness)
