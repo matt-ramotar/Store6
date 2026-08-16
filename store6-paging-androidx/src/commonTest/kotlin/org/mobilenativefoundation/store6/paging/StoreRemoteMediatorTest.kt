@@ -8,10 +8,12 @@ package org.mobilenativefoundation.store6.paging
 
 import androidx.paging.ExperimentalPagingApi
 import androidx.paging.PagingConfig
+import androidx.paging.Pager
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import androidx.paging.LoadType
 import androidx.paging.RemoteMediator
+import androidx.paging.testing.asSnapshot
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest as coroutineRunTest
@@ -21,6 +23,8 @@ import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Store
 import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreException
+import org.mobilenativefoundation.store6.core.store
+import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -32,7 +36,8 @@ import kotlin.time.Duration.Companion.seconds
 class StoreRemoteMediatorTest {
     @Test
     fun mediatorRefresh_invalidatesThenGetsFresh() = runTest {
-        val key = PageKey("query", cursor = null, limit = 5)
+        val config = PagingConfig(pageSize = 5)
+        val key = PageKey("query", cursor = null, limit = config.initialLoadSize)
         val fetcher = ScriptedPageFetcher().apply {
             enqueue(key, FetcherResult.Success(Page(listOf("resident"), next = 1, prev = null)))
             enqueue(key, FetcherResult.Success(Page(listOf("fresh"), next = 2, prev = null)))
@@ -45,7 +50,7 @@ class StoreRemoteMediatorTest {
             val pageKeyCalls = mutableListOf<Pair<Int?, Int>>()
             val mediator = pageMediator(store, pageKeyCalls)
 
-            val result = mediator.load(LoadType.REFRESH, pagingState(pageSize = 5))
+            val result = mediator.load(LoadType.REFRESH, pagingState(pageSize = config.pageSize))
 
             val success = assertIs<RemoteMediator.MediatorResult.Success>(result)
             assertFalse(success.endOfPaginationReached)
@@ -55,9 +60,60 @@ class StoreRemoteMediatorTest {
                 listOf<Pair<PageKey, Freshness>>(key to Freshness.MustBeFresh),
                 store.gets,
             )
-            assertEquals(listOf<Pair<Int?, Int>>(null to 5), pageKeyCalls)
+            assertEquals(
+                listOf<Pair<Int?, Int>>(null to config.initialLoadSize),
+                pageKeyCalls,
+            )
             assertEquals(2, fetcher.callCount(key))
         } finally {
+            delegate.close()
+        }
+    }
+
+    @Test
+    fun pagerRefresh_usesSameInitialLoadSizeForMediatorAndPagingSource() = runTest {
+        val config = PagingConfig(pageSize = 5, enablePlaceholders = false)
+        val initialKey = PageKey("query", cursor = null, limit = config.initialLoadSize)
+        val pageSizeKey = PageKey("query", cursor = null, limit = config.pageSize)
+        val initialPage =
+            Page(
+                items = List(config.initialLoadSize) { index -> "item-$index" },
+                next = null,
+                prev = null,
+            )
+        val wrongPage =
+            Page(
+                items = List(config.pageSize) { index -> "wrong-$index" },
+                next = null,
+                prev = null,
+            )
+        val fetcher =
+            RepeatingPageFetcher(
+                mapOf(
+                    initialKey to initialPage,
+                    pageSizeKey to wrongPage,
+                ),
+            )
+        val delegate = store<PageKey, Page> { fetcher(fetcher) }
+        val store = RecordingPageStore(delegate)
+        val factory = store.standardPagingFactory()
+
+        try {
+            val items =
+                Pager(
+                    config = config,
+                    remoteMediator = pageMediator(store),
+                    pagingSourceFactory = { factory() },
+                ).flow.asSnapshot()
+
+            assertEquals(initialPage.items, items)
+            assertEquals(listOf(initialKey), store.invalidatedKeys)
+            assertEquals(
+                listOf<Pair<PageKey, Freshness>>(initialKey to Freshness.MustBeFresh),
+                store.gets,
+            )
+        } finally {
+            factory.invalidate()
             delegate.close()
         }
     }
@@ -190,6 +246,21 @@ class StoreRemoteMediatorTest {
             delegate.close()
         }
     }
+}
+
+private class RepeatingPageFetcher(
+    private val pages: Map<PageKey, Page>,
+) : Fetcher<PageKey, Page> {
+    override suspend fun fetch(
+        key: PageKey,
+        etag: String?,
+    ): FetcherResult<Page> =
+        pages[key]?.let { page -> FetcherResult.Success(page) }
+            ?: FetcherResult.Error(
+                IllegalStateException(
+                    "No repeating page result for ${key.namespace.value}/${key.canonicalId()}.",
+                ),
+            )
 }
 
 private enum class StoreOperation {

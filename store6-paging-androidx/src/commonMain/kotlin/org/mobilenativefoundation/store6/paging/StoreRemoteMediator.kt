@@ -15,7 +15,9 @@ import org.mobilenativefoundation.store6.core.StoreKey
  *
  * Refresh loads invalidate the initial page key before reading it. Append and prepend loads read
  * the boundary page under [Freshness.CachedOrFetch]. A `null` directional key ends pagination
- * without reading the store. Typed [StoreException] failures are returned as [MediatorResult.Error].
+ * without reading the store. Refresh invalidates only the mapped initial page key. Call
+ * [Store.invalidateNamespace] before triggering a Paging refresh when the whole query must be
+ * invalidated. Typed [StoreException] failures are returned as [MediatorResult.Error].
  */
 @ExperimentalStoreApi
 @ExperimentalPagingApi
@@ -24,7 +26,8 @@ public abstract class StoreRemoteMediator<K : StoreKey, V : Any, PK : Any, Item 
 ) : RemoteMediator<PK, Item>() {
     /**
      * Maps a pagination key and Paging load size to the store key for that page. A `null`
-     * pagination key identifies the initial refresh.
+     * pagination key identifies the initial refresh. Refresh receives
+     * `PagingConfig.initialLoadSize`; append and prepend receive `PagingConfig.pageSize`.
      */
     public abstract fun pageKey(
         paginationKey: PK?,
@@ -53,7 +56,10 @@ public abstract class StoreRemoteMediator<K : StoreKey, V : Any, PK : Any, Item 
         return try {
             when (loadType) {
                 LoadType.REFRESH -> {
-                    val key = pageKey(paginationKey = null, loadSize = state.config.pageSize)
+                    val key = pageKey(
+                        paginationKey = null,
+                        loadSize = state.config.initialLoadSize,
+                    )
                     store.invalidate(key)
                     val value = store.get(key, refreshFreshness())
                     MediatorResult.Success(endOfPaginationReached = nextKey(key, value) == null)

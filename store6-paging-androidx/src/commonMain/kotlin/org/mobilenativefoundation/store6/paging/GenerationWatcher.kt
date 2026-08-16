@@ -1,15 +1,18 @@
 package org.mobilenativefoundation.store6.paging
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Store
 import org.mobilenativefoundation.store6.core.StoreKey
@@ -20,24 +23,34 @@ internal class GenerationWatcher<K : StoreKey, V : Any>(
     private val store: Store<K, V>,
     private val invalidateGeneration: () -> Unit,
 ) {
-    internal inner class BaselineFrame internal constructor(
-        val result: StoreResult<V>,
-        internal val entry: Entry<V>,
-    )
+    internal sealed interface BaselineResult<out T : Any> {
+        class Frame<T : Any> internal constructor(
+            val result: StoreResult<T>,
+            internal val entry: Entry<T>,
+        ) : BaselineResult<T>
+
+        data class Failure(val throwable: Throwable) : BaselineResult<Nothing>
+
+        data object Stopped : BaselineResult<Nothing>
+    }
 
     private data class KeyId(
         val namespace: String,
         val canonicalId: String,
     )
 
-    internal enum class Resolution {
-        ARMED,
-        DISCARDED,
-        STOPPED,
+    internal sealed interface Resolution {
+        data object ARMED : Resolution
+
+        data object DISCARDED : Resolution
+
+        data object STOPPED : Resolution
+
+        data class Failed(val throwable: Throwable) : Resolution
     }
 
     internal class Entry<V : Any> {
-        val baseline = CompletableDeferred<StoreResult<V>?>()
+        val baseline = CompletableDeferred<BaselineResult<V>>()
         val armed = CompletableDeferred<Unit>()
         val resolution = CompletableDeferred<Resolution>()
         var job: Job? = null
@@ -52,7 +65,7 @@ internal class GenerationWatcher<K : StoreKey, V : Any>(
     suspend fun baseline(
         key: K,
         freshness: Freshness,
-    ): BaselineFrame? {
+    ): BaselineResult<V> {
         val id = KeyId(key.namespace.value, key.canonicalId())
         while (generationJob.isActive) {
             val (entry, ownsEntry) =
@@ -66,16 +79,14 @@ internal class GenerationWatcher<K : StoreKey, V : Any>(
                 }
 
             if (!ownsEntry) {
-                when (entry.resolution.await()) {
+                when (val resolution = entry.resolution.await()) {
                     Resolution.ARMED -> {
                         requestInvalidation()
-                        return null
+                        return BaselineResult.Stopped
                     }
                     Resolution.DISCARDED -> continue
-                    Resolution.STOPPED -> {
-                        remove(id, entry)
-                        continue
-                    }
+                    Resolution.STOPPED -> return BaselineResult.Stopped
+                    is Resolution.Failed -> return BaselineResult.Failure(resolution.throwable)
                 }
             }
 
@@ -87,7 +98,7 @@ internal class GenerationWatcher<K : StoreKey, V : Any>(
                             if (!baselineObserved) {
                                 if (result is StoreResult.Loading) return@collect
                                 baselineObserved = true
-                                entry.baseline.complete(result)
+                                entry.baseline.complete(BaselineResult.Frame(result, entry))
                                 entry.armed.await()
                             } else {
                                 when (result) {
@@ -100,24 +111,40 @@ internal class GenerationWatcher<K : StoreKey, V : Any>(
                                 }
                             }
                         }
+                    } catch (cancellation: CancellationException) {
+                        throw cancellation
+                    } catch (failure: Throwable) {
+                        if (
+                            !baselineObserved &&
+                            entry.baseline.complete(BaselineResult.Failure(failure))
+                        ) {
+                            entry.resolution.complete(Resolution.Failed(failure))
+                        } else {
+                            requestInvalidation()
+                        }
                     } finally {
-                        if (!entry.baseline.isCompleted) entry.baseline.complete(null)
+                        if (!entry.baseline.isCompleted) {
+                            entry.baseline.complete(BaselineResult.Stopped)
+                        }
                         if (!entry.resolution.isCompleted) {
                             entry.resolution.complete(Resolution.STOPPED)
                         }
                     }
                 }
 
-            val result = entry.baseline.await()
-            if (result != null) return BaselineFrame(result, entry)
-            remove(id, entry)
+            try {
+                return entry.baseline.await()
+            } catch (cancellation: CancellationException) {
+                withContext(NonCancellable) { abandon(id, entry) }
+                throw cancellation
+            }
         }
-        return null
+        return BaselineResult.Stopped
     }
 
     suspend fun watch(
         key: K,
-        baselineFrameObserved: BaselineFrame,
+        baselineFrameObserved: BaselineResult.Frame<V>,
     ) {
         val entry = baselineFrameObserved.entry
         val id = KeyId(key.namespace.value, key.canonicalId())
@@ -144,7 +171,7 @@ internal class GenerationWatcher<K : StoreKey, V : Any>(
 
     suspend fun discard(
         key: K,
-        baselineFrameObserved: BaselineFrame,
+        baselineFrameObserved: BaselineResult.Frame<V>,
     ) {
         val entry = baselineFrameObserved.entry
         val id = KeyId(key.namespace.value, key.canonicalId())
@@ -176,12 +203,20 @@ internal class GenerationWatcher<K : StoreKey, V : Any>(
         if (shouldInvalidate) invalidateGeneration()
     }
 
-    private suspend fun remove(
+    private suspend fun abandon(
         id: KeyId,
         entry: Entry<V>,
     ) {
-        mutex.withLock {
-            if (entries[id] === entry) entries.remove(id)
-        }
+        val cancelCollector =
+            mutex.withLock {
+                if (entries[id] === entry && !entry.resolution.isCompleted) {
+                    entries.remove(id)
+                    entry.resolution.complete(Resolution.DISCARDED)
+                    true
+                } else {
+                    false
+                }
+            }
+        if (cancelCollector) entry.job?.cancel()
     }
 }

@@ -13,7 +13,9 @@ import org.mobilenativefoundation.store6.core.StoreKey
  * stale data, and any absent-value loading transition invalidates the paging source. Revalidation
  * and error frames do not. Loads never call `Store.get`, so values projected by a configured stream
  * overlay remain visible. Calling `invalidate()` on the returned factory invalidates every paging
- * source previously created by that factory.
+ * source previously created by that factory. When the pager is no longer used, call `invalidate()`
+ * on the returned factory or close the store to release the generation's active Store stream
+ * collectors.
  *
  * @throws IllegalStateException if [configure] omits a required builder door
  */

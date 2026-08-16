@@ -24,6 +24,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertSame
 import kotlin.time.Duration.Companion.seconds
 
 class StorePagingSourceTest {
@@ -143,8 +144,9 @@ class StorePagingSourceTest {
     @Test
     fun storeError_surfacesAsLoadResultError_neverThrown() = runTest {
         val key = PageKey("query", cursor = null, limit = 3)
+        val cause = IllegalStateException("offline")
         val fetcher = ScriptedPageFetcher().apply {
-            fail(key, IllegalStateException("offline"))
+            fail(key, cause)
         }
         val store = pageStore(fetcher)
 
@@ -163,6 +165,7 @@ class StorePagingSourceTest {
             val error = assertIs<PagingSource.LoadResult.Error<Int, String>>(result)
             val exception = assertIs<StoreException>(error.throwable)
             assertIs<StoreError.Fetch>(exception.error)
+            assertSame(cause, exception.cause)
         } finally {
             store.close()
         }

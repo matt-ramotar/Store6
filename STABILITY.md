@@ -68,8 +68,8 @@ outside the frozen tier and the rest of core freezes on schedule. CI enforces th
 every pull request, so the seam cannot grow quietly.
 
 Promised: `store6-store5-interop`, tracking to 6.0.0 and not in the alpha01 line, and
-`store6-paging-androidx` (issue 035), which joins the line in the first release it is green for.
-An artifact that misses a train gets its target release named here. It does not get dropped silently.
+`store6-paging-androidx`, which joins the line in the first release it is green for. An artifact
+that misses a train gets its target release named here. It does not get dropped silently.
 
 ## 4. Deprecation cycle
 

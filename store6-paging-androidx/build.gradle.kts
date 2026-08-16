@@ -40,8 +40,8 @@ kotlin {
         val commonTest by getting {
             dependencies {
                 implementation(projects.store6Testing)
-                // Test-only by ruling: the published module works "over any Store" and must not
-                // depend on mutations (TD-17). Consumed by T4's #602 tracer family.
+                // Test-only: MutationStore is exercised as a Store implementation; the production adapter
+                // has no dependency on the mutations module.
                 implementation(projects.store6Mutations)
                 implementation(libs.androidx.paging.testing)
                 implementation(libs.kotlinx.coroutines.test)

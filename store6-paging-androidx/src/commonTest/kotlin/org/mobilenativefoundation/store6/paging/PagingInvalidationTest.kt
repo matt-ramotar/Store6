@@ -7,8 +7,10 @@ import app.cash.turbine.withTurbineTimeout
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
@@ -31,6 +33,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertSame
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.seconds
 
@@ -277,12 +280,80 @@ class PagingInvalidationTest {
             release.complete(Unit)
             operations.awaitAll()
             invalidated.awaitCount(1)
-            store.awaitActiveCollectors(0)
+            store.awaitCollectorCompletions(1)
 
             assertEquals(1, invalidated.count)
+            assertEquals(0, store.activeCollectors)
             assertEquals(1, store.collectorStarts)
             assertEquals(1, store.collectorCompletions)
         } finally {
+            store.close()
+        }
+    }
+
+    @Test
+    fun closedRealStore_failureIsShared_withoutRetry() = runTest {
+        val delegate = pageStore(ScriptedPageFetcher())
+        val store = ClosedStoreProbe(delegate)
+        val factory = store.standardPagingFactory()
+        val source = factory()
+        val params =
+            PagingSource.LoadParams.Refresh<Int>(
+                key = null,
+                loadSize = 3,
+                placeholdersEnabled = false,
+            )
+
+        try {
+            val first = async(start = CoroutineStart.UNDISPATCHED) { source.load(params) }
+            store.awaitCollectorStarts(1)
+            val second = async(start = CoroutineStart.UNDISPATCHED) { source.load(params) }
+
+            delegate.close()
+            store.releaseFirstCollector()
+
+            val firstError = assertIs<PagingSource.LoadResult.Error<Int, String>>(first.await())
+            val secondError = assertIs<PagingSource.LoadResult.Error<Int, String>>(second.await())
+            assertIs<IllegalStateException>(firstError.throwable)
+            assertEquals("Store is closed.", firstError.throwable.message)
+            assertSame(firstError.throwable, secondError.throwable)
+            store.awaitCollectorCompletions(1)
+            assertEquals(1, store.collectorStarts)
+            assertEquals(1, store.collectorCompletions)
+        } finally {
+            factory.invalidate()
+            store.close()
+        }
+    }
+
+    @Test
+    fun cancelledBaselineLoad_releasesCollector_andAllowsRetry() = runTest {
+        val store = FramePageStore(TestStoreResults.loading())
+        val factory = store.standardPagingFactory()
+        val source = factory()
+        val load =
+            async(start = CoroutineStart.UNDISPATCHED) {
+                source.load(
+                    PagingSource.LoadParams.Refresh(
+                        key = null,
+                        loadSize = 3,
+                        placeholdersEnabled = false,
+                    ),
+                )
+            }
+
+        try {
+            store.awaitDeliveries(1)
+            load.cancelAndJoin()
+            store.awaitCollectorCompletions(1)
+            assertEquals(0, store.activeCollectors)
+
+            store.emit(TestStoreResults.data(Page(listOf("retry"), null, null)))
+            assertEquals(listOf("retry"), source.refresh().data)
+            assertEquals(2, store.collectorStarts)
+        } finally {
+            factory.invalidate()
+            store.awaitActiveCollectors(0)
             store.close()
         }
     }
@@ -369,6 +440,10 @@ private class FramePageStore(
         active.first { it == expected }
     }
 
+    suspend fun awaitCollectorCompletions(expected: Int) {
+        completions.first { it == expected }
+    }
+
     suspend fun awaitDeliveries(expected: Int) {
         delivered.first { it >= expected }
     }
@@ -436,6 +511,58 @@ private class FramePageStore(
 
     private fun ensureOpen() {
         if (closed) throw CancellationException("FramePageStore is closed.")
+    }
+}
+
+private class ClosedStoreProbe(
+    private val delegate: Store<PageKey, Page>,
+) : Store<PageKey, Page> by delegate {
+    private val releaseFirst = CompletableDeferred<Unit>()
+    private val starts = MutableStateFlow(0)
+    private val completions = MutableStateFlow(0)
+
+    val collectorStarts: Int
+        get() = starts.value
+
+    val collectorCompletions: Int
+        get() = completions.value
+
+    override fun stream(
+        key: PageKey,
+        freshness: Freshness,
+    ): Flow<StoreResult<Page>> =
+        flow {
+            val attempt = nextAttempt()
+            try {
+                if (attempt == 1) {
+                    releaseFirst.await()
+                    delegate.stream(key, freshness).collect { emit(it) }
+                } else {
+                    emit(TestStoreResults.data(Page(listOf("unexpected retry"), null, null)))
+                    awaitCancellation()
+                }
+            } finally {
+                completions.update { it + 1 }
+            }
+        }
+
+    fun releaseFirstCollector() {
+        releaseFirst.complete(Unit)
+    }
+
+    suspend fun awaitCollectorStarts(expected: Int) {
+        starts.first { it == expected }
+    }
+
+    suspend fun awaitCollectorCompletions(expected: Int) {
+        completions.first { it == expected }
+    }
+
+    private fun nextAttempt(): Int {
+        while (true) {
+            val current = starts.value
+            if (starts.compareAndSet(current, current + 1)) return current + 1
+        }
     }
 }
 

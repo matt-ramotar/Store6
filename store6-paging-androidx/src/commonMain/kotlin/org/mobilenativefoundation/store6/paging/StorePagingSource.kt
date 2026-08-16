@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.first
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Store
+import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.seam.StoreResults
@@ -31,8 +32,18 @@ internal class StorePagingSource<K : StoreKey, V : Any, PK : Any, Item : Any>(
                 is LoadParams.Prepend -> LoadType.PREPEND
             }
         val key = config.pageKey(params.key, params.loadSize)
-        val baseline = generationWatcher.baseline(key, config.freshness(loadType))
-        if (baseline == null) return LoadResult.Invalid()
+        val baseline =
+            when (val result = generationWatcher.baseline(key, config.freshness(loadType))) {
+                is GenerationWatcher.BaselineResult.Frame -> result
+                is GenerationWatcher.BaselineResult.Failure -> {
+                    return if (invalid) {
+                        LoadResult.Invalid()
+                    } else {
+                        LoadResult.Error(result.throwable)
+                    }
+                }
+                GenerationWatcher.BaselineResult.Stopped -> return LoadResult.Invalid()
+            }
 
         if (invalid) {
             generationWatcher.discard(key, baseline)
@@ -93,5 +104,16 @@ internal class StorePagingSource<K : StoreKey, V : Any, PK : Any, Item : Any>(
         )
 
     private fun StoreResult.Error.toLoadError(): LoadResult.Error<PK, Item> =
-        LoadResult.Error(StoreResults.exception(error))
+        LoadResult.Error(StoreResults.exception(error, error.underlyingCause()))
 }
+
+private fun StoreError.underlyingCause(): Throwable? =
+    when (this) {
+        is StoreError.Fetch -> cause
+        is StoreError.Persistence -> cause
+        is StoreError.Conversion -> cause
+        is StoreError.FreshnessUnsatisfiable,
+        is StoreError.Conflict,
+        is StoreError.Missing,
+        -> null
+    }
