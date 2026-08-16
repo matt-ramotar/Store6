@@ -30,7 +30,7 @@ public struct StoreClient<Key: StoreKeyRepresentable, Value> {
         wrappingUntyped fetch: @escaping @Sendable (Key) async throws -> Any
     ) -> StoreClient<Key, Value> {
         let store = SwiftInteropKt.swiftStore { kotlinKey, completion in
-            let key = Key.reconstruct(namespace: kotlinKey.namespace_.value, id: kotlinKey.canonicalId())
+            let key = Key.reconstruct(namespace: kotlinKey.namespace.value, id: kotlinKey.canonicalId())
             Task {
                 do {
                     completion(try await fetch(key), nil)

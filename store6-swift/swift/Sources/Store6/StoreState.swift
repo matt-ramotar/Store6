@@ -29,7 +29,7 @@ public enum StoreState<Value> {
     case error(StoreFailure, servedStale: Bool)
 
     init(bridge: StoreStateBridge) {
-        switch bridge.kind.toSwiftEnum() {
+        switch bridge.kind {
         case .loading:
             self = .loading
         case .data:
@@ -42,7 +42,7 @@ public enum StoreState<Value> {
             }
             self = .data(
                 value,
-                origin: bridge.origin.map { StoreOrigin(kotlin: $0.toSwiftEnum()) } ?? .fetcher,
+                origin: bridge.origin.map(StoreOrigin.init(kotlin:)) ?? .fetcher,
                 ageMilliseconds: bridge.ageMillis,
                 isStale: bridge.isStale,
                 refreshing: bridge.refreshing

@@ -26,7 +26,7 @@ public enum StoreFailure: Error, Hashable, Sendable {
         case .missing(let error):
             self = .missing(
                 message: error.message,
-                namespace: error.key.namespace_.value,
+                namespace: error.key.namespace.value,
                 id: error.key.canonicalId()
             )
         case .persistence(let error):

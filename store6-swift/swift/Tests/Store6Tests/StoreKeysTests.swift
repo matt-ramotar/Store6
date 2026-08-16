@@ -8,7 +8,7 @@ final class StoreKeysTests: XCTestCase {
         let key = StoreNamespaceKey(namespace: "users", id: "42")
         let kotlin = key.kotlinKey
         XCTAssertEqual(kotlin.canonicalId(), "42")
-        XCTAssertEqual(kotlin.namespace_.value, "users")
+        XCTAssertEqual(kotlin.namespace.value, "users")
     }
 
     func testCustomKeyType_mapsToKotlinKey() {
@@ -19,6 +19,6 @@ final class StoreKeysTests: XCTestCase {
         }
         let kotlin = UserKey(id: "7").kotlinKey
         XCTAssertEqual(kotlin.canonicalId(), "7")
-        XCTAssertEqual(kotlin.namespace_.value, "users")
+        XCTAssertEqual(kotlin.namespace.value, "users")
     }
 }
