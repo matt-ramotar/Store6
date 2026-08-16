@@ -29,6 +29,7 @@ The full policy — API tiers, the deprecation cycle, the cadence commitment, an
 all of it from a released tag — is in [STABILITY.md](./STABILITY.md). The public roadmap is at
 [ROADMAP.md](./ROADMAP.md), and the quickstart is at
 [docs/store6/quickstart.md](./docs/store6/quickstart.md).
+Swift consumers: the Swift Package Manager facade is documented in [store6-swift/README.md](./store6-swift/README.md).
 
 ---
 
