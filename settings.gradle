@@ -66,3 +66,4 @@ include ':mutations-drain'
 include ':mutations-drain-sample'
 project(':mutations-drain-sample').projectDir = file('mutations-drain/sample')
 include ':mutations-drain-meeseeks'
+include ':mutations-conflicts'
