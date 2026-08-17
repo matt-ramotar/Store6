@@ -43,6 +43,8 @@ include ':graphql'
 include ':graphql-sample'
 project(':graphql-sample').projectDir = file('graphql/sample')
 include ':ktor'
+include ':ktor-sample'
+project(':ktor-sample').projectDir = file('ktor/sample')
 include ':realtime'
 include ':realtime-sample'
 project(':realtime-sample').projectDir = file('realtime/sample')
