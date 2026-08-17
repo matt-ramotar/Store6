@@ -86,6 +86,29 @@ internal val MutationsSystemWallClock: WallClock =
         override fun nowEpochMillis(): Long = Clock.System.now().toEpochMilliseconds()
     }
 
+/** Generates a separator-free 128-bit journal identity for production store construction. */
+internal fun generateMutationClientId(random: Random = Random.Default): String =
+    buildString(capacity = 39) {
+        append("store6-")
+        random.nextBytes(16).forEach { byte ->
+            append((byte.toInt() and 0xff).toString(radix = 16).padStart(2, '0'))
+        }
+    }
+
+/** Versioned length-prefixed encoding for one durable intent identity. */
+internal fun mutationIntentIdempotencyRoot(
+    clientId: String,
+    clientSequence: Long,
+): String = "store6-intent:v1:${clientId.length}:$clientId:$clientSequence"
+
+/** Versioned length-prefixed encoding for one immutable semantic generation. */
+internal fun mutationGenerationIdempotencyKey(
+    clientId: String,
+    clientSequence: Long,
+    generation: Int,
+): String =
+    "store6-mutation:v1:${clientId.length}:$clientId:$clientSequence:$generation"
+
 /**
  * The outcome of one terminal-identity resolution attempt for a facade entry point.
  *
@@ -149,9 +172,11 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     private val backoffRandom: Random = Random.Default,
     // The stable installation identity: one fixed string per engine, persisted on the durable
     // client row and stamped into every push, attempt, and failure.
-    internal val clientId: String = "client-0",
+    clientId: String = "client-0",
     private val namespaceInvalidation: suspend (StoreNamespace) -> Unit = {},
 ) {
+    internal var clientId: String = clientId
+        private set
     private val mutations = Mutex()
     private val durableAckAdmission = Mutex()
     private val hydration = Mutex()
@@ -297,6 +322,11 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         val durable = durableJournal ?: return
         hydration.withLock {
             if (hydrated) return
+            clientId =
+                durable.initializeClientId(
+                    candidate = clientId,
+                    createdAt = wallClock.nowEpochMillis(),
+                )
             val snapshot = durable.readDurableSnapshot()
             val hydratedAliases = snapshot.aliases.toAliasEdgesBySource()
             val activeTombstoneWatermarks =
@@ -637,6 +667,10 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         args: A,
     ): String {
         ensureHydrated()
+        check(durableJournal?.legacyReplayOnly != true) {
+            "Legacy client-0 migration is replay-only; new mutations require a new journal " +
+                "storage with a generated or explicit unique clientId."
+        }
         require(ref.ownership === registry.ownership) {
             "MutatorRef '${ref.id}' belongs to a different MutatorRegistry."
         }
@@ -2165,7 +2199,11 @@ internal class MutationEngine<K : StoreKey, V : Any>(
             preconditionEtag = preconditionMeta?.etag,
             advertisedRetiredThroughSequence = retiredThroughSequence,
             generationIdempotencyKey =
-                "$clientId:${entry.durableClientSequence}:g$generation",
+                mutationGenerationIdempotencyKey(
+                    clientId = clientId,
+                    clientSequence = entry.durableClientSequence,
+                    generation = generation,
+                ),
             preparedAt = preparedAt,
             conflictMetaPresent = null,
             conflictWrittenAt = null,
@@ -3916,7 +3954,12 @@ internal class MutationEngine<K : StoreKey, V : Any>(
             retiredThroughSequence = retiredThroughSequence,
             mutationId = entry.mutationId,
             generation = IN_MEMORY_GENERATION,
-            idempotencyKey = "$clientId:${entry.clientSequence}:g$IN_MEMORY_GENERATION",
+            idempotencyKey =
+                mutationGenerationIdempotencyKey(
+                    clientId = clientId,
+                    clientSequence = entry.clientSequence,
+                    generation = IN_MEMORY_GENERATION,
+                ),
             valueCodecVersion = valueCodecVersion,
             base = copiedPresence(base),
             mine = copiedPresence(mine),

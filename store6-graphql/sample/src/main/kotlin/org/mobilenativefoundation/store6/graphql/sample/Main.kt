@@ -2,7 +2,10 @@
 
 package org.mobilenativefoundation.store6.graphql.sample
 
+import java.security.SecureRandom
 import java.util.concurrent.ConcurrentHashMap
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -12,9 +15,11 @@ import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.store
+import org.mobilenativefoundation.store6.graphql.GraphQlCacheIdentity
 import org.mobilenativefoundation.store6.graphql.GraphQlError
 import org.mobilenativefoundation.store6.graphql.GraphQlExecutor
 import org.mobilenativefoundation.store6.graphql.GraphQlExecutorResult
+import org.mobilenativefoundation.store6.graphql.GraphQlKeyedDigest
 import org.mobilenativefoundation.store6.graphql.GraphQlOperation
 import org.mobilenativefoundation.store6.graphql.GraphQlOperationException
 import org.mobilenativefoundation.store6.graphql.GraphQlOperationKey
@@ -32,10 +37,12 @@ public fun main(): Unit =
     }
 
 private suspend fun runSample() {
+    val keyedDigest = JvmHmacSha256(ByteArray(32).also(SecureRandom()::nextBytes))
     val operation =
         GraphQlOperation(
             document = "query GetUser(\$id: ID!, \$locale: String) { user(id: \$id) { id name } }",
             name = "GetUser",
+            cacheIdentity = cacheIdentity("user-decoder-1|policy-fail", keyedDigest),
         )
     val ada = User(id = "1", name = "Ada")
 
@@ -52,8 +59,8 @@ private suspend fun runSample() {
         }
     val canonicalId = operation.key(byIdThenLocale).canonicalId()
     check(operation.key(byIdThenLocale) == operation.key(byLocaleThenId))
-    check(canonicalId == "GetUser({\"id\":\"1\",\"locale\":\"en\"})")
-    println("Scene 1: both variable orders share one identity; canonicalId=$canonicalId")
+    check(canonicalId.matches(Regex("s6gql1:[0-9a-f]{64}")))
+    println("Scene 1: both variable orders share one opaque identity; canonicalId=$canonicalId")
 
     // Scene 2: the store is a document cache; a resident response is served without re-execution.
     val cacheExecutor = ScriptedExecutor()
@@ -79,9 +86,16 @@ private suspend fun runSample() {
     val failExecutor = ScriptedExecutor()
     failExecutor.enqueue(partialVariables, partialResponse())
     val failStore = userStore(operation, failExecutor)
+    val adoptOperation =
+        GraphQlOperation(
+            document = operation.document,
+            name = operation.name,
+            cacheIdentity = cacheIdentity("user-decoder-1|policy-adopt", keyedDigest),
+        )
     val adoptExecutor = ScriptedExecutor()
     adoptExecutor.enqueue(partialVariables, partialResponse())
-    val adoptStore = userStore(operation, adoptExecutor, GraphQlPartialDataPolicy.AdoptPartialData)
+    val adoptStore =
+        userStore(adoptOperation, adoptExecutor, GraphQlPartialDataPolicy.AdoptPartialData)
     try {
         val failure =
             runCatching {
@@ -93,13 +107,13 @@ private suspend fun runSample() {
             checkNotNull(fetchError.cause as? GraphQlOperationException) {
                 "expected GraphQlOperationException, was ${fetchError.cause}"
             }
-        check(operationException.operationName == "GetUser")
+        check(operationException.errorCount == 1)
 
-        val adopted = adoptStore.get(operation.key(partialVariables))
+        val adopted = adoptStore.get(adoptOperation.key(partialVariables))
         check(adopted == User(id = "2", name = "Grace"))
         println(
-            "Scene 3: FailOnErrors surfaced '${operationException.errors.single().message}'; " +
-                "AdoptPartialData cached $adopted",
+            "Scene 3: FailOnErrors surfaced ${operationException.errorCount} redacted error; " +
+                "AdoptPartialData cached the decoded value",
         )
     } finally {
         failStore.close()
@@ -124,10 +138,10 @@ private suspend fun runSample() {
         revalidationStore.stream(key).first { result -> result is StoreResult.Revalidated }
         check(revalidationStore.get(key) == ada)
         val etags = revalidationExecutor.etags(revalidationVariables)
-        check(etags.size in 2..3) { "expected 2..3 executions, recorded $etags" }
+        check(etags.size in 2..3) { "expected 2..3 executions" }
         check(etags[0] == null)
         check(etags.drop(1).all { etag -> etag == "e1" })
-        println("Scene 4: NotModified revalidated the cached response; recorded etags=$etags")
+        println("Scene 4: NotModified revalidated the cached response; ETags remain redacted")
     } finally {
         revalidationStore.close()
     }
@@ -137,6 +151,26 @@ private data class User(
     val id: String,
     val name: String,
 )
+
+private fun cacheIdentity(
+    cacheContractVersion: String,
+    keyedDigest: GraphQlKeyedDigest,
+): GraphQlCacheIdentity =
+    GraphQlCacheIdentity(
+        partition = "sample-partition",
+        cacheContractVersion = cacheContractVersion,
+        digestKeyId = "sample-key-1",
+        keyedDigest = keyedDigest,
+    )
+
+private class JvmHmacSha256(key: ByteArray) : GraphQlKeyedDigest {
+    private val key = key.copyOf()
+
+    override fun digest(input: ByteArray): ByteArray =
+        Mac.getInstance("HmacSHA256")
+            .apply { init(SecretKeySpec(key, "HmacSHA256")) }
+            .doFinal(input)
+}
 
 private fun userStore(
     operation: GraphQlOperation,
@@ -168,7 +202,7 @@ private class ScriptedExecutor : GraphQlExecutor<User> {
             java.util.Collections.synchronizedList(mutableListOf())
         }.add(request.etag)
         return checkNotNull(scripts[request.variables]?.removeFirstOrNull()) {
-            "No scripted result for ${request.operation.name}(${request.variables})."
+            "No scripted result for request."
         }
     }
 }

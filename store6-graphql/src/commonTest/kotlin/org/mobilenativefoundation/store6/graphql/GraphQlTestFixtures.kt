@@ -17,9 +17,37 @@ internal val GET_USER =
     GraphQlOperation(
         document = "query GetUser(\$id: ID!) { user(id: \$id) { id name } }",
         name = "GetUser",
+        cacheIdentity = testCacheIdentity(),
     )
 
 internal fun userVariables(id: String): GraphQlVariables = graphQlVariables { put("id", id) }
+
+internal fun testCacheIdentity(
+    partition: String = "test-partition",
+    cacheContractVersion: String = "test-decoder-1|policy-fail",
+): GraphQlCacheIdentity =
+    GraphQlCacheIdentity(
+        partition = partition,
+        cacheContractVersion = cacheContractVersion,
+        digestKeyId = "test-key-1",
+        keyedDigest = FixtureKeyedDigest,
+    )
+
+private object FixtureKeyedDigest : GraphQlKeyedDigest {
+    override fun digest(input: ByteArray): ByteArray {
+        val result = ByteArray(32) { index -> (index * 13 + 7).toByte() }
+        input.forEachIndexed { index, byte ->
+            val slot = index % result.size
+            result[slot] =
+                (
+                    result[slot].toInt() xor
+                        (byte.toInt() and 0xff) xor
+                        (index * 29)
+                ).toByte()
+        }
+        return result
+    }
+}
 
 internal class ScriptedGraphQlExecutor<V : Any> : GraphQlExecutor<V> {
     private val scripts =
@@ -50,7 +78,7 @@ internal class ScriptedGraphQlExecutor<V : Any> : GraphQlExecutor<V> {
         }
         return pop(request.variables)?.invoke(request.etag)
             ?: throw IllegalStateException(
-                "No scripted GraphQL result for ${request.operation.name}(${request.variables}).",
+                "No scripted GraphQL result for request.",
             )
     }
 

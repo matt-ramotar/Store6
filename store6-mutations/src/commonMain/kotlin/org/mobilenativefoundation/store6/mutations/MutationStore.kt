@@ -501,6 +501,8 @@ public fun <K : StoreKey, V : Any> mutationStore(
         "valueCodecVersion must be positive."
     }
     val configuration = MutationStoreBuilder<K, V>().apply(configure).snapshot()
+    val explicitClientId = configuration.journalClientId
+    val clientId = explicitClientId ?: generateMutationClientId()
     var boundDelegate: Store<K, V>? = null
     val engine =
         MutationEngine(
@@ -510,6 +512,9 @@ public fun <K : StoreKey, V : Any> mutationStore(
                 StorageBackedMutationJournal(
                     storage = configuration.journalStorage,
                     registrations = registry.registrations,
+                    clientId = clientId,
+                    persistClientId = true,
+                    requireClientIdMatch = explicitClientId != null,
                     hydrateOnFirstUse = true,
                 ),
             keyResolver = keyResolver,
@@ -525,6 +530,7 @@ public fun <K : StoreKey, V : Any> mutationStore(
                 checkNotNull(boundDelegate).invalidateNamespace(namespace)
             },
             wallClock = configuration.wallClock ?: MutationsSystemWallClock,
+            clientId = clientId,
         )
     val delegate =
         store<K, V> {

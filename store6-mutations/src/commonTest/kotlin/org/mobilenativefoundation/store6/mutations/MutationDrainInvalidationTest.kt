@@ -585,6 +585,7 @@ private fun openInvalidationStore(
     ) {
         fetcherOfResult { backend.loadResult(it) }
         journalStorage(storage)
+        journalClientId("client-0")
     }
 
 private data class RefreshProbe(

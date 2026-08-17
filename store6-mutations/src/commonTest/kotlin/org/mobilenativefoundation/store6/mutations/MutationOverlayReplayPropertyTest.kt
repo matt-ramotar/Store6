@@ -101,6 +101,7 @@ class MutationOverlayReplayPropertyTest {
                     fetcher { "v${++mutationFetches}" }
                     persistence(mutationSource)
                     journalStorage(InMemoryMutationJournalStorage())
+                    journalClientId(FALLBACK_CLIENT_ID)
                 }
             val key = MutationsTestKey("identity-fallback")
 
@@ -567,6 +568,7 @@ private fun openFallbackStore(
         fetcher { "v1" }
         persistence(source)
         journalStorage(storage)
+        journalClientId(FALLBACK_CLIENT_ID)
     }
 
 private class PropertyCountingServer(

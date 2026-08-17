@@ -6,12 +6,38 @@ freshness metadata and durable invalidation.
 
 The Store6 seam is a **freeze candidate, not frozen** — see [STABILITY.md](../STABILITY.md).
 
-## 15-minute existing-database walkthrough
+## Install from this checkout
+
+The [sample](sample/src/main/kotlin/org/mobilenativefoundation/store6/room/sample/Main.kt)
+uses project dependencies and is the verified source-checkout path:
+
+```shell
+./gradlew :store6-room-sample:run
+```
+
+For an unpublished Maven Local consumer, publish `store6-core` and `store6-room` from the same
+checkout, then constrain Maven Local so it cannot shadow unrelated dependencies:
+
+```kotlin
+repositories {
+    mavenLocal {
+        content { includeGroup("org.mobilenativefoundation.store") }
+    }
+    mavenCentral()
+}
+```
+
+Maven Local is a local distribution mechanism, not evidence that this snapshot is remotely
+published. Use the dependency and source-set opt-in below with the local version you published.
+The sample is the copy-complete fixture: it contains the domain types, imports, database
+declarations, migration, Store construction, and expected restart assertions in one file.
+
+## Existing-database walkthrough
 
 The runnable sample starts with a version-1 database that contains only a
 `users` table. It seeds a row and closes the database before Store6 is added.
 
-### 1. Add the dependencies (2 minutes)
+### 1. Add the dependencies
 
 Use the same Store6 version for `store6-core`, `store6-room`, and
 `store6-testing`. Replace `<version>` with the release you consume:
@@ -51,7 +77,7 @@ a file-level opt-in covers only the file that declares it.
 The sample module uses project dependencies, so it is runnable directly from
 this checkout.
 
-### 2. Make the three-declaration database diff (3 minutes)
+### 2. Make the three-declaration database diff
 
 Keep every existing entity and DAO. Add the two adapter entities and one DAO
 accessor:
@@ -75,7 +101,7 @@ This is the precise schema claim: Store6 changes no columns or constraints in
 your tables. It adds two sidecar tables, which requires one database-version
 bump and one migration.
 
-### 3. Add the migration (2 minutes)
+### 3. Add the migration
 
 ```kotlin
 val addStore6Tables =
@@ -93,7 +119,7 @@ Room.databaseBuilder<AppDatabase>(name = databasePath)
 `Store6RoomSchema.createTables` creates `store6_bookkeeping` and
 `store6_watermarks`. It does not alter `users`.
 
-### 4. Wire Store6 to your DAO (5 minutes)
+### 4. Wire Store6 to your DAO
 
 ```kotlin
 @file:OptIn(ExperimentalStoreApi::class)
@@ -126,7 +152,7 @@ val users =
 The adapter needs the same `RoomDatabase` for the source of truth and
 bookkeeper so their operations use the same database lifecycle.
 
-### 5. Run and inspect the walkthrough (3 minutes)
+### 5. Run and inspect the walkthrough
 
 ```shell
 ./gradlew :store6-room-sample:run
@@ -142,27 +168,16 @@ fails:
    metadata is durable.
 4. Namespace invalidation survives another rebuild and forces a refetch.
 
-Durability lives in your Room rows plus the adapter sidecar tables, not in
-retained Store engines. Quiescent engine residency is bounded by `maxIdleKeys`
-(128 by default). `close()` is synchronous and idempotent, cancels active Store
-work, and releases engine residence. An operation started after close fails
-immediately with `IllegalStateException("Store is closed.")`.
+Durability lives in your Room rows plus the adapter sidecar tables, not in retained Store engines.
+Quiescent engine residency is bounded by `maxIdleKeys` (128 by default). The application owns both
+resources: stop UI collectors, call `store.close()`, then call `database.close()` in `finally`.
+`close()` is synchronous and idempotent; an operation started after close fails immediately with
+`IllegalStateException("Store is closed.")`. Do not close the Room database before the Store.
 
-### Honest timing checklist
-
-Run this against a real existing Room project before calling the 15-minute
-claim verified:
-
-- [ ] Start a timer before editing.
-- [ ] By 2:00, add the five dependency lines and source-set opt-in.
-- [ ] By 5:00, add the two entities and DAO accessor.
-- [ ] By 7:00, add and register the migration.
-- [ ] By 12:00, map the existing DAO into `RoomSourceOfTruth` and add
-      `RoomBookkeeper`.
-- [ ] By 15:00, run one legacy read, one cold fetch, one rebuild, and one
-      invalidation/rebuild.
-- [ ] Record the date, machine, starting project, elapsed time, and any
-      corrections: `________________________________________`.
+Direct writes through another Room database handle can wake an active Room query. If they race a
+Store write for the same key, the adapter can coalesce the external change into the Store echo or
+the next re-query. Treat a cancelled mutation at the commit boundary as outcome-unknown: read the
+row again, then retry only an idempotent operation if its intended durable state is absent.
 
 ## Testing your wiring
 
@@ -216,6 +231,17 @@ iosArm64, watchosArm64, and tvosArm64 are compile-only in this repository. CI
 also exercises cross-module Room code generation, where user databases reference
 adapter entities and DAO types from a dependency KLIB.
 
-One conservative edge remains at the exact transaction commit boundary:
-cancellation can commit a Room mutation while surfacing cancellation to the
-caller. `RoomSourceOfTruth` documents the recovery behavior in its KDoc.
+At the exact transaction commit boundary, cancellation can leave the caller
+without a durable-outcome confirmation. Read the row again before retrying;
+only retry an idempotent intended state. `RoomSourceOfTruth` documents the
+underlying transaction behavior in its KDoc.
+
+## Support axes
+
+- **Publish:** Maven Local is supported for a locally published snapshot; no remote publication is
+  asserted here.
+- **Compile:** the artifact targets the platforms listed above, subject to the Room 3 toolchain and
+  Android SDK floors.
+- **Runtime:** execution depends on a supported Room/SQLite runtime for that platform.
+- **Sample:** `store6-room-sample` is a JVM fixture and checks legacy migration, cold fetch,
+  restart durability, invalidation, and close order.

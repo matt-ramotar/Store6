@@ -51,8 +51,12 @@ See [Freshness policies](/docs/store6/concepts/freshness) for the complete per-c
 See [Memory and lifecycle](/docs/store6/concepts/memory-and-lifecycle) for eviction and
 store-lifecycle guidance.
 
-- **In-memory source of truth and in-memory bookkeeper by default.** Nothing is written to disk
-  until you install persistence (`StoreBuilder.kt:180`, `StoreBuilder.kt:52`).
+- **The default source of truth and bookkeeper are in memory.** Their rows, freshness metadata, and
+  invalidation marks exist only while the `Store` and its default collaborators remain alive. A
+  reconstructed default `Store` starts without those rows or marks
+  (`DefaultStoreReconstructionTest.defaultStoreDoesNotRetainRowsAfterReconstruction`).
+  Install persistent implementations for data that must survive process death or device restart
+  (`StoreBuilder.kt:180`, `StoreBuilder.kt:52`).
 - **Idle residency is capped at 128 keys.** Quiescent engines park in an idle set bounded by that
   cap, and the zero-config cap is the same as an explicit `maxIdleKeys(128)`
   (`defaultMaxIdleKeys_matchesExplicit128Cap`, `quiescentKeys_parkInIdle_boundedByMaxIdleKeys`).
@@ -60,13 +64,18 @@ store-lifecycle guidance.
   is never evicted, and residency stays bounded under churn
   (`churn10kKeyCycles_neverEvictsHeldEngines_andResidencyStaysBounded`,
   `activeCollector_pinsEngine_acrossChurn`).
-- **Eviction is semantically invisible.** Destroying and recreating an engine preserves per-key
-  stale marks and namespace watermarks, and still drives the refetch you would have gotten
-  (`evictedEngine_recreation_semanticallyInvisible`).
-- **Invalidation watermarks survive restart and eviction.** A namespace or global invalidation is
-  observed by a key a fresh store has never seen
-  (`invalidateNamespace_watermarkIsObservedForKeyUnseenByFreshStore`).
-- **The memory cache never diverges from durable truth** (`memoryCache_neverDivergesFromDurableTruth`).
+- **Eviction is semantically invisible within one live `Store`.** Destroying and recreating a
+  quiescent engine retains its default source of truth and bookkeeper, preserving its per-key stale
+  marks and namespace watermarks (`evictedEngine_recreation_semanticallyInvisible`). Eviction is not
+  a process restart.
+- **A recreated `Store` observes state only when it is given retained collaborators.** The durable
+  maintenance conformance test constructs a fresh store around the same `Bookkeeper` and
+  `SourceOfTruth`; it proves that collaborator-sharing behavior, not default process or device
+  durability (`invalidateNamespace_watermarkIsObservedForKeyUnseenByFreshStore`,
+  `StoreDurableMaintenanceConformance`).
+- **When a durable source of truth is installed, the memory cache never diverges from that durable
+  truth** (`memoryCache_neverDivergesFromDurableTruth`). With the default in-memory source of truth,
+  there is no durable row to survive process death.
 
 ## Deduplication and single-flighting
 

@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "authority": {
+    "canonical_repository": "MobileNativeFoundation/Store",
+    "snapshot_commit": "5a8c956bc1dbd6ad838ea9da3b34c7d76c703a71",
+    "snapshot_kind": "development-snapshot",
+    "canonical_landing": "not-landed",
+    "store6_tag": null,
+    "maven_central_artifact": null
+  },
+  "artifact_evidence_states": [
+    "planned",
+    "source-present",
+    "snapshot",
+    "unpublished",
+    "reference-available",
+    "observed-at-tag"
+  ],
+  "tiers": [
+    "stable-track",
+    "experimental",
+    "no-api-surface",
+    "unresolved"
+  ],
+  "artifacts": [
+    {
+      "artifact": "store6-bom",
+      "tier": "no-api-surface",
+      "evidence": ["planned", "snapshot", "unpublished"]
+    },
+    {
+      "artifact": "store6-compose",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-compose"
+    },
+    {
+      "artifact": "store6-core",
+      "tier": "stable-track",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-core"
+    },
+    {
+      "artifact": "store6-devtools",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-devtools"
+    },
+    {
+      "artifact": "store6-devtools-inspector",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-devtools-inspector"
+    },
+    {
+      "artifact": "store6-graphql",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-graphql"
+    },
+    {
+      "artifact": "store6-mutations",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-mutations"
+    },
+    {
+      "artifact": "store6-mutations-sqldelight",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-mutations-sqldelight"
+    },
+    {
+      "artifact": "store6-mutations-testing",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-mutations-testing"
+    },
+    {
+      "artifact": "store6-paging-androidx",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-paging-androidx"
+    },
+    {
+      "artifact": "store6-realtime",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-realtime"
+    },
+    {
+      "artifact": "store6-room",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-room"
+    },
+    {
+      "artifact": "store6-sqldelight",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-sqldelight"
+    },
+    {
+      "artifact": "store6-store5-interop",
+      "tier": "unresolved",
+      "evidence": ["planned", "snapshot", "unpublished"]
+    },
+    {
+      "artifact": "store6-testing",
+      "tier": "experimental",
+      "evidence": ["source-present", "snapshot", "unpublished"],
+      "source_directory": "store6-testing"
+    }
+  ]
+}

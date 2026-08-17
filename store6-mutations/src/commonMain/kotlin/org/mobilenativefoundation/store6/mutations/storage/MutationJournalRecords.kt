@@ -81,6 +81,25 @@ public class MutationClientRecord(
     }
 }
 
+/**
+ * Immutable identity assigned once to one durable mutation journal.
+ *
+ * [legacyReplayOnly] is a permanent safety marker for an untagged legacy `client-0` journal. Such
+ * a journal may replay and retire its existing exact keys but may never accept new mutations.
+ */
+@ExperimentalStoreApi
+public class MutationJournalIdentityRecord(
+    @ExperimentalStoreApi public val recordVersion: Int,
+    @ExperimentalStoreApi public val clientId: String,
+    @ExperimentalStoreApi public val createdAt: Long,
+    @ExperimentalStoreApi public val legacyReplayOnly: Boolean,
+) {
+    init {
+        require(recordVersion > 0) { "recordVersion must be positive" }
+        require(clientId.isNotEmpty()) { "clientId must not be empty" }
+    }
+}
+
 /** Immutable durable intent. `argsBlob` is copied on construction and every read. */
 @ExperimentalStoreApi
 public class MutationIntentRecord(

@@ -38,7 +38,8 @@ public class GraphQlRequest(
     public val variables: GraphQlVariables,
     public val etag: String?,
 ) {
-    override fun toString(): String = "GraphQlRequest(${operation.name}, etag=$etag)"
+    override fun toString(): String =
+        "GraphQlRequest(operation=<redacted>, variables=<redacted>, etagPresent=${etag != null})"
 }
 
 /**

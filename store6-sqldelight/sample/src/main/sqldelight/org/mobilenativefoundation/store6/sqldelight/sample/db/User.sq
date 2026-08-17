@@ -10,8 +10,11 @@ FROM user
 WHERE id = ?;
 
 upsert:
-INSERT OR REPLACE INTO user(id, name, email)
-VALUES (?, ?, ?);
+INSERT INTO user(id, name, email)
+VALUES (?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+  name = excluded.name,
+  email = excluded.email;
 
 deleteById:
 DELETE FROM user

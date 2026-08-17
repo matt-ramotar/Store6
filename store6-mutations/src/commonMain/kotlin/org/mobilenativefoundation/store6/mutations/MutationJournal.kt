@@ -23,6 +23,7 @@ import org.mobilenativefoundation.store6.mutations.storage.MutationJournalStorag
 import org.mobilenativefoundation.store6.mutations.storage.MutationKeyAliasRecord
 import org.mobilenativefoundation.store6.mutations.storage.MutationKeyTombstoneRecord
 import org.mobilenativefoundation.store6.mutations.storage.MutationIntentRecord
+import org.mobilenativefoundation.store6.mutations.storage.MutationJournalIdentityRecord
 
 internal data class KeyIdentity(
     val namespace: String,
@@ -205,10 +206,56 @@ internal class DurableJournalSnapshot(
 internal open class StorageBackedMutationJournal<V : Any>(
     internal val storage: MutationJournalStorage,
     private val registrations: Map<String, MutatorRegistration<*, V>> = emptyMap(),
-    private val clientId: String = "client-0",
+    clientId: String = "client-0",
+    private val persistClientId: Boolean = false,
+    private val requireClientIdMatch: Boolean = false,
     internal val hydrateOnFirstUse: Boolean = false,
 ) : MutationJournal<V> {
+    internal var clientId: String = clientId
+        private set
+    internal var legacyReplayOnly: Boolean = false
+        private set
     internal val runtimeState = MutationRuntimeState<V>()
+
+    /** Loads the journal's assigned identity or atomically persists [candidate] for a new journal. */
+    internal suspend fun initializeClientId(
+        candidate: String,
+        createdAt: Long,
+    ): String {
+        if (!persistClientId) return candidate
+        val identity =
+            storage.transaction { transaction ->
+                transaction.journalIdentity()?.also { persisted ->
+                    check(!requireClientIdMatch || persisted.clientId == candidate) {
+                        "Configured journal clientId '$candidate' does not match persisted " +
+                            "clientId '${persisted.clientId}'."
+                    }
+                } ?: run {
+                    val selected = candidate
+                    val legacyClient = transaction.client(LEGACY_MUTATION_CLIENT_ID)
+                    val hasLegacyWork = legacyClient?.lastAllocatedSequence?.let { it > 0L } == true
+                    check(
+                        !hasLegacyWork ||
+                            selected == LEGACY_MUTATION_CLIENT_ID,
+                    ) {
+                        "Legacy mutation work for client-0 has no persisted journal identity. " +
+                            "Reopen with journalClientId(\"client-0\") to drain and replay its " +
+                            "exact idempotency keys, or keep the journal closed."
+                    }
+                    MutationJournalIdentityRecord(
+                        recordVersion = 1,
+                        clientId = selected,
+                        createdAt = createdAt,
+                        legacyReplayOnly = hasLegacyWork,
+                    ).also(
+                        transaction::insertJournalIdentity,
+                    )
+                }
+            }
+        clientId = identity.clientId
+        legacyReplayOnly = identity.legacyReplayOnly
+        return identity.clientId
+    }
 
     override suspend fun append(
         key: KeyIdentity,
@@ -264,7 +311,11 @@ internal open class StorageBackedMutationJournal<V : Any>(
                         mutatorId = entry.mutatorId,
                         mutatorVersion = argsVersion,
                         argsBlob = argsBlob,
-                        idempotencyRoot = "$clientId:$sequence",
+                        idempotencyRoot =
+                            mutationIntentIdempotencyRoot(
+                                clientId = clientId,
+                                clientSequence = sequence,
+                            ),
                         createdAt = entry.createdAtEpochMillis,
                     )
                     transaction.insertExecution(
@@ -426,6 +477,8 @@ internal open class StorageBackedMutationJournal<V : Any>(
         }
     }
 }
+
+private const val LEGACY_MUTATION_CLIENT_ID: String = "client-0"
 
 /** The default journal, implemented by the public in-memory storage seam. */
 internal class InMemoryMutationJournal<V : Any> :

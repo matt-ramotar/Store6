@@ -313,7 +313,7 @@ class MutationProtocolTest {
         assertEquals(first.mutationId, second.mutationId)
         assertEquals(first.generation, second.generation)
         assertEquals(first.idempotencyKey, second.idempotencyKey)
-        assertEquals("client-0:1:g1", second.idempotencyKey)
+        assertEquals("store6-mutation:v1:8:client-0:1:1", second.idempotencyKey)
         assertEquals(5, second.valueCodecVersion)
         // The engine's copy boundary hands the codec the persisted version.
         assertEquals(5, codec.lastDecodeVersion)

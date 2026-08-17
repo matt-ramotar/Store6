@@ -24,6 +24,7 @@ class GraphQlFetcherMappingTest {
         GraphQlOperation(
             document = "query GetUser(\$id: ID!) { user(id: \$id) { name } }",
             name = "GetUser",
+            cacheIdentity = testCacheIdentity(),
         )
     private val key = operation.key(graphQlVariables { put("id", "42") })
     private val user = User(id = "42", name = "Ada")
@@ -67,8 +68,9 @@ class GraphQlFetcherMappingTest {
     }
 
     @Test
-    fun executorThrow_mapsToFetcherErrorWithSameCause() = runTest {
-        val transportFailure = RuntimeException("socket closed")
+    fun executorThrow_mapsToRedactedFetcherError() = runTest {
+        val canary = "transport-canary-secret"
+        val transportFailure = RuntimeException(canary)
         val fetcher =
             graphQlFetcher<User>(operation) { _ ->
                 throw transportFailure
@@ -77,17 +79,23 @@ class GraphQlFetcherMappingTest {
         val result = fetcher.fetch(key, etag = null)
 
         val error = assertIs<FetcherResult.Error>(result)
-        assertSame(transportFailure, error.cause)
+        assertIs<IllegalStateException>(error.cause)
+        assertTrue("details are redacted" in error.cause.message.orEmpty())
+        assertTrue(canary !in error.cause.toString())
     }
 
     @Test
-    fun cancellation_propagatesInsteadOfMappingToError() = runTest {
+    fun cancellation_propagatesWithRedactedDiagnostics() = runTest {
+        val canary = "cancellation-canary-secret"
         val fetcher =
             graphQlFetcher<User>(operation) { _ ->
-                throw CancellationException("caller cancelled")
+                throw CancellationException(canary)
             }
 
-        assertFailsWith<CancellationException> { fetcher.fetch(key, etag = null) }
+        val cancellation =
+            assertFailsWith<CancellationException> { fetcher.fetch(key, etag = null) }
+        assertTrue(canary !in cancellation.toString())
+        assertTrue("details are redacted" in cancellation.message.orEmpty())
     }
 
     @Test
@@ -100,7 +108,7 @@ class GraphQlFetcherMappingTest {
         val error = assertIs<FetcherResult.Error>(fetcher.fetch(key, etag = null))
 
         val cause = assertIs<IllegalStateException>(error.cause)
-        assertTrue("GetUser" in cause.message.orEmpty())
+        assertTrue("neither data nor errors" in cause.message.orEmpty())
     }
 
     @Test
@@ -123,10 +131,9 @@ class GraphQlFetcherMappingTest {
         val error = assertIs<FetcherResult.Error>(fetcher.fetch(key, etag = null))
 
         val cause = assertIs<GraphQlOperationException>(error.cause)
-        assertEquals("GetUser", cause.operationName)
-        assertEquals(executorErrors, cause.errors)
-        assertTrue("GetUser" in cause.message.orEmpty())
-        assertTrue("User not found" in cause.message.orEmpty())
+        assertEquals(1, cause.errorCount)
+        assertTrue("details are redacted" in cause.message.orEmpty())
+        assertTrue("User not found" !in cause.message.orEmpty())
     }
 
     @Test
@@ -140,7 +147,7 @@ class GraphQlFetcherMappingTest {
         val error = assertIs<FetcherResult.Error>(fetcher.fetch(key, etag = null))
 
         val cause = assertIs<GraphQlOperationException>(error.cause)
-        assertEquals(executorErrors, cause.errors)
+        assertEquals(executorErrors.size, cause.errorCount)
     }
 
     @Test
@@ -187,13 +194,17 @@ class GraphQlFetcherMappingTest {
                 executed = true
                 GraphQlExecutorResult.Data(data = user)
             }
-        val mismatchedKey = GraphQlOperationKey(operationName = "GetAccount")
+        val mismatchedKey =
+            GraphQlOperation(
+                document = "query GetAccount { account { id } }",
+                name = "GetAccount",
+                cacheIdentity = testCacheIdentity(),
+            ).key()
 
         val error = assertIs<FetcherResult.Error>(fetcher.fetch(mismatchedKey, etag = null))
 
         val cause = assertIs<IllegalArgumentException>(error.cause)
-        assertTrue("GetUser" in cause.message.orEmpty())
-        assertTrue("GetAccount" in cause.message.orEmpty())
+        assertTrue("another operation or cache identity contract" in cause.message.orEmpty())
         assertEquals(false, executed)
     }
 

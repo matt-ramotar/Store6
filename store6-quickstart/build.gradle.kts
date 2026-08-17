@@ -5,6 +5,10 @@ plugins {
 
 kotlin { jvmToolchain(11) }
 
-dependencies { implementation(projects.store6Core) }
+dependencies {
+    implementation(projects.store6Core)
+    testImplementation(kotlin("test"))
+    testImplementation(libs.kotlinx.coroutines.test)
+}
 
 application { mainClass.set("org.mobilenativefoundation.store6.quickstart.MainKt") }

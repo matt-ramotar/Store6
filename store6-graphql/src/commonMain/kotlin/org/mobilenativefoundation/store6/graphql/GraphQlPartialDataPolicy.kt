@@ -6,6 +6,8 @@ import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  * How [graphQlFetcher] treats a response that carries both non-null data and errors.
  *
  * Responses with null data and non-empty errors always fail regardless of policy.
+ * Changing this policy for a persisted store requires a corresponding
+ * [GraphQlCacheIdentity] cache-contract version change.
  */
 @ExperimentalStoreApi
 public sealed interface GraphQlPartialDataPolicy {

@@ -54,6 +54,11 @@ private class InMemoryTransaction(
         active = false
     }
 
+    override fun journalIdentity(): MutationJournalIdentityRecord? {
+        requireActive()
+        return state.journalIdentity?.freshCopy()
+    }
+
     override fun client(clientId: String): MutationClientRecord? {
         requireActive()
         return state.clients[clientId]?.freshCopy()
@@ -138,6 +143,13 @@ private class InMemoryTransaction(
                 ),
             )
             .map { it.value.freshCopy() }
+    }
+
+    override fun insertJournalIdentity(record: MutationJournalIdentityRecord) {
+        requireActive()
+        require(state.journalIdentity == null) { "journal identity already exists" }
+        require(record.recordVersion == 1) { "a new journal identity must use record version 1" }
+        state.journalIdentity = record.freshCopy()
     }
 
     override fun insertClient(record: MutationClientRecord) {
@@ -829,6 +841,7 @@ private class InMemoryTransaction(
 }
 
 private class JournalState(
+    var journalIdentity: MutationJournalIdentityRecord? = null,
     val clients: MutableMap<String, MutationClientRecord> = mutableMapOf(),
     val intents: MutableMap<IntentKey, MutationIntentRecord> = mutableMapOf(),
     val executions: MutableMap<IntentKey, MutationExecutionRecord> = mutableMapOf(),
@@ -843,6 +856,7 @@ private class JournalState(
 ) {
     fun mutableCopy(): JournalState =
         JournalState(
+            journalIdentity = journalIdentity,
             clients = clients.toMutableMap(),
             intents = intents.toMutableMap(),
             executions = executions.toMutableMap(),
@@ -1047,6 +1061,14 @@ private fun MutationClientRecord.freshCopy(): MutationClientRecord =
         retiredThroughSequence = retiredThroughSequence,
         serverConfirmedRetiredThroughSequence = serverConfirmedRetiredThroughSequence,
         createdAt = createdAt,
+    )
+
+private fun MutationJournalIdentityRecord.freshCopy(): MutationJournalIdentityRecord =
+    MutationJournalIdentityRecord(
+        recordVersion = recordVersion,
+        clientId = clientId,
+        createdAt = createdAt,
+        legacyReplayOnly = legacyReplayOnly,
     )
 
 private fun MutationIntentRecord.freshCopy(): MutationIntentRecord =

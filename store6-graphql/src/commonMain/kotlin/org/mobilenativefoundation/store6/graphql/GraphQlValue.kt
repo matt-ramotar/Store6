@@ -25,7 +25,7 @@ public sealed interface GraphQlValue {
 
         override fun hashCode(): Int = value.hashCode()
 
-        override fun toString(): String = "BooleanValue($value)"
+        override fun toString(): String = "BooleanValue(<redacted>)"
     }
 
     /**
@@ -42,16 +42,14 @@ public sealed interface GraphQlValue {
 
         override fun hashCode(): Int = value.hashCode()
 
-        override fun toString(): String = "IntValue($value)"
+        override fun toString(): String = "IntValue(<redacted>)"
     }
 
     /**
      * A GraphQL `Float` value.
      *
-     * Canonical rendering uses the runtime's `Double.toString`, which differs across Kotlin
-     * targets (JS drops the trailing `.0` of whole numbers). Prefer [IntValue] or [StringValue]
-     * variables when canonical ids must match across runtimes, for example in a shared
-     * persistent cache.
+     * Cache identity uses normalized IEEE-754 bits, so finite values render identically across
+     * Kotlin targets.
      */
     public class FloatValue(
         /** The wrapped floating-point number. */
@@ -61,7 +59,7 @@ public sealed interface GraphQlValue {
 
         override fun hashCode(): Int = value.hashCode()
 
-        override fun toString(): String = "FloatValue($value)"
+        override fun toString(): String = "FloatValue(<redacted>)"
     }
 
     /** A GraphQL `String` value. */
@@ -73,7 +71,7 @@ public sealed interface GraphQlValue {
 
         override fun hashCode(): Int = value.hashCode()
 
-        override fun toString(): String = "StringValue($value)"
+        override fun toString(): String = "StringValue(<redacted>)"
     }
 
     /** A GraphQL list value; entry order is significant for equality and cache identity. */
@@ -87,7 +85,7 @@ public sealed interface GraphQlValue {
 
         override fun hashCode(): Int = values.hashCode()
 
-        override fun toString(): String = "ListValue($values)"
+        override fun toString(): String = "ListValue(size=${values.size})"
     }
 
     /** A GraphQL input object value; field order is irrelevant for equality and cache identity. */
@@ -101,7 +99,7 @@ public sealed interface GraphQlValue {
 
         override fun hashCode(): Int = fields.hashCode()
 
-        override fun toString(): String = "ObjectValue($fields)"
+        override fun toString(): String = "ObjectValue(fieldCount=${fields.size})"
     }
 }
 
@@ -109,9 +107,8 @@ public sealed interface GraphQlValue {
  * The named variables of one GraphQL operation execution.
  *
  * Variables are structural: two instances with equal entry maps are equal regardless of
- * insertion order, and they render to the same canonical form in
- * [GraphQlOperationKey.canonicalId]. Build instances with [graphQlVariables] or wrap an
- * existing map directly.
+ * insertion order, and they produce the same keyed cache identity. Build instances with
+ * [graphQlVariables] or wrap an existing map directly.
  */
 @ExperimentalStoreApi
 public class GraphQlVariables(
@@ -124,7 +121,7 @@ public class GraphQlVariables(
 
     override fun hashCode(): Int = entries.hashCode()
 
-    override fun toString(): String = "GraphQlVariables(${canonicalString()})"
+    override fun toString(): String = "GraphQlVariables(entryCount=${entries.size})"
 
     public companion object {
         /** The empty variable set, rendered canonically as `{}`. */
@@ -184,7 +181,7 @@ public class GraphQlObjectBuilder internal constructor() {
         put(name, GraphQlValue.IntValue(value))
     }
 
-    /** Binds [name] to a [GraphQlValue.FloatValue]; see its cross-runtime rendering caveat. */
+    /** Binds [name] to a [GraphQlValue.FloatValue]. */
     public fun put(
         name: String,
         value: Double,
@@ -249,7 +246,7 @@ public class GraphQlListBuilder internal constructor() {
         add(GraphQlValue.IntValue(value))
     }
 
-    /** Appends a [GraphQlValue.FloatValue]; see its cross-runtime rendering caveat. */
+    /** Appends a [GraphQlValue.FloatValue]. */
     public fun add(value: Double) {
         add(GraphQlValue.FloatValue(value))
     }

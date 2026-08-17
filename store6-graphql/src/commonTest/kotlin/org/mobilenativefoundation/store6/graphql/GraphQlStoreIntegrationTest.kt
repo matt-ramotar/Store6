@@ -191,8 +191,7 @@ class GraphQlStoreIntegrationTest {
                 val frame = assertIs<StoreResult.Error>(awaitItem())
                 val fetchError = assertIs<StoreError.Fetch>(frame.error)
                 val cause = assertIs<GraphQlOperationException>(fetchError.cause)
-                assertEquals("GetUser", cause.operationName)
-                assertEquals(responseErrors, cause.errors)
+                assertEquals(responseErrors.size, cause.errorCount)
                 cancelAndIgnoreRemainingEvents()
             }
         } finally {

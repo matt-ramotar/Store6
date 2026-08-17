@@ -1,34 +1,39 @@
 # Invalidate or clear
 
-Both make a value go away. They are not interchangeable, and picking the wrong one produces one of
-two bugs: a spinner where the user expected content, or stale content where the user expected a
-spinner.
+`invalidate` and `clear` express different trust decisions. Invalidation retains a value and marks
+it stale. Clear removes a value from one Store. Neither operation is an application authorization
+boundary.
 
 The one-line version:
 
-- **`invalidate` marks stale.** The value stays, keeps being served, and gets refreshed.
-- **`clear` removes.** The value is gone, and the next read starts from nothing.
+- **`invalidate` marks stale and retains the value.** Whether a read serves it or fetches depends on
+  that read's `Freshness`.
+- **`clear` removes from one Store.** Active or later demand can fetch and populate the key again.
 
 ## What invalidate does
 
-`invalidate(key)` marks the value stale without removing it. On return, active streams of that key
-have been signaled and will observe refetched data, and the resident value keeps being served as
-stale in the meantime.
+`invalidate(key)` marks the value stale without removing it. The result is freshness-specific:
+
+- `Freshness.CachedOrFetch` serves the retained value as stale and starts a background refresh.
+- `Freshness.MustBeFresh` withholds the retained stale value while it fetches.
+- `Freshness.LocalOnly` serves locally available data without invoking the fetcher, even after
+  invalidation.
+- `Freshness.MaxAge` and `Freshness.StaleIfError` apply their own documented stale-data rules.
 
 Three properties are worth knowing because they are what make it safe to call:
 
-- **The stale mark is durable.** It survives process restart until a later successful fetch or
-  revalidation clears it.
+- **The stale mark follows the configured bookkeeper's lifetime.** A durable bookkeeper can retain
+  it across process death. The default bookkeeper and source of truth are in memory, so the default
+  configuration does not.
 - **It is level-triggered monotone state**, so a signal issued during any race window is never lost.
   You do not have to reason about whether a fetch was in flight when you called it.
-- **A live collector observes the refetch**, not a gap. This holds under load: a burst of 10,000
-  invalidations converges without losing the final staleness.
+- **Compatible active demand is signaled.** A collector whose freshness permits fetching can
+  observe a refresh without the retained value being deleted. `LocalOnly` never fetches.
 
-What the user sees: the content stays on screen, and updates in place when the fetch lands. That is
-the stale-while-revalidate shape, and it is what you want for pull-to-refresh, for a "data changed"
-push, and for anything where showing the previous answer beats showing nothing.
+Use invalidation when the old value is imperfect but still safe to retain. The exact UI transition
+comes from the caller's freshness policy, not from invalidation alone.
 
-<!-- recipe: shapes from store6-core/src/commonMain/kotlin/org/mobilenativefoundation/store6/core/Store.kt:70-98 (landed invalidate/invalidateNamespace signatures and their contracts); behavior per StoreInvalidationConformanceTest.invalidate_activeStream_observesRefetchedData -->
+<!-- recipe: shapes from store6-core/src/commonMain/kotlin/org/mobilenativefoundation/store6/core/Store.kt:70-98 (invalidate/invalidateNamespace signatures and their contracts); behavior per StoreInvalidationConformanceTest.invalidate_activeStream_observesRefetchedData -->
 
 ```kotlin
 import kotlinx.coroutines.flow.Flow
@@ -45,7 +50,7 @@ class UserKey(val id: String) : StoreKey {
     override fun canonicalId(): String = id
 }
 
-// Pull-to-refresh: the current value stays on screen while the refresh runs.
+// Mark the value stale. The observing read's Freshness controls whether it stays visible.
 suspend fun onPullToRefresh(
     store: Store<UserKey, User>,
     key: UserKey,
@@ -53,8 +58,7 @@ suspend fun onPullToRefresh(
     store.invalidate(key)
 }
 
-// The screen's collector needs no special case. It receives the stale value with
-// isStale = true and refreshing = true, then the fresh one.
+// CachedOrFetch gives this collector the stale-while-revalidate shape.
 fun observeUser(
     store: Store<UserKey, User>,
     key: UserKey,
@@ -63,22 +67,24 @@ fun observeUser(
 
 ## What clear does
 
-`clear(key)` destructively removes the value. On return the resident value is gone: active streams
-observe the absent-value transition (a `Loading` frame) and then refetched data. Removal includes
-the configured source-of-truth row and its freshness bookkeeping.
+`clear(key)` destructively removes the value from one Store. On return, its resident value,
+configured source-of-truth row, and freshness bookkeeping are gone. Active fetch-capable demand can
+observe the absent transition and then refetch.
 
-Two properties matter here:
+Three properties matter here:
 
 - **An in-flight fetch that started before the clear can no longer commit.** Its waiters observe
   `StoreError.Missing`. A clear racing a fetch cannot resurrect the discarded value.
 - **A post-clear stream never replays pre-clear data.** It starts absent or loading. This is a
-  guarantee, not a timing accident, and it is what makes clear safe for sign-out.
+  per-Store guarantee, not a timing accident.
+- **Clear does not reserve future absence.** Active or later demand can invoke the fetcher and
+  populate the key again.
 
-What the user sees: the content disappears and a loading state appears. That is correct when the old
-value is not just outdated but *wrong to show* — a different user's data, data the current session is
-no longer entitled to, a record the server says no longer exists.
+Use clear when the retained value is wrong to serve. For session replacement, first stop new demand
+and shut down old-session work. Calling clear while old demand remains active can immediately start
+a new fetch.
 
-<!-- recipe: shapes from store6-core/src/commonMain/kotlin/org/mobilenativefoundation/store6/core/Store.kt:113-164 (landed clear/clearNamespace/clearAll signatures and their contracts); behavior per StoreInvalidationConformanceTest.clear_thenNewStreamEmitsLoadingNeverStaleReplay -->
+<!-- recipe: shapes from store6-core/src/commonMain/kotlin/org/mobilenativefoundation/store6/core/Store.kt:113-164 (clear/clearNamespace/clearAll signatures and their contracts); behavior per StoreInvalidationConformanceTest.clear_thenNewStreamEmitsLoadingNeverStaleReplay -->
 
 ```kotlin
 import org.mobilenativefoundation.store6.core.Store
@@ -96,16 +102,17 @@ class UserKey(val id: String) : StoreKey {
 class Document(val id: String, val title: String)
 
 class DocumentKey(
-    val organizationId: String,
+    val tenantId: String,
     val documentId: String,
 ) : StoreKey {
-    override val namespace: StoreNamespace = StoreNamespace("documents:$organizationId")
+    override val namespace: StoreNamespace = StoreNamespace("documents")
 
-    override fun canonicalId(): String = documentId
+    override fun canonicalId(): String = "$tenantId:$documentId"
 }
 
-// Sign-out: the previous session's data must not be shown again, ever.
-suspend fun onSignOut(store: Store<UserKey, User>) {
+// This clears one old-session Store. Application-level session teardown must gate demand,
+// stop workers, clear every old Store, and close old resources before publishing a replacement.
+suspend fun clearOneOldSessionStore(store: Store<UserKey, User>) {
     store.clearAll()
 }
 
@@ -117,12 +124,11 @@ suspend fun onRecordDeleted(
     store.clear(key)
 }
 
-// One tenant's data is no longer valid, the rest is fine.
-suspend fun onOrganizationRevoked(
+// A namespace is a bulk-maintenance scope inside this Store, not an authorization check.
+suspend fun clearDocuments(
     store: Store<DocumentKey, Document>,
-    organizationId: String,
 ) {
-    store.clearNamespace(StoreNamespace("documents:$organizationId"))
+    store.clearNamespace(StoreNamespace("documents"))
 }
 ```
 
@@ -130,31 +136,62 @@ suspend fun onOrganizationRevoked(
 
 | You want to say | Use | The user sees |
 |---|---|---|
-| "This might be out of date, go check" | `invalidate` | Content stays, updates in place |
-| "This is no longer valid to show" | `clear` | Content disappears, then loads |
-| "Everything for this tenant is suspect" | `invalidateNamespace` | Each affected screen refreshes in place |
-| "Everything for this tenant is revoked" | `clearNamespace` | Each affected screen empties, then loads |
-| "Sign out" | `clearAll` | Everything empties |
+| "This might be out of date" | `invalidate` | Determined by the read's `Freshness` |
+| "This key is no longer valid to retain" | `clear` | It becomes absent; demand may refetch |
+| "This maintenance group is stale" | `invalidateNamespace` | Affected reads apply their freshness policies |
+| "Remove this maintenance group from one Store" | `clearNamespace` | Affected keys become absent; demand may refetch |
+| "Remove everything from one Store" | `clearAll` | That Store becomes empty; demand may refetch |
 
-The test that decides it: **would showing the old value for another few hundred milliseconds be
-wrong, or merely imperfect?** Wrong means clear. Imperfect means invalidate.
+The deciding question is whether the retained value is still safe to serve. If it is safe but
+possibly outdated, invalidate it. If it is unsafe to retain, stop unsafe demand and clear it.
 
-## The stale-while-revalidate consequence
+## Read-policy consequences
 
-This is where the two diverge most visibly.
+With the default `Freshness.CachedOrFetch`, invalidation retains and serves the stale value while a
+background refresh runs. A successful fetch produces fresh `Data`; `NotModified` produces
+`Revalidated`; and a failure reports an error while the stale value remains available.
 
-After `invalidate`, the next read serves the stale resident value **immediately** and refreshes in
-the background. The refresh produces exactly one terminal outcome: one fresh `Data`, or one
-served-stale `Error` if the fetch fails, or one `Revalidated(age)` if the server says nothing
-changed. Never two. If the fetch fails, the user still has the old content and an error, rather than
-an empty screen.
+`Freshness.MustBeFresh` does not have that stale-while-revalidate shape. It withholds residence and
+waits for a fresh fetch. `Freshness.LocalOnly` takes the opposite posture: it can serve the retained
+local value after invalidation but never invokes the fetcher.
 
-After `clear`, there is nothing to serve. The next read is a cold read: `Loading`, then whatever the
-fetcher returns. If the fetch fails, the user has an empty screen and an error.
+After `clear`, there is nothing to serve. A fetch-capable stream starts from `Loading`, and `get`
+blocks for the fetch result. `Freshness.LocalOnly` reports `StoreError.Missing` without fetching.
 
-That asymmetry is the whole decision. `invalidate` degrades gracefully when the network is bad.
-`clear` does not, because it cannot — you told it the old value was not safe to show.
+## Remote deletion is cycle-local
+
+`FetcherResult.Deleted` clears the key and reports `StoreError.Missing` for that fetch cycle. It does
+not install a permanent tombstone. It schedules no automatic refetch in the same cycle, but later
+demand can invoke the fetcher again and repopulate the key.
+
+## Replacing an authenticated session
+
+A Store can fence commits only within that Store. It cannot make teardown across multiple Stores or
+storage systems atomic, and `StoreNamespace` is not an authorization boundary. Put tenant identity
+in key identity and partition storage by tenant or session. Use separate Store and storage instances
+for separate authenticated sessions.
+
+Apply this order at the application boundary:
+
+1. Close an application gate so no new old-session demand can reach any old Store.
+2. Cancel and join every old-session collector and worker.
+3. Revoke the old credentials.
+4. Quarantine the old session's pending mutation journal in its external storage partition.
+5. Call `clearAll()` on every old Store. Attempt every Store even if one cleanup fails.
+6. Close every old Store and its storage resources.
+7. Publish replacement credentials and new Store instances only after every cleanup step succeeds.
+
+Fail closed: any gate, join, journal, clear, or close failure prevents publication of the replacement
+session. Still close old resources after a clear failure. `close()` is idempotent. After close,
+Store operations fail with `IllegalStateException` and the message `Store is closed.`
+
+This ordering assumes all Store access passes through the application gate and local collectors,
+workers, and fetchers cooperate with coroutine cancellation. Cancellation does not prove that a
+remote side effect was cancelled or reversed. Core also has no mutation-journal purge operation;
+journal quarantine is an application storage responsibility. The per-Store clear fence remains the
+last defense against a pre-clear fetch ticket returning late and committing.
 
 ---
 
-*Last verified: 2026-07-26 · `main` @ `c4fbaf4`, pre-6.0.0-alpha01*
+*Last verified: 2026-08-16 · `5a8c956bc1dbd6ad838ea9da3b34c7d76c703a71`,
+pre-6.0.0-alpha01*

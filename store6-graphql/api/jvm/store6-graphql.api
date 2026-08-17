@@ -1,3 +1,8 @@
+public final class org/mobilenativefoundation/store6/graphql/GraphQlCacheIdentity {
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Lorg/mobilenativefoundation/store6/graphql/GraphQlKeyedDigest;)V
+	public fun toString ()Ljava/lang/String;
+}
+
 public final class org/mobilenativefoundation/store6/graphql/GraphQlError {
 	public fun <init> (Ljava/lang/String;Ljava/util/List;)V
 	public synthetic fun <init> (Ljava/lang/String;Ljava/util/List;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
@@ -56,6 +61,10 @@ public final class org/mobilenativefoundation/store6/graphql/GraphQlFetcherKt {
 	public static synthetic fun graphQlFetcher$default (Lorg/mobilenativefoundation/store6/graphql/GraphQlOperation;Lorg/mobilenativefoundation/store6/graphql/GraphQlPartialDataPolicy;Lorg/mobilenativefoundation/store6/graphql/GraphQlExecutor;ILjava/lang/Object;)Lorg/mobilenativefoundation/store6/core/seam/Fetcher;
 }
 
+public abstract interface class org/mobilenativefoundation/store6/graphql/GraphQlKeyedDigest {
+	public abstract fun digest ([B)[B
+}
+
 public final class org/mobilenativefoundation/store6/graphql/GraphQlListBuilder {
 	public final fun add (D)V
 	public final fun add (I)V
@@ -81,7 +90,7 @@ public final class org/mobilenativefoundation/store6/graphql/GraphQlObjectBuilde
 }
 
 public final class org/mobilenativefoundation/store6/graphql/GraphQlOperation {
-	public fun <init> (Ljava/lang/String;Ljava/lang/String;)V
+	public fun <init> (Ljava/lang/String;Ljava/lang/String;Lorg/mobilenativefoundation/store6/graphql/GraphQlCacheIdentity;)V
 	public final fun getDocument ()Ljava/lang/String;
 	public final fun getName ()Ljava/lang/String;
 	public final fun key (Lorg/mobilenativefoundation/store6/graphql/GraphQlVariables;)Lorg/mobilenativefoundation/store6/graphql/GraphQlOperationKey;
@@ -90,14 +99,10 @@ public final class org/mobilenativefoundation/store6/graphql/GraphQlOperation {
 }
 
 public final class org/mobilenativefoundation/store6/graphql/GraphQlOperationException : java/lang/Exception {
-	public fun <init> (Ljava/lang/String;Ljava/util/List;)V
-	public final fun getErrors ()Ljava/util/List;
-	public final fun getOperationName ()Ljava/lang/String;
+	public final fun getErrorCount ()I
 }
 
 public final class org/mobilenativefoundation/store6/graphql/GraphQlOperationKey : org/mobilenativefoundation/store6/core/StoreKey {
-	public fun <init> (Ljava/lang/String;Lorg/mobilenativefoundation/store6/graphql/GraphQlVariables;Lorg/mobilenativefoundation/store6/core/StoreNamespace;)V
-	public synthetic fun <init> (Ljava/lang/String;Lorg/mobilenativefoundation/store6/graphql/GraphQlVariables;Lorg/mobilenativefoundation/store6/core/StoreNamespace;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
 	public fun canonicalId ()Ljava/lang/String;
 	public fun equals (Ljava/lang/Object;)Z
 	public fun getNamespace ()Lorg/mobilenativefoundation/store6/core/StoreNamespace;

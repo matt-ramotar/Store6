@@ -21,16 +21,36 @@ users.stream(UserKey("1")).collect { result -> render(result) }
 val user = users.get(UserKey("2"))
 ```
 
-The `store { }` block is verbatim from a module this repository compiles and runs in CI. The last
-two lines are shown in their simplest form so the shape is legible. The program below is the exact
-one CI executes, and it is where the real `stream` and `get` call sites live.
+The `store { }` block is verbatim from the executable
+[`store6-quickstart`](../../store6-quickstart/) module. The last two lines are shown in their
+simplest form so the shape is legible. The program below contains the real `stream` and `get` call
+sites.
 
 ## The whole program
 
-**This exact program compiles and runs on every pull request.** It is the `store6-quickstart`
-module, executed by the `./gradlew :store6-quickstart:run` step in
-[`.github/workflows/store6.yml`](../../.github/workflows/store6.yml). If it broke, this page
-would not be shipping.
+Use JDK 17 or newer. Gradle is supplied by the repository wrapper, so no separate Gradle
+installation is needed. From a clean source checkout at the repository root, run:
+
+```sh
+./gradlew :store6-quickstart:run --console=plain
+```
+
+The program output is deterministic:
+
+```text
+Loading…
+Data(name=User 1, origin=FETCHER)
+get: User 2
+```
+
+The [`Store6` workflow](../../.github/workflows/store6.yml) includes this module's
+`./gradlew :store6-quickstart:run --stacktrace` step for pushes and pull requests to `main`.
+That is the workflow definition observed in this checkout, not evidence of a particular CI run.
+
+If the command fails, confirm that `java -version` reports JDK 17 or newer, run it again from the
+repository root, and retain Gradle's `--stacktrace` output when reporting an unresolved failure.
+The source is
+[`store6-quickstart/src/main/kotlin/org/mobilenativefoundation/store6/quickstart/Main.kt`](../../store6-quickstart/src/main/kotlin/org/mobilenativefoundation/store6/quickstart/Main.kt).
 
 Supporting declarations — the key, the model, and a stand-in service:
 
@@ -127,66 +147,13 @@ screen instead, and `close()` the store when you are done with it.
 
 Continue with [the read contract](/docs/store6/concepts/read-contract) for result and failure
 semantics, then [freshness policies](/docs/store6/concepts/freshness) for choosing how each read
-uses resident and fetched data.
+uses resident and fetched data. This completes the Core tutorial.
 
-## Write path (experimental)
-
-> **Experimental.** `store6-mutations` is a separate artifact and every public symbol is
-> `@ExperimentalStoreApi`. It ships **with** 6.0.0-alpha01 — nothing here is published yet.
->
-> **The spelling below is the current API surface.** The module is still experimental — shapes
-> can change in any release — but the snippet below matches the implementation.
-
-Optimistic writes go through a journal, so they survive being offline and survive process death.
-You get a mutation store instead of a plain one, and it is a `Store` — everything above still works.
-
-<!-- Source anchors: MutationStore.kt (mutationStore factory), MutatorRegistry.kt (sugars),
-MutationsWalkingSkeletonTest.kt (the end-to-end tracer). -->
-
-```kotlin
-@OptIn(ExperimentalStoreApi::class)   // required: the whole module is experimental
-val users = mutationStore(
-    registry = registry,
-    server = server,
-    // Restart-safe key recovery is compile-time required. For keys reconstructible from the
-    // identity pair, the resolver is one line:
-    keyResolver = MutationKeyResolver { identity -> UserKey(identity.canonicalId) },
-    valueCodecVersion = 1,
-    valueCodec = userJsonCodec,
-) {
-    fetcher { key -> api.load(key) }
-}
-
-users.mutate(key, renameRef, Rename("new name"))   // journalled — the only write path
-users.drain(key)                                   // push pending intents and adopt each ack
-```
-
-The flow, end to end:
-
-1. **Offline enqueue.** `mutate` appends one intent and returns a mutation id. Nothing is pushed.
-2. **Optimistic visibility.** `stream(key)` emits `Data(value = optimistic, origin = OVERLAY)`.
-3. **Reconnect and acknowledge.** `drain(key)` pushes the pending intents and adopts each ack.
-4. **Confirmed.** By the acknowledgement contract, the server's echo becomes the committed value,
-   attributed `SOT` or `MEMORY`, and the optimistic frame is retired rather than replayed. A stream
-   opened after the acknowledgement sees the echo. Convergence for a collector that was *already*
-   active across the acknowledgement is the subject of open engine work and is not yet a behavior
-   this page will promise. No redundant fetch happens anywhere in this sequence.
-
-Two properties that are design decisions rather than accidents:
-
-- **`runtime()` returns `null` on a mutation store, by design.** That withholds the raw write handle,
-  which is the library-granted way to write around the journal. Every consumer write stays
-  journalled, and there is no second path that could commit a value the journal never saw.
-- **A pending write is `origin == OVERLAY`, not `isStale`.** `isStale` is never set on an overlay
-  frame, because an optimistic value genuinely is new. Drive a "saving…" indicator off the origin and
-  narrate the `OVERLAY` → `SOT` flip. See [the stability policy](../../STABILITY.md#9-reading-pending-writes-and-staleness)
-  for the full consumer guidance, and
-  note that `get` is unprojected: overlays apply only to `stream`.
-
-The alpha ships a two-step durable acknowledgement path, which means a crash in the acknowledgement
-window leaves a replayable pending intent rather than losing your write, at the cost of the same
-push possibly being re-sent. That tradeoff is stated in full in
-[the stability policy](../../STABILITY.md#mutations).
+Mutation work is separate. Start with the
+[`store6-mutations-quickstart` executable](../../store6-mutations-quickstart/src/main/kotlin/Main.kt).
+Its default journal is in memory. Surviving process death or device restart requires an explicit
+durable `MutationJournalStorage`; retaining an in-memory journal only supports reconstruction while
+that collaborator remains alive.
 
 ---
 

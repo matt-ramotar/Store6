@@ -187,6 +187,7 @@ class MutationRebaseTest {
             fetcher { error("LocalOnly replay must not fetch") }
             persistence(sourceOfTruth)
             journalStorage(storage)
+            journalClientId("client-0")
         }
 }
 

@@ -32,6 +32,7 @@ private suspend fun overviewSnippet(
         valueCodec = userJsonCodec,
     ) {
         fetcher { key -> api.load(key) }
+        // Store6 generates and persists this journal's client identity; no fixed default is needed.
     }
 
     users.mutate(key, renameRef, Rename("new name"))   // journalled — the only write path

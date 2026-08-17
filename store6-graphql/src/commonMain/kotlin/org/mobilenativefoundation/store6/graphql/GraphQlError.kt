@@ -24,7 +24,7 @@ public class GraphQlError(
 
             override fun hashCode(): Int = name.hashCode()
 
-            override fun toString(): String = name
+            override fun toString(): String = "Field(<redacted>)"
         }
 
         /** A list index step. */
@@ -36,7 +36,7 @@ public class GraphQlError(
 
             override fun hashCode(): Int = index.hashCode()
 
-            override fun toString(): String = "[$index]"
+            override fun toString(): String = "Index(<redacted>)"
         }
     }
 
@@ -45,40 +45,20 @@ public class GraphQlError(
 
     override fun hashCode(): Int = 31 * message.hashCode() + path.hashCode()
 
-    override fun toString(): String =
-        if (path.isEmpty()) "GraphQlError($message)" else "GraphQlError($message at ${renderPath(path)})"
+    override fun toString(): String = "GraphQlError(pathSegments=${path.size}, message=<redacted>)"
 }
 
 /**
  * The failure carried as [org.mobilenativefoundation.store6.core.StoreError.Fetch] cause when a
  * GraphQL response reports errors the fetcher does not adopt.
  *
- * @property operationName the operation whose response carried the errors
- * @property errors every decoded response error, in response order
+ * Raw server error messages and paths are deliberately not retained because exceptions are
+ * commonly logged. Inspect and sanitize response errors inside the application executor when
+ * diagnostics are required.
+ *
+ * @property errorCount the number of errors reported by the response
  */
 @ExperimentalStoreApi
-public class GraphQlOperationException(
-    public val operationName: String,
-    public val errors: List<GraphQlError>,
-) : Exception(buildOperationExceptionMessage(operationName, errors))
-
-@OptIn(ExperimentalStoreApi::class)
-private fun buildOperationExceptionMessage(
-    operationName: String,
-    errors: List<GraphQlError>,
-): String {
-    val first = errors.firstOrNull() ?: return "GraphQL operation '$operationName' failed."
-    val location = if (first.path.isEmpty()) "" else " at ${renderPath(first.path)}"
-    val remainder = if (errors.size > 1) "; errors carries the remaining ${errors.size - 1}" else ""
-    return "GraphQL operation '$operationName' returned ${errors.size} error(s): " +
-        "'${first.message}'$location$remainder."
-}
-
-@OptIn(ExperimentalStoreApi::class)
-private fun renderPath(path: List<GraphQlError.PathSegment>): String =
-    buildString {
-        path.forEachIndexed { index, segment ->
-            if (index > 0 && segment is GraphQlError.PathSegment.Field) append('.')
-            append(segment)
-        }
-    }
+public class GraphQlOperationException internal constructor(
+    public val errorCount: Int,
+) : Exception("GraphQL operation failed with $errorCount response error(s); details are redacted.")

@@ -5,57 +5,31 @@ import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 
 /**
- * A [StoreKey] identifying one GraphQL operation execution: the operation name plus its
- * variables.
+ * An opaque [StoreKey] identifying one GraphQL operation execution.
  *
- * A store keyed this way is a document cache — each distinct variable set caches one response
- * value. Identity is structural: two keys with the same [operationName], equal [variables],
- * and the same namespace value are the same cache entry regardless of variable insertion
- * order.
- *
- * @throws IllegalArgumentException if [operationName] is blank
+ * Create keys through [GraphQlOperation.key]. The canonical id is an application-keyed digest
+ * that covers the identity format, exact document, operation name, variables, tenant partition,
+ * digest key id, and cache contract version. Raw variables are never rendered into the id.
  */
 @ExperimentalStoreApi
-public class GraphQlOperationKey(
+public class GraphQlOperationKey internal constructor(
     /** The GraphQL operation name this key belongs to. */
     public val operationName: String,
-    /** The variables of this execution; defaults to none. */
-    public val variables: GraphQlVariables = GraphQlVariables.Empty,
-    /** The key space; defaults to `graphql:<operationName>`. */
-    override val namespace: StoreNamespace = StoreNamespace("graphql:$operationName"),
+    /** The variables passed to the executor. */
+    public val variables: GraphQlVariables,
+    /** The opaque tenant and identity-format key space. */
+    override val namespace: StoreNamespace,
+    private val canonicalId: String,
 ) : StoreKey {
-    init {
-        require(operationName.isNotBlank()) {
-            "GraphQlOperationKey requires a non-blank operationName; use the operation's " +
-                "declared name so keys and fetchers can be matched."
-        }
-    }
-
-    /**
-     * Returns `<operationName>(<canonical variables>)`.
-     *
-     * The variable rendering is JSON-shaped with object keys sorted in UTF-16 code-unit order,
-     * no whitespace, JSON string escaping, significant list order, and explicit `null` distinct
-     * from an absent variable. [GraphQlValue.FloatValue] renders through the runtime's
-     * `Double.toString`, which differs across Kotlin targets; prefer int or string variables
-     * when canonical ids must match across runtimes.
-     *
-     * @return the stable identifier for this key within [namespace]
-     */
-    override fun canonicalId(): String = "$operationName(${variables.canonicalString()})"
+    /** Returns the version-prefixed keyed digest for this execution. */
+    override fun canonicalId(): String = canonicalId
 
     override fun equals(other: Any?): Boolean =
         other is GraphQlOperationKey &&
-            other.operationName == operationName &&
-            other.variables == variables &&
+            other.canonicalId == canonicalId &&
             other.namespace.value == namespace.value
 
-    override fun hashCode(): Int {
-        var result = operationName.hashCode()
-        result = 31 * result + variables.hashCode()
-        result = 31 * result + namespace.value.hashCode()
-        return result
-    }
+    override fun hashCode(): Int = 31 * namespace.value.hashCode() + canonicalId.hashCode()
 
-    override fun toString(): String = "GraphQlOperationKey(${namespace.value}/${canonicalId()})"
+    override fun toString(): String = "GraphQlOperationKey(${namespace.value}/$canonicalId)"
 }

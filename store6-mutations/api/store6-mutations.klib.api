@@ -152,8 +152,10 @@ abstract interface org.mobilenativefoundation.store6.mutations.storage/MutationJ
     abstract fun insertEffect(org.mobilenativefoundation.store6.mutations.storage/MutationEffectRecord) // org.mobilenativefoundation.store6.mutations.storage/MutationJournalTransaction.insertEffect|insertEffect(org.mobilenativefoundation.store6.mutations.storage.MutationEffectRecord){}[0]
     abstract fun insertExecution(org.mobilenativefoundation.store6.mutations.storage/MutationExecutionRecord) // org.mobilenativefoundation.store6.mutations.storage/MutationJournalTransaction.insertExecution|insertExecution(org.mobilenativefoundation.store6.mutations.storage.MutationExecutionRecord){}[0]
     abstract fun insertIntent(kotlin/Int, kotlin/String, kotlin/Long, kotlin/String, kotlin/String, kotlin/String, kotlin/String, kotlin/Int, kotlin/ByteArray, kotlin/String, kotlin/Long): org.mobilenativefoundation.store6.mutations.storage/MutationIntentRecord // org.mobilenativefoundation.store6.mutations.storage/MutationJournalTransaction.insertIntent|insertIntent(kotlin.Int;kotlin.String;kotlin.Long;kotlin.String;kotlin.String;kotlin.String;kotlin.String;kotlin.Int;kotlin.ByteArray;kotlin.String;kotlin.Long){}[0]
+    abstract fun insertJournalIdentity(org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord) // org.mobilenativefoundation.store6.mutations.storage/MutationJournalTransaction.insertJournalIdentity|insertJournalIdentity(org.mobilenativefoundation.store6.mutations.storage.MutationJournalIdentityRecord){}[0]
     abstract fun insertTombstone(org.mobilenativefoundation.store6.mutations.storage/MutationKeyTombstoneRecord) // org.mobilenativefoundation.store6.mutations.storage/MutationJournalTransaction.insertTombstone|insertTombstone(org.mobilenativefoundation.store6.mutations.storage.MutationKeyTombstoneRecord){}[0]
     abstract fun intents(kotlin/String): kotlin.collections/List<org.mobilenativefoundation.store6.mutations.storage/MutationIntentRecord> // org.mobilenativefoundation.store6.mutations.storage/MutationJournalTransaction.intents|intents(kotlin.String){}[0]
+    abstract fun journalIdentity(): org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord? // org.mobilenativefoundation.store6.mutations.storage/MutationJournalTransaction.journalIdentity|journalIdentity(){}[0]
     abstract fun prune(kotlin/String, kotlin/Long) // org.mobilenativefoundation.store6.mutations.storage/MutationJournalTransaction.prune|prune(kotlin.String;kotlin.Long){}[0]
     abstract fun recordConflictReceipt(org.mobilenativefoundation.store6.mutations.storage/MutationAttemptRecord) // org.mobilenativefoundation.store6.mutations.storage/MutationJournalTransaction.recordConflictReceipt|recordConflictReceipt(org.mobilenativefoundation.store6.mutations.storage.MutationAttemptRecord){}[0]
     abstract fun tombstones(): kotlin.collections/List<org.mobilenativefoundation.store6.mutations.storage/MutationKeyTombstoneRecord> // org.mobilenativefoundation.store6.mutations.storage/MutationJournalTransaction.tombstones|tombstones(){}[0]
@@ -302,6 +304,7 @@ final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any
     final fun fetcher(org.mobilenativefoundation.store6.core.seam/Fetcher<#A, #B>) // org.mobilenativefoundation.store6.mutations/MutationStoreBuilder.fetcher|fetcher(org.mobilenativefoundation.store6.core.seam.Fetcher<1:0,1:1>){}[0]
     final fun fetcherOfResult(kotlin.coroutines/SuspendFunction1<#A, org.mobilenativefoundation.store6.core.seam/FetcherResult<#B>>) // org.mobilenativefoundation.store6.mutations/MutationStoreBuilder.fetcherOfResult|fetcherOfResult(kotlin.coroutines.SuspendFunction1<1:0,org.mobilenativefoundation.store6.core.seam.FetcherResult<1:1>>){}[0]
     final fun freshnessValidator(org.mobilenativefoundation.store6.core.seam/FreshnessValidator) // org.mobilenativefoundation.store6.mutations/MutationStoreBuilder.freshnessValidator|freshnessValidator(org.mobilenativefoundation.store6.core.seam.FreshnessValidator){}[0]
+    final fun journalClientId(kotlin/String) // org.mobilenativefoundation.store6.mutations/MutationStoreBuilder.journalClientId|journalClientId(kotlin.String){}[0]
     final fun journalStorage(org.mobilenativefoundation.store6.mutations.storage/MutationJournalStorage) // org.mobilenativefoundation.store6.mutations/MutationStoreBuilder.journalStorage|journalStorage(org.mobilenativefoundation.store6.mutations.storage.MutationJournalStorage){}[0]
     final fun maxIdleKeys(kotlin/Int) // org.mobilenativefoundation.store6.mutations/MutationStoreBuilder.maxIdleKeys|maxIdleKeys(kotlin.Int){}[0]
     final fun persistence(org.mobilenativefoundation.store6.core.seam/SourceOfTruth<#A, #B>) // org.mobilenativefoundation.store6.mutations/MutationStoreBuilder.persistence|persistence(org.mobilenativefoundation.store6.core.seam.SourceOfTruth<1:0,1:1>){}[0]
@@ -513,6 +516,19 @@ final class org.mobilenativefoundation.store6.mutations.storage/MutationIntentRe
         final fun <get-recordVersion>(): kotlin/Int // org.mobilenativefoundation.store6.mutations.storage/MutationIntentRecord.recordVersion.<get-recordVersion>|<get-recordVersion>(){}[0]
     final val rowId // org.mobilenativefoundation.store6.mutations.storage/MutationIntentRecord.rowId|{}rowId[0]
         final fun <get-rowId>(): kotlin/Long // org.mobilenativefoundation.store6.mutations.storage/MutationIntentRecord.rowId.<get-rowId>|<get-rowId>(){}[0]
+}
+
+final class org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord { // org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord|null[0]
+    constructor <init>(kotlin/Int, kotlin/String, kotlin/Long, kotlin/Boolean) // org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord.<init>|<init>(kotlin.Int;kotlin.String;kotlin.Long;kotlin.Boolean){}[0]
+
+    final val clientId // org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord.clientId|{}clientId[0]
+        final fun <get-clientId>(): kotlin/String // org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord.clientId.<get-clientId>|<get-clientId>(){}[0]
+    final val createdAt // org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord.createdAt|{}createdAt[0]
+        final fun <get-createdAt>(): kotlin/Long // org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord.createdAt.<get-createdAt>|<get-createdAt>(){}[0]
+    final val legacyReplayOnly // org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord.legacyReplayOnly|{}legacyReplayOnly[0]
+        final fun <get-legacyReplayOnly>(): kotlin/Boolean // org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord.legacyReplayOnly.<get-legacyReplayOnly>|<get-legacyReplayOnly>(){}[0]
+    final val recordVersion // org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord.recordVersion|{}recordVersion[0]
+        final fun <get-recordVersion>(): kotlin/Int // org.mobilenativefoundation.store6.mutations.storage/MutationJournalIdentityRecord.recordVersion.<get-recordVersion>|<get-recordVersion>(){}[0]
 }
 
 final class org.mobilenativefoundation.store6.mutations.storage/MutationKeyAliasRecord { // org.mobilenativefoundation.store6.mutations.storage/MutationKeyAliasRecord|null[0]

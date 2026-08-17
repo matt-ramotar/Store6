@@ -10,6 +10,10 @@ abstract fun interface <#A: kotlin/Any> org.mobilenativefoundation.store6.graphq
     abstract suspend fun execute(org.mobilenativefoundation.store6.graphql/GraphQlRequest): org.mobilenativefoundation.store6.graphql/GraphQlExecutorResult<#A> // org.mobilenativefoundation.store6.graphql/GraphQlExecutor.execute|execute(org.mobilenativefoundation.store6.graphql.GraphQlRequest){}[0]
 }
 
+abstract fun interface org.mobilenativefoundation.store6.graphql/GraphQlKeyedDigest { // org.mobilenativefoundation.store6.graphql/GraphQlKeyedDigest|null[0]
+    abstract fun digest(kotlin/ByteArray): kotlin/ByteArray // org.mobilenativefoundation.store6.graphql/GraphQlKeyedDigest.digest|digest(kotlin.ByteArray){}[0]
+}
+
 sealed interface <#A: out kotlin/Any> org.mobilenativefoundation.store6.graphql/GraphQlExecutorResult { // org.mobilenativefoundation.store6.graphql/GraphQlExecutorResult|null[0]
     final class <#A1: kotlin/Any> Data : org.mobilenativefoundation.store6.graphql/GraphQlExecutorResult<#A1> { // org.mobilenativefoundation.store6.graphql/GraphQlExecutorResult.Data|null[0]
         constructor <init>(#A1?, kotlin.collections/List<org.mobilenativefoundation.store6.graphql/GraphQlError> = ..., kotlin/String? = ...) // org.mobilenativefoundation.store6.graphql/GraphQlExecutorResult.Data.<init>|<init>(1:0?;kotlin.collections.List<org.mobilenativefoundation.store6.graphql.GraphQlError>;kotlin.String?){}[0]
@@ -118,6 +122,12 @@ sealed interface org.mobilenativefoundation.store6.graphql/GraphQlValue { // org
     }
 }
 
+final class org.mobilenativefoundation.store6.graphql/GraphQlCacheIdentity { // org.mobilenativefoundation.store6.graphql/GraphQlCacheIdentity|null[0]
+    constructor <init>(kotlin/String, kotlin/String, kotlin/String, org.mobilenativefoundation.store6.graphql/GraphQlKeyedDigest) // org.mobilenativefoundation.store6.graphql/GraphQlCacheIdentity.<init>|<init>(kotlin.String;kotlin.String;kotlin.String;org.mobilenativefoundation.store6.graphql.GraphQlKeyedDigest){}[0]
+
+    final fun toString(): kotlin/String // org.mobilenativefoundation.store6.graphql/GraphQlCacheIdentity.toString|toString(){}[0]
+}
+
 final class org.mobilenativefoundation.store6.graphql/GraphQlError { // org.mobilenativefoundation.store6.graphql/GraphQlError|null[0]
     constructor <init>(kotlin/String, kotlin.collections/List<org.mobilenativefoundation.store6.graphql/GraphQlError.PathSegment> = ...) // org.mobilenativefoundation.store6.graphql/GraphQlError.<init>|<init>(kotlin.String;kotlin.collections.List<org.mobilenativefoundation.store6.graphql.GraphQlError.PathSegment>){}[0]
 
@@ -180,7 +190,7 @@ final class org.mobilenativefoundation.store6.graphql/GraphQlObjectBuilder { // 
 }
 
 final class org.mobilenativefoundation.store6.graphql/GraphQlOperation { // org.mobilenativefoundation.store6.graphql/GraphQlOperation|null[0]
-    constructor <init>(kotlin/String, kotlin/String) // org.mobilenativefoundation.store6.graphql/GraphQlOperation.<init>|<init>(kotlin.String;kotlin.String){}[0]
+    constructor <init>(kotlin/String, kotlin/String, org.mobilenativefoundation.store6.graphql/GraphQlCacheIdentity) // org.mobilenativefoundation.store6.graphql/GraphQlOperation.<init>|<init>(kotlin.String;kotlin.String;org.mobilenativefoundation.store6.graphql.GraphQlCacheIdentity){}[0]
 
     final val document // org.mobilenativefoundation.store6.graphql/GraphQlOperation.document|{}document[0]
         final fun <get-document>(): kotlin/String // org.mobilenativefoundation.store6.graphql/GraphQlOperation.document.<get-document>|<get-document>(){}[0]
@@ -192,17 +202,11 @@ final class org.mobilenativefoundation.store6.graphql/GraphQlOperation { // org.
 }
 
 final class org.mobilenativefoundation.store6.graphql/GraphQlOperationException : kotlin/Exception { // org.mobilenativefoundation.store6.graphql/GraphQlOperationException|null[0]
-    constructor <init>(kotlin/String, kotlin.collections/List<org.mobilenativefoundation.store6.graphql/GraphQlError>) // org.mobilenativefoundation.store6.graphql/GraphQlOperationException.<init>|<init>(kotlin.String;kotlin.collections.List<org.mobilenativefoundation.store6.graphql.GraphQlError>){}[0]
-
-    final val errors // org.mobilenativefoundation.store6.graphql/GraphQlOperationException.errors|{}errors[0]
-        final fun <get-errors>(): kotlin.collections/List<org.mobilenativefoundation.store6.graphql/GraphQlError> // org.mobilenativefoundation.store6.graphql/GraphQlOperationException.errors.<get-errors>|<get-errors>(){}[0]
-    final val operationName // org.mobilenativefoundation.store6.graphql/GraphQlOperationException.operationName|{}operationName[0]
-        final fun <get-operationName>(): kotlin/String // org.mobilenativefoundation.store6.graphql/GraphQlOperationException.operationName.<get-operationName>|<get-operationName>(){}[0]
+    final val errorCount // org.mobilenativefoundation.store6.graphql/GraphQlOperationException.errorCount|{}errorCount[0]
+        final fun <get-errorCount>(): kotlin/Int // org.mobilenativefoundation.store6.graphql/GraphQlOperationException.errorCount.<get-errorCount>|<get-errorCount>(){}[0]
 }
 
 final class org.mobilenativefoundation.store6.graphql/GraphQlOperationKey : org.mobilenativefoundation.store6.core/StoreKey { // org.mobilenativefoundation.store6.graphql/GraphQlOperationKey|null[0]
-    constructor <init>(kotlin/String, org.mobilenativefoundation.store6.graphql/GraphQlVariables = ..., org.mobilenativefoundation.store6.core/StoreNamespace = ...) // org.mobilenativefoundation.store6.graphql/GraphQlOperationKey.<init>|<init>(kotlin.String;org.mobilenativefoundation.store6.graphql.GraphQlVariables;org.mobilenativefoundation.store6.core.StoreNamespace){}[0]
-
     final val namespace // org.mobilenativefoundation.store6.graphql/GraphQlOperationKey.namespace|{}namespace[0]
         final fun <get-namespace>(): org.mobilenativefoundation.store6.core/StoreNamespace // org.mobilenativefoundation.store6.graphql/GraphQlOperationKey.namespace.<get-namespace>|<get-namespace>(){}[0]
     final val operationName // org.mobilenativefoundation.store6.graphql/GraphQlOperationKey.operationName|{}operationName[0]

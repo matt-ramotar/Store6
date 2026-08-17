@@ -135,7 +135,9 @@ public abstract interface class org/mobilenativefoundation/store6/core/StoreMeta
 
 public final class org/mobilenativefoundation/store6/core/StoreNamespace {
 	public fun <init> (Ljava/lang/String;)V
+	public fun equals (Ljava/lang/Object;)Z
 	public final fun getValue ()Ljava/lang/String;
+	public fun hashCode ()I
 }
 
 public abstract interface class org/mobilenativefoundation/store6/core/StoreResult {

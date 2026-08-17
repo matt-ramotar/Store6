@@ -7,8 +7,9 @@ import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *
  * The document is opaque to Store — it is carried to the [GraphQlExecutor] unparsed, so any
  * source of documents (hand-written strings, generated constants, persisted-query ids embedded
- * by the executor) works. [name] must match the operation name used in [GraphQlOperationKey]
- * instances fetched through this operation; [graphQlFetcher] rejects mismatched keys.
+ * by the executor) works. [cacheIdentity] binds the document and decoded-value contract to every
+ * key this operation creates. [graphQlFetcher] rejects keys created by another operation or
+ * identity contract.
  *
  * @throws IllegalArgumentException if [document] or [name] is blank
  */
@@ -18,6 +19,7 @@ public class GraphQlOperation(
     public val document: String,
     /** The name of the operation to execute from [document]. */
     public val name: String,
+    private val cacheIdentity: GraphQlCacheIdentity,
 ) {
     init {
         require(document.isNotBlank()) { "GraphQlOperation requires a non-blank document." }
@@ -31,10 +33,15 @@ public class GraphQlOperation(
      * Returns the [GraphQlOperationKey] for executing this operation with [variables].
      *
      * @param variables the execution's variables; defaults to none
-     * @return a key whose operation name is [name] and whose namespace is the key default
+     * @return an opaque key bound to the exact document and cache identity contract
      */
     public fun key(variables: GraphQlVariables = GraphQlVariables.Empty): GraphQlOperationKey =
-        GraphQlOperationKey(operationName = name, variables = variables)
+        GraphQlOperationKey(
+            operationName = name,
+            variables = variables,
+            namespace = cacheIdentity.namespace,
+            canonicalId = cacheIdentity.canonicalId(name, document, variables),
+        )
 
-    override fun toString(): String = "GraphQlOperation($name)"
+    override fun toString(): String = "GraphQlOperation(<redacted>)"
 }

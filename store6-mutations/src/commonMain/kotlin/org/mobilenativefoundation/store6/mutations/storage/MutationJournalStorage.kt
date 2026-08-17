@@ -7,7 +7,7 @@ import org.mobilenativefoundation.store6.mutations.MutationFailureKind
 /**
  * Durable mutation-journal storage seam.
  *
- * This package freezes nine logical records. Implementations persist enum names, never ordinals;
+ * This package freezes ten logical records. Implementations persist enum names, never ordinals;
  * store every time as Unix epoch milliseconds; copy every byte array on entry and delivery; and
  * preserve the transition, uniqueness, ordering, and pruning rules enforced by the testing
  * contract kit.
@@ -35,6 +35,9 @@ public interface MutationJournalStorage {
 @ExperimentalStoreApi
 @SubclassOptInRequired(DelicateStoreApi::class)
 public interface MutationJournalTransaction {
+    /** Returns the identity assigned to this journal, or null before initialization. */
+    public fun journalIdentity(): MutationJournalIdentityRecord?
+
     /** Returns the client row, or null when this journal has not initialized [clientId]. */
     public fun client(clientId: String): MutationClientRecord?
 
@@ -61,6 +64,14 @@ public interface MutationJournalTransaction {
 
     /** Returns every retained tombstone generation in deterministic identity order. */
     public fun tombstones(): List<MutationKeyTombstoneRecord>
+
+    /**
+     * Assigns the journal identity exactly once.
+     *
+     * Implementations must persist [MutationJournalIdentityRecord.legacyReplayOnly] with the
+     * identity; dropping that marker could allow new work under the shared legacy `client-0`.
+     */
+    public fun insertJournalIdentity(record: MutationJournalIdentityRecord)
 
     /**
      * Inserts a new version-1 client row with allocation and both retirement prefixes equal to

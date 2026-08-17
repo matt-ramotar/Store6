@@ -395,6 +395,7 @@ class MutationDrainTest {
             ) {
                 fetcher { backend.load(it) }
                 journalStorage(storage)
+                journalClientId("client-0")
             }
 
         val firstPush: MutationPush<MutationsTestKey, String>
@@ -441,6 +442,7 @@ class MutationDrainTest {
             ) {
                 fetcher { backend.load(it) }
                 journalStorage(storage)
+                journalClientId("client-0")
             }
         try {
             reopened.drain(key)

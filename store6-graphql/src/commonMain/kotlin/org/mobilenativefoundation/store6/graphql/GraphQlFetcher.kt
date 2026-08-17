@@ -10,10 +10,10 @@ import org.mobilenativefoundation.store6.core.seam.FetcherResult
 /**
  * Creates a [Fetcher] that executes [operation] through [executor] for every fetched key.
  *
- * The returned fetcher serves one operation: a [GraphQlOperationKey] whose
- * [GraphQlOperationKey.operationName] differs from [operation]'s name fails the fetch without
- * executing. Executor outcomes map to the fetch vocabulary as follows: a thrown exception
- * (other than [CancellationException], which propagates) becomes a fetch error; a
+ * The returned fetcher serves one operation and cache identity contract. A key created by
+ * another operation or contract fails without executing. Executor outcomes map to the fetch
+ * vocabulary as follows: a thrown exception (other than [CancellationException], which
+ * propagates) becomes a fetch error; a
  * [GraphQlExecutorResult.NotModified] becomes [FetcherResult.NotModified]; a response with
  * non-null data and no errors becomes [FetcherResult.Success]; a response with errors follows
  * [partialDataPolicy]; and a response with neither data nor errors is reported as a protocol
@@ -62,22 +62,23 @@ private class GraphQlFetcher<V : Any>(
         key: GraphQlOperationKey,
         etag: String?,
     ): FetcherResult<V> {
-        if (key.operationName != operation.name) {
+        if (key != operation.key(key.variables)) {
             return FetcherResult.Error(
                 IllegalArgumentException(
-                    "graphQlFetcher for operation '${operation.name}' received a key for " +
-                        "operation '${key.operationName}'. A store serves one operation; build " +
-                        "keys with GraphQlOperation.key(...) on the fetcher's operation.",
+                    "graphQlFetcher received a key from another operation or cache identity " +
+                        "contract; build keys with GraphQlOperation.key(...) on this fetcher.",
                 ),
             )
         }
         val result =
             try {
                 executor.execute(GraphQlRequest(operation, key.variables, etag))
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (transportFailure: Throwable) {
-                return FetcherResult.Error(transportFailure)
+            } catch (_: CancellationException) {
+                throw CancellationException("GraphQL execution cancelled; details are redacted.")
+            } catch (_: Throwable) {
+                return FetcherResult.Error(
+                    IllegalStateException("GraphQL executor failed; details are redacted."),
+                )
             }
         return when (result) {
             is GraphQlExecutorResult.NotModified -> FetcherResult.NotModified(result.etag)
@@ -93,9 +94,8 @@ private class GraphQlFetcher<V : Any>(
             } else {
                 FetcherResult.Error(
                     IllegalStateException(
-                        "GraphQL executor for operation '${operation.name}' returned neither " +
-                            "data nor errors; a GraphQL response must carry at least one of " +
-                            "the two.",
+                        "GraphQL executor returned neither data nor errors; a GraphQL response " +
+                            "must carry at least one of the two.",
                     ),
                 )
             }
@@ -103,6 +103,6 @@ private class GraphQlFetcher<V : Any>(
         if (data != null && partialDataPolicy == GraphQlPartialDataPolicy.AdoptPartialData) {
             return FetcherResult.Success(data, result.etag)
         }
-        return FetcherResult.Error(GraphQlOperationException(operation.name, result.errors))
+        return FetcherResult.Error(GraphQlOperationException(result.errors.size))
     }
 }

@@ -281,6 +281,7 @@ public final class org/mobilenativefoundation/store6/mutations/MutationStoreBuil
 	public final fun fetcher (Lorg/mobilenativefoundation/store6/core/seam/Fetcher;)V
 	public final fun fetcherOfResult (Lkotlin/jvm/functions/Function2;)V
 	public final fun freshnessValidator (Lorg/mobilenativefoundation/store6/core/seam/FreshnessValidator;)V
+	public final fun journalClientId (Ljava/lang/String;)V
 	public final fun journalStorage (Lorg/mobilenativefoundation/store6/mutations/storage/MutationJournalStorage;)V
 	public final fun maxIdleKeys (I)V
 	public final fun persistence (Lorg/mobilenativefoundation/store6/core/seam/SourceOfTruth;)V
@@ -478,6 +479,14 @@ public final class org/mobilenativefoundation/store6/mutations/storage/MutationI
 	public final fun getRowId ()J
 }
 
+public final class org/mobilenativefoundation/store6/mutations/storage/MutationJournalIdentityRecord {
+	public fun <init> (ILjava/lang/String;JZ)V
+	public final fun getClientId ()Ljava/lang/String;
+	public final fun getCreatedAt ()J
+	public final fun getLegacyReplayOnly ()Z
+	public final fun getRecordVersion ()I
+}
+
 public abstract interface class org/mobilenativefoundation/store6/mutations/storage/MutationJournalStorage {
 	public abstract fun transaction (Lkotlin/jvm/functions/Function1;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
@@ -504,8 +513,10 @@ public abstract interface class org/mobilenativefoundation/store6/mutations/stor
 	public abstract fun insertEffect (Lorg/mobilenativefoundation/store6/mutations/storage/MutationEffectRecord;)V
 	public abstract fun insertExecution (Lorg/mobilenativefoundation/store6/mutations/storage/MutationExecutionRecord;)V
 	public abstract fun insertIntent (ILjava/lang/String;JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;I[BLjava/lang/String;J)Lorg/mobilenativefoundation/store6/mutations/storage/MutationIntentRecord;
+	public abstract fun insertJournalIdentity (Lorg/mobilenativefoundation/store6/mutations/storage/MutationJournalIdentityRecord;)V
 	public abstract fun insertTombstone (Lorg/mobilenativefoundation/store6/mutations/storage/MutationKeyTombstoneRecord;)V
 	public abstract fun intents (Ljava/lang/String;)Ljava/util/List;
+	public abstract fun journalIdentity ()Lorg/mobilenativefoundation/store6/mutations/storage/MutationJournalIdentityRecord;
 	public abstract fun prune (Ljava/lang/String;J)V
 	public abstract fun recordConflictReceipt (Lorg/mobilenativefoundation/store6/mutations/storage/MutationAttemptRecord;)V
 	public abstract fun tombstones ()Ljava/util/List;

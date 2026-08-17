@@ -11,8 +11,8 @@ import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 //   control characters below U+0020 as lowercase \u00xx.
 // - Explicit NullValue renders `null`; an absent variable renders nothing, so the two are
 //   distinct identities.
-// - IntValue renders as a decimal integer; FloatValue delegates to Double.toString, which is
-//   runtime-dependent (documented on GraphQlValue.FloatValue).
+// - IntValue renders as a decimal integer. FloatValue renders as `f` followed by normalized
+//   IEEE-754 bits in fixed-width lowercase hexadecimal, avoiding runtime number formatting.
 
 internal fun GraphQlVariables.canonicalString(): String =
     buildString { appendCanonicalObject(entries) }
@@ -22,7 +22,7 @@ private fun StringBuilder.appendCanonical(value: GraphQlValue) {
         is GraphQlValue.NullValue -> append("null")
         is GraphQlValue.BooleanValue -> append(value.value)
         is GraphQlValue.IntValue -> append(value.value)
-        is GraphQlValue.FloatValue -> append(value.value)
+        is GraphQlValue.FloatValue -> appendCanonicalFloat(value.value)
         is GraphQlValue.StringValue -> appendJsonEscaped(value.value)
         is GraphQlValue.ListValue -> {
             append('[')
@@ -69,3 +69,14 @@ private fun StringBuilder.appendJsonEscaped(value: String) {
     }
     append('"')
 }
+
+private fun StringBuilder.appendCanonicalFloat(value: Double) {
+    append('f')
+    val normalized = if (value == 0.0) 0.0 else value
+    val bits = normalized.toBits()
+    for (shift in 60 downTo 0 step 4) {
+        append(HEX_DIGITS[((bits ushr shift) and 0x0f).toInt()])
+    }
+}
+
+private const val HEX_DIGITS = "0123456789abcdef"

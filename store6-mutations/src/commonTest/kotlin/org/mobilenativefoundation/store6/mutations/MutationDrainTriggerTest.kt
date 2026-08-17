@@ -179,6 +179,7 @@ private fun openTriggerStore(
     ) {
         fetcher { backend.load(it) }
         journalStorage(storage)
+        journalClientId("client-0")
         wallClock(wallClock)
     }
 

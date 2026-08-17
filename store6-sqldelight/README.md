@@ -4,11 +4,24 @@
 
 The Store6 seam is a **freeze candidate, not frozen** — see [STABILITY.md](../STABILITY.md).
 
-## 15-minute existing-schema walkthrough
+## Install from this checkout
+
+The [sample](sample/src/main/kotlin/org/mobilenativefoundation/store6/sqldelight/sample/Main.kt)
+uses project dependencies and is the verified source-checkout path:
+
+```shell
+./gradlew :store6-sqldelight-sample:run --args=--reset
+./gradlew :store6-sqldelight-sample:run
+```
+
+## Existing-schema walkthrough
 
 ### 0. Prerequisites
 
-Use Kotlin 2.3, SQLDelight 2.1.0, a JDK supported by your build, and a synchronous SQLDelight driver. This repository's executable sample uses JDK 11 bytecode and the JDBC SQLite driver. Until the snapshot is published remotely, publish `store6-core` and `store6-sqldelight` to Maven Local:
+Use Kotlin 2.3, SQLDelight 2.1.0, a JDK supported by your build, and a synchronous SQLDelight
+driver. This repository's executable sample uses JDK 11 bytecode and the JDBC SQLite driver. No
+remote publication is asserted. For an unpublished Maven Local consumer, publish `store6-core`
+and `store6-sqldelight` from this checkout:
 
 ```shell
 ./gradlew :store6-core:publishToMavenLocal :store6-sqldelight:publishToMavenLocal
@@ -22,13 +35,23 @@ Keep the SQLDelight plugin and the driver for your platform, then add the Store6
 
 ```kotlin
 repositories {
-    mavenLocal()
+    mavenLocal {
+        content { includeGroup("org.mobilenativefoundation.store") }
+    }
     mavenCentral()
 }
 
 dependencies {
     implementation("org.mobilenativefoundation.store:store6-sqldelight:6.0.0-SNAPSHOT")
     implementation("app.cash.sqldelight:sqlite-driver:2.1.0") // JVM sample
+}
+```
+
+Opt in in the consuming source set:
+
+```kotlin
+kotlin.sourceSets.named("main") {
+    languageSettings.optIn("org.mobilenativefoundation.store6.core.ExperimentalStoreApi")
 }
 ```
 
@@ -47,13 +70,32 @@ selectById:
 SELECT * FROM user WHERE id = ?;
 
 upsert:
-INSERT OR REPLACE INTO user(id, name, email) VALUES (?, ?, ?);
+INSERT INTO user(id, name, email)
+VALUES (?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+  name = excluded.name,
+  email = excluded.email;
 
 deleteById:
 DELETE FROM user WHERE id = ?;
 
 deleteAll:
 DELETE FROM user;
+```
+
+The conflict-update form preserves rows that reference `user`; SQLite's `INSERT OR REPLACE` is
+delete-then-insert and can trigger foreign-key cascades. SQLDelight's default SQLite 3.18 dialect
+does not parse this syntax, so select SQLite 3.24 or newer in the consumer build:
+
+```kotlin
+sqldelight {
+    databases {
+        create("AppDatabase") {
+            packageName.set("example.db")
+            dialect("app.cash.sqldelight:sqlite-3-24-dialect:2.1.0")
+        }
+    }
+}
 ```
 
 Create or migrate that schema as usual, then construct the adapter. It idempotently creates `store6_meta_schema`, `store6_meta_sequence`, `store6_meta`, and `store6_meta_watermark` itself. The executable sample probes `sqlite_master` and calls `SampleDatabase.Schema.create(driver)` only for a new database.
@@ -86,6 +128,13 @@ Three rules keep the boundary sound:
 
 Adapter-owned writes and deletes notify matching active readers after commit, including equal-value rewrites. Reader signals are instance-scoped: direct SQL inside `withTransaction` and commits made through another adapter instance do not wake an already-active reader. A new collection still reads those external changes from the database.
 
+For an external write that must refresh an already-active Store reader, perform it through this
+adapter, then re-collect or invalidate the Store key. The application owns resource shutdown:
+stop collectors, call `store.close()`, then close the SQLDelight driver. Do not close the driver
+while Store work can still use it. A suspended `withTransaction` block fails and rolls back; after
+any cancellation or storage failure, read the durable row before retrying only an idempotent
+operation.
+
 Use one logical Store per database and namespace set. Instances sharing a database also share the sidecar's monotone sequence and watermarks.
 
 ### 4. Run twice
@@ -116,16 +165,18 @@ Call `close()` when the Store is no longer needed. It is synchronous and idempot
 
 The published KMP artifact covers the canonical Store6 targets, but driver-backed execution is limited to targets for which SQLDelight provides a synchronous driver. JS and Wasm remain compile-only for this adapter today. Each source-of-truth write stamps the sidecar's write time and clears its stored ETag. If Store later needs to fetch, the conditional request therefore carries no ETag until a later successful fetch records one.
 
+## Support axes
+
+- **Publish:** Maven Local works after the explicit publish command above; no remote publication is
+  asserted here.
+- **Compile:** the adapter's KMP artifact follows Store6 targets; JS and Wasm compile but do not
+  support this synchronous-driver adapter at runtime.
+- **Runtime:** use the platform driver in the table above and one shared `SqlDriver`.
+- **Sample:** `store6-sqldelight-sample` is a JVM/JDBC fixture; it proves first fetch, durable
+  restart, and conflict-update behavior.
+
 ## Timing
 
-The walkthrough was measured on July 22, 2026 from a nonexistent consumer directory at `/private/tmp/store6-sqldelight-consumer-20260722-t7`. The consumer referenced only Maven Local coordinates, not repository projects. Commands used `/usr/bin/time -p`; the edit interval used epoch seconds immediately before and after creating the clean Gradle files, unchanged `User.sq`, and wiring. Machine: macOS 26.2 arm64, OpenJDK 17.0.18, Gradle 8.11.1. The shared Gradle dependency cache was warm, while the consumer had no `.gradle`, `build`, or database state.
-
-| Step | Measured wall time |
-| --- | ---: |
-| Publish `store6-core` and `store6-sqldelight` snapshots to Maven Local | 11.80 s |
-| Create the clean consumer and add dependency, existing schema, and wiring | 40.00 s |
-| First clean build and `run --args=--reset` | 9.96 s |
-| Second process and durable-meta zero-refetch check | 0.96 s |
-| **Total** | **62.72 s (1m 2.72s)** |
-
-This automated run is evidence that the documented path fits comfortably inside 15 minutes on this machine.
+No end-to-end consumer-edit timing claim is made. The source-checkout sample is an executable
+fixture; measure the Maven Local path in the target project's environment before setting a
+time expectation.

@@ -907,6 +907,7 @@ private fun openConflictStore(
         bookkeeper(bookkeeper)
         wallClock(wallClock)
         journalStorage(storage)
+        journalClientId("client-0")
         if (policy != null) {
             conflicts {
                 policy.precondition?.let { precondition(it) }

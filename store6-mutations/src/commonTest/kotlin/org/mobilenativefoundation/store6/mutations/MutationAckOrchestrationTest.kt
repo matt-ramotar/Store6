@@ -238,6 +238,7 @@ class MutationAckOrchestrationTest {
             ) {
                 fetcher { backend.load(it) }
                 journalStorage(storage)
+                journalClientId("client-0")
             }
         try {
             val head = store.mutate(source, mutations.set, "head")

@@ -44,6 +44,7 @@ public class MutationStoreBuilder<K : StoreKey, V : Any> internal constructor() 
     private var maxIdleKeys: Int? = null
     private var conflicts: MutationConflictRegistration<K, V>? = null
     private var journalStorage: MutationJournalStorage? = null
+    private var journalClientId: String? = null
     private var snapshot: MutationStoreConfiguration<K, V>? = null
 
     /**
@@ -171,6 +172,27 @@ public class MutationStoreBuilder<K : StoreKey, V : Any> internal constructor() 
     }
 
     /**
+     * Assigns an explicit durable client identity to this mutation journal.
+     *
+     * Omit this door for the production default: Store6 generates a unique identity and persists it
+     * in [journalStorage]. Reopening a journal requires its persisted value; a different explicit
+     * value fails before hydration or transport instead of rewriting mutation identity.
+     *
+     * This is also the opt-in legacy migration door. A journal that contains untagged `client-0`
+     * work fails closed unless reopened with `journalClientId("client-0")`. That choice marks the
+     * journal replay-only: existing keys may drain unchanged, but new mutations are rejected even
+     * after draining. Begin new work in a fresh journal storage with a generated or unique explicit
+     * identity.
+     *
+     * @param clientId non-empty identity shared with the backend in pushes and retirements
+     */
+    @ExperimentalStoreApi
+    public fun journalClientId(clientId: String) {
+        require(clientId.isNotEmpty()) { "journal clientId must not be empty." }
+        journalClientId = clientId
+    }
+
+    /**
      * Materializes the retained configuration exactly once.
      *
      * The first call creates the mutations-owned defaults for any unset seam; every later call
@@ -193,6 +215,7 @@ public class MutationStoreBuilder<K : StoreKey, V : Any> internal constructor() 
             maxIdleKeys = maxIdleKeys,
             conflicts = conflicts,
             journalStorage = journalStorage ?: InMemoryMutationJournalStorage(),
+            journalClientId = journalClientId,
         ).also { snapshot = it }
     }
 }
@@ -301,6 +324,7 @@ internal class MutationStoreConfiguration<K : StoreKey, V : Any>(
     private val maxIdleKeys: Int?,
     internal val conflicts: MutationConflictRegistration<K, V>?,
     internal val journalStorage: MutationJournalStorage,
+    internal val journalClientId: String?,
 ) {
     internal fun applyCoreConfiguration(builder: StoreBuilder<K, V>) {
         builder.installFetcher()

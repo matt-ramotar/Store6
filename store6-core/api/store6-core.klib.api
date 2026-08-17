@@ -318,6 +318,9 @@ final class org.mobilenativefoundation.store6.core/StoreNamespace { // org.mobil
 
     final val value // org.mobilenativefoundation.store6.core/StoreNamespace.value|{}value[0]
         final fun <get-value>(): kotlin/String // org.mobilenativefoundation.store6.core/StoreNamespace.value.<get-value>|<get-value>(){}[0]
+
+    final fun equals(kotlin/Any?): kotlin/Boolean // org.mobilenativefoundation.store6.core/StoreNamespace.equals|equals(kotlin.Any?){}[0]
+    final fun hashCode(): kotlin/Int // org.mobilenativefoundation.store6.core/StoreNamespace.hashCode|hashCode(){}[0]
 }
 
 sealed class org.mobilenativefoundation.store6.core/StoreError { // org.mobilenativefoundation.store6.core/StoreError|null[0]

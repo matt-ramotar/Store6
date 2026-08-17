@@ -805,6 +805,7 @@ class MutationJournalContractTest {
             ) {
                 fetcher { "confirmed" }
                 journalStorage(storage)
+                journalClientId("client-0")
                 wallClock(clock)
                 bookkeeper(
                     object :
@@ -1379,6 +1380,7 @@ private fun openRestartStore(
     ) {
         fetcher { "confirmed" }
         journalStorage(storage)
+        journalClientId("client-0")
         clock?.let { selected -> wallClock(selected) }
     }
 
