@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest as coroutineRunTest
 import org.mobilenativefoundation.store6.mutations.MutationPendingState
+import org.mobilenativefoundation.store6.mutations.PendingIntent
 import org.mobilenativefoundation.store6.mutations.drain.internal.DerivationResult
 import org.mobilenativefoundation.store6.mutations.drain.internal.DerivationState
 import org.mobilenativefoundation.store6.mutations.drain.internal.deriveFollowUp
@@ -266,6 +267,66 @@ class DelayDerivationTest {
                 )
 
             assertEquals(backoff.delayFor(2), result.delay)
+        } finally {
+            reopened.close()
+        }
+    }
+
+    @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+    @Test
+    fun refreshingConflictResetHeadDerivesZero() = runTest {
+        val fixture = DrainFixture()
+        fixture.backend.offline = true
+        val initialStore = fixture.openStore()
+        try {
+            val key = DrainTestKey("refreshing-conflict-reset")
+            initialStore.mutate(key, fixture.appendRef, "+refreshing")
+            initialStore.drain(key)
+        } finally {
+            initialStore.close()
+        }
+        fixture.storage.transaction { transaction ->
+            val ready = transaction.executions("client-0").single()
+            assertEquals(MutationExecutionPhase.READY, ready.phase)
+            transaction.advanceExecution(ready.withPhase(MutationExecutionPhase.INFLIGHT))
+            transaction.advanceExecution(
+                MutationExecutionRecord(
+                    clientId = ready.clientId,
+                    clientSequence = ready.clientSequence,
+                    phase = MutationExecutionPhase.REFRESH_REQUIRED,
+                    currentGeneration = ready.currentGeneration,
+                    attempt = ready.attempt + 1,
+                    lastAttemptAt = assertNotNull(ready.lastAttemptAt) + 1L,
+                    activeFailureId = ready.activeFailureId,
+                    retiredAt = ready.retiredAt,
+                ),
+            )
+        }
+
+        val reopened = fixture.openStore()
+        try {
+            val refreshing = reopened.pendingWrites().single()
+            assertEquals(MutationPendingState.REFRESHING, refreshing.state)
+            val conflictResetHead =
+                PendingIntent(
+                    namespace = refreshing.namespace,
+                    canonicalId = refreshing.canonicalId,
+                    mutationId = refreshing.mutationId,
+                    mutatorId = refreshing.mutatorId,
+                    state = refreshing.state,
+                    attempt = 0,
+                    createdAtEpochMillis = refreshing.createdAtEpochMillis,
+                )
+
+            val result =
+                deriveFollowUp(
+                    rows = listOf(conflictResetHead),
+                    checkpointFailed = false,
+                    backoff = DrainBackoff(),
+                    state = initialState(),
+                )
+
+            assertEquals(Duration.ZERO, result.delay)
         } finally {
             reopened.close()
         }
