@@ -16,8 +16,10 @@ import io.ktor.http.headersOf
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest as coroutineRunTest
+import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.Freshness
+import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreKey
@@ -252,6 +254,15 @@ class KtorStoreIntegrationTest {
             val key = IntegrationKey("validator-lifetime")
             try {
                 assertEquals("v1", store.get(key))
+                while (true) {
+                    var origin: Origin? = null
+                    store.stream(key, Freshness.LocalOnly).test {
+                        origin = assertIs<StoreResult.Data<String>>(awaitItem()).origin
+                        cancelAndIgnoreRemainingEvents()
+                    }
+                    if (origin == Origin.SOT) break
+                    yield()
+                }
                 assertEquals("v2", store.get(key, Freshness.MustBeFresh))
                 val expectedHeaders =
                     listOf<Pair<String?, String?>>(null to null, null to null)
