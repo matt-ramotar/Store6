@@ -48,3 +48,24 @@ public fun <K : StoreKey, V : Any> MutationConflictBuilder<K, V>.lastWriteWins(
         ),
     )
 }
+
+/**
+ * Registers [MutationMerges.threeWay] via [MutationConflictBuilder.merge].
+ *
+ * This function never registers a precondition selector, so it composes with a caller-supplied
+ * `precondition { }` in the same conflict block.
+ */
+@ExperimentalStoreApi
+public fun <K : StoreKey, V : Any> MutationConflictBuilder<K, V>.threeWayMerge(
+    onMineAbsent: MutationConflictBias = MutationConflictBias.THEIRS,
+    onTheirsAbsent: MutationConflictBias = MutationConflictBias.THEIRS,
+    merge: (base: V?, mine: V, theirs: V) -> V,
+) {
+    this.merge(
+        MutationMerges.threeWay(
+            onMineAbsent = onMineAbsent,
+            onTheirsAbsent = onTheirsAbsent,
+            merge = merge,
+        ),
+    )
+}

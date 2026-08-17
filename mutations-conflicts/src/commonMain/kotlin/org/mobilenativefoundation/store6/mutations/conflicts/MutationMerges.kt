@@ -97,4 +97,73 @@ public object MutationMerges {
                     }
             }
         }
+
+    /**
+     * Value-level three-way merge. The presence matrix is pack-owned. The value merge is
+     * caller-owned.
+     *
+     * Decision table (P = present, A = absent; base is any):
+     * - mine P, theirs P: `Retry(Present(merge(baseOrNull, mine, theirs)))` where `baseOrNull`
+     *   is the base value when base is `Present`, or `null` when base is `Absent` (both sides
+     *   created independently).
+     * - mine A, theirs P: [onMineAbsent] — `THEIRS` resolves `ServerWins`; `MINE` resolves
+     *   `Retry(Absent)`.
+     * - mine P, theirs A: [onTheirsAbsent] — `THEIRS` resolves `ServerWins`; `MINE` resolves
+     *   `Retry(mine)`.
+     * - mine A, theirs A: `ServerWins`; nothing to contend.
+     *
+     * The pack never converts an affirmative `Retry` into `ServerWins` on value equality. Even
+     * when `merge(...) == theirs` the resolution is `Retry`, because a successful push runs the
+     * mutator's declared invalidation effects and adoption while `ServerWins` terminally skips
+     * them. A [merge] function that throws parks the intent with kind `CONFLICT` and detail
+     * `"merge-failed"`.
+     */
+    @ExperimentalStoreApi
+    public fun <V : Any> threeWay(
+        onMineAbsent: MutationConflictBias = MutationConflictBias.THEIRS,
+        onTheirsAbsent: MutationConflictBias = MutationConflictBias.THEIRS,
+        merge: (base: V?, mine: V, theirs: V) -> V,
+    ): MutationMergeFunction<V> =
+        { base, mine, theirs ->
+            when (mine) {
+                is MutationPresence.Present ->
+                    when (theirs) {
+                        is MutationPresence.Present -> {
+                            val baseOrNull =
+                                when (base) {
+                                    is MutationPresence.Present -> base.value
+                                    MutationPresence.Absent -> null
+                                }
+                            MutationConflictResolution.Retry(
+                                MutationPresence.Present(
+                                    merge(baseOrNull, mine.value, theirs.value),
+                                ),
+                            )
+                        }
+
+                        MutationPresence.Absent ->
+                            when (onTheirsAbsent) {
+                                MutationConflictBias.THEIRS ->
+                                    MutationConflictResolution.ServerWins
+
+                                MutationConflictBias.MINE ->
+                                    MutationConflictResolution.Retry(mine)
+                            }
+                    }
+
+                MutationPresence.Absent ->
+                    when (theirs) {
+                        is MutationPresence.Present ->
+                            when (onMineAbsent) {
+                                MutationConflictBias.THEIRS ->
+                                    MutationConflictResolution.ServerWins
+
+                                MutationConflictBias.MINE ->
+                                    MutationConflictResolution.Retry(mine)
+                            }
+
+                        MutationPresence.Absent -> MutationConflictResolution.ServerWins
+                    }
+            }
+        }
 }
