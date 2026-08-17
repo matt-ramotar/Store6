@@ -272,12 +272,22 @@ jobs:
       - name: Run Store6 realtime sample
         run: ./gradlew :realtime-sample:run --stacktrace
 
+      - name: Build Store6 file adapter
+        run: >
+          ./gradlew :file:build
+          -Pkotlin.native.enableKlibsCrossCompilation=true
+          -Pkotlin.apple.xcodeCompatibility.nowarn=true
+          --stacktrace
+
+      - name: Run Store6 file sample
+        run: ./gradlew :file-sample:run --stacktrace
+
       - name: Reject core-internal access from extension modules
         shell: bash
         run: |
           set -euo pipefail
           status=0
-          for module in extension-probe testing sqldelight compose compose-demo room benchmarks devtools devtools-inspector devtools-demo mutations mutations-quickstart mutations-testing mutations-sqldelight mutations-drain mutations-drain/sample mutations-drain-meeseeks paging-androidx paging-androidx/sample graphql graphql/sample realtime realtime/sample; do
+          for module in extension-probe testing sqldelight compose compose-demo room benchmarks devtools devtools-inspector devtools-demo mutations mutations-quickstart mutations-testing mutations-sqldelight mutations-drain mutations-drain/sample mutations-drain-meeseeks paging-androidx paging-androidx/sample graphql graphql/sample realtime realtime/sample file file/sample; do
             source_dir="${module}/src"
             if [[ ! -d "${source_dir}" ]]; then
               echo "ERROR: expected extension source directory is missing: ${source_dir}" >&2
@@ -328,7 +338,7 @@ jobs:
           status=0
           banned_regex='(^|[^[:alnum:]_])(runBlocking|GlobalScope|atomicfu|Channel|actor)([^[:alnum:]_]|$)|kotlinx[.]coroutines[.]channels[.][*]'
           shopt -s nullglob
-          production_source_dirs=(core/src/*Main testing/src/*Main sqldelight/src/*Main compose/src/*Main room/src/*Main devtools/src/*Main devtools-inspector/src/*Main mutations/src/*Main mutations-testing/src/*Main mutations-sqldelight/src/*Main mutations-drain/src/*Main mutations-drain-meeseeks/src/*Main paging-androidx/src/*Main graphql/src/*Main realtime/src/*Main)
+          production_source_dirs=(core/src/*Main testing/src/*Main sqldelight/src/*Main compose/src/*Main room/src/*Main devtools/src/*Main devtools-inspector/src/*Main mutations/src/*Main mutations-testing/src/*Main mutations-sqldelight/src/*Main mutations-drain/src/*Main mutations-drain-meeseeks/src/*Main paging-androidx/src/*Main graphql/src/*Main realtime/src/*Main file/src/*Main)
           for source_dir in "${production_source_dirs[@]}"; do
             [[ -d "${source_dir}" ]] || continue
             if grep -rnE --include='*.kt' "${banned_regex}" "${source_dir}"; then
@@ -455,7 +465,7 @@ jobs:
           exit "${status}"
 
       - name: JS lock-discipline canary (full conformance suite on the JS lane)
-        run: ./gradlew :core:jsNodeTest :testing:jsNodeTest :mutations:jsNodeTest :mutations-testing:jsNodeTest :mutations-drain:jsNodeTest :mutations-drain-meeseeks:jsNodeTest :paging-androidx:jsNodeTest :graphql:jsNodeTest :realtime:jsNodeTest --stacktrace
+        run: ./gradlew :core:jsNodeTest :testing:jsNodeTest :mutations:jsNodeTest :mutations-testing:jsNodeTest :mutations-drain:jsNodeTest :mutations-drain-meeseeks:jsNodeTest :paging-androidx:jsNodeTest :graphql:jsNodeTest :realtime:jsNodeTest :file:jsNodeTest --stacktrace
 
       - name: Upload test reports
         if: ${{ failure() }}
@@ -548,6 +558,8 @@ jobs:
             :mutations-drain:iosSimulatorArm64Test \
             :mutations-drain:macosArm64Test \
             :mutations-drain-meeseeks:iosSimulatorArm64Test \
+            :file:iosSimulatorArm64Test \
+            :file:macosArm64Test \
             "-Pstore6.iosSimulatorDevice=${STORE6_IOS_SIMULATOR_DEVICE}" \
             --stacktrace
 
@@ -692,7 +704,7 @@ jobs:
 
       - name: Publish Store6 core to Maven local without signing
         run: >
-          ./gradlew :core:publishToMavenLocal :testing:publishToMavenLocal :sqldelight:publishToMavenLocal :compose:publishToMavenLocal :room:publishToMavenLocal :devtools:publishToMavenLocal :devtools-inspector:publishToMavenLocal :mutations:publishToMavenLocal :mutations-testing:publishToMavenLocal :mutations-sqldelight:publishToMavenLocal :mutations-drain:publishToMavenLocal :mutations-drain-meeseeks:publishToMavenLocal :paging-androidx:publishToMavenLocal :graphql:publishToMavenLocal :realtime:publishToMavenLocal
+          ./gradlew :core:publishToMavenLocal :testing:publishToMavenLocal :sqldelight:publishToMavenLocal :compose:publishToMavenLocal :room:publishToMavenLocal :devtools:publishToMavenLocal :devtools-inspector:publishToMavenLocal :mutations:publishToMavenLocal :mutations-testing:publishToMavenLocal :mutations-sqldelight:publishToMavenLocal :mutations-drain:publishToMavenLocal :mutations-drain-meeseeks:publishToMavenLocal :paging-androidx:publishToMavenLocal :graphql:publishToMavenLocal :realtime:publishToMavenLocal :file:publishToMavenLocal
           -Pkotlin.native.enableKlibsCrossCompilation=true
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
@@ -704,7 +716,7 @@ jobs:
           version="6.0.0-SNAPSHOT"
           repository="${HOME}/.m2/repository/org/mobilenativefoundation/store"
 
-          modules=(core testing sqldelight compose room devtools devtools-inspector mutations mutations-testing mutations-sqldelight mutations-drain mutations-drain-meeseeks paging-androidx graphql realtime)
+          modules=(core testing sqldelight compose room devtools devtools-inspector mutations mutations-testing mutations-sqldelight mutations-drain mutations-drain-meeseeks paging-androidx graphql realtime file)
           suffixes=(
             ""
             -android

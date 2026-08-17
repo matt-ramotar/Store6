@@ -19,6 +19,7 @@ spotlessPluginGradle = "6.4.1"
 skie = "0.10.13"
 junit = "4.13.2"
 kotlinxCoroutines = "1.8.1"
+kotlinxIo = "0.9.1"
 kotlinxSerialization = "1.6.3"
 kermit = "2.0.5"
 testCore = "1.6.1"
@@ -73,6 +74,7 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-rx2 = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-rx2", version.ref = "kotlinxCoroutines" }
+kotlinx-io-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-io-core", version.ref = "kotlinxIo" }
 molecule-gradle-plugin = { module = "app.cash.molecule:molecule-gradle-plugin", version.ref = "moleculeGradlePlugin" }
 molecule-runtime = { module = "app.cash.molecule:molecule-runtime", version.ref = "moleculeGradlePlugin" }
 rxjava = { group = "io.reactivex.rxjava2", name = "rxjava", version = "2.2.21" }
