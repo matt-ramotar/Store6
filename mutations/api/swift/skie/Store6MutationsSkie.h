@@ -6,9 +6,9 @@
 #import <Foundation/NSString.h>
 #import <Foundation/NSValue.h>
 
-@class SMS__SkieTypeExportsKt, SMS__SkieSuspendWrappersKt, SMSUShort, SMSULong, SMSUInt, SMSUByte, SMSStore6_coreStoreResultRevalidated, SMSStore6_coreStoreResultLoading, SMSStore6_coreStoreResultError, SMSStore6_coreStoreResultData<V>, SMSStore6_coreStoreNamespace, SMSStore6_coreStoreErrorPersistence, SMSStore6_coreStoreErrorMissing, SMSStore6_coreStoreErrorFreshnessUnsatisfiable, SMSStore6_coreStoreErrorFetch, SMSStore6_coreStoreErrorConversion, SMSStore6_coreStoreErrorConflict, SMSStore6_coreStoreError, SMSStore6_coreOrigin, SMSStore6_coreKeyStatus, SMSStore6_coreKeyEvents, SMSStore6_coreFreshnessStaleIfError, SMSStore6_coreFreshnessMustBeFresh, SMSStore6_coreFreshnessMaxAge, SMSStore6_coreFreshnessLocalOnly, SMSStore6_coreFreshnessContext, SMSStore6_coreFreshnessCachedOrFetch, SMSStore6_coreFetcherResultSuccess<V>, SMSStore6_coreFetcherResultNotModified, SMSStore6_coreFetcherResultError, SMSStore6_coreFetcherResultDeleted, SMSStore6_coreFetchPlanSkip, SMSStore6_coreFetchPlanFetch, SMSStore6_coreFetchPlanConditional, SMSStaleSet<K>, SMSSkie_SuspendResultSuccess, SMSSkie_SuspendResultError, SMSSkie_SuspendResultCanceled, SMSSkie_SuspendResult, SMSSkie_SuspendHandler, SMSSkie_CancellationHandler, SMSSkieKotlinStateFlow<T>, SMSSkieKotlinSharedFlow<T>, SMSSkieKotlinOptionalStateFlow<T>, SMSSkieKotlinOptionalSharedFlow<T>, SMSSkieKotlinOptionalMutableStateFlow<T>, SMSSkieKotlinOptionalMutableSharedFlow<T>, SMSSkieKotlinOptionalFlow<T>, SMSSkieKotlinMutableStateFlow<T>, SMSSkieKotlinMutableSharedFlow<T>, SMSSkieKotlinFlow<T>, SMSSkieColdFlowIterator<E>, SMSShort, SMSPoisonedIntent, SMSPendingIntent, SMSNumber, SMSMutatorRegistryKt, SMSMutatorRegistryBuilder<K, V>, SMSMutatorRegistry<K, V>, SMSMutatorRef<K, V, A>, SMSMutationTombstoneState, SMSMutationStoreKt, SMSMutationStoreBuilder<K, V>, SMSMutationStore<K, V>, SMSMutationRetirementAck, SMSMutationRetirement, SMSMutationRetired, SMSMutationPush<K, V>, SMSMutationPresentAck<K, V>, SMSMutationPresenceState, SMSMutationPresencePresent<V>, SMSMutationPresenceAbsent, SMSMutationPreconditionCandidate<K, V>, SMSMutationPendingState, SMSMutationParked, SMSMutationKeyTombstoneRecord, SMSMutationKeyIdentity, SMSMutationKeyAliasRecord, SMSMutationIntentRecord, SMSMutationFailureRecord, SMSMutationFailureKind, SMSMutationFailure, SMSMutationFailed, SMSMutationExecutionRecord, SMSMutationExecutionPhase, SMSMutationEnqueued, SMSMutationEffectSkipped, SMSMutationEffectRecord, SMSMutationEffectKind, SMSMutationEffectDisposition, SMSMutationEffectApplied, SMSMutationConflictResolutionServerWins, SMSMutationConflictResolutionRetry<V>, SMSMutationConflictObserved, SMSMutationConflictBuilder<K, V>, SMSMutationClientRecord, SMSMutationCheckpointFailed, SMSMutationCheckpointConfirmed, SMSMutationAttempted, SMSMutationAttemptRecord, SMSMutationAliasState, SMSMutationAdopted, SMSMutationAcknowledged, SMSMutationAckRecord, SMSMutationAbsentAck<K, V>, SMSMutableSet<ObjectType>, SMSMutableDictionary<KeyType, ObjectType>, SMSLong, SMSKotlinUnit, SMSKotlinThrowable, SMSKotlinRuntimeException, SMSKotlinIllegalStateException, SMSKotlinException, SMSKotlinEnumCompanion, SMSKotlinEnum<E>, SMSKotlinCancellationException, SMSKotlinByteIterator, SMSKotlinByteArray, SMSKotlinArray<T>, SMSInt, SMSInMemoryMutationJournalStorage, SMSFloat, SMSDouble, SMSDeadLetter, SMSByte, SMSBoolean, SMSBase, NSString, NSSet<ObjectType>, NSObject, NSNumber, NSMutableSet<ObjectType>, NSMutableDictionary<KeyType, ObjectType>, NSMutableArray<ObjectType>, NSError, NSDictionary<KeyType, ObjectType>, NSArray<ObjectType>;
+@class SMS__SkieTypeExportsKt, SMS__SkieSuspendWrappersKt, SMSUShort, SMSULong, SMSUInt, SMSUByte, SMSStaleSet<K>, SMSSkie_SuspendResultSuccess, SMSSkie_SuspendResultError, SMSSkie_SuspendResultCanceled, SMSSkie_SuspendResult, SMSSkie_SuspendHandler, SMSSkie_CancellationHandler, SMSSkieKotlinStateFlow<T>, SMSSkieKotlinSharedFlow<T>, SMSSkieKotlinOptionalStateFlow<T>, SMSSkieKotlinOptionalSharedFlow<T>, SMSSkieKotlinOptionalMutableStateFlow<T>, SMSSkieKotlinOptionalMutableSharedFlow<T>, SMSSkieKotlinOptionalFlow<T>, SMSSkieKotlinMutableStateFlow<T>, SMSSkieKotlinMutableSharedFlow<T>, SMSSkieKotlinFlow<T>, SMSSkieColdFlowIterator<E>, SMSShort, SMSPoisonedIntent, SMSPendingIntent, SMSNumber, SMSMutatorRegistryKt, SMSMutatorRegistryBuilder<K, V>, SMSMutatorRegistry<K, V>, SMSMutatorRef<K, V, A>, SMSMutationTombstoneState, SMSMutationStoreKt, SMSMutationStoreBuilder<K, V>, SMSMutationStore<K, V>, SMSMutationRetirementAck, SMSMutationRetirement, SMSMutationRetired, SMSMutationPush<K, V>, SMSMutationPresentAck<K, V>, SMSMutationPresenceState, SMSMutationPresencePresent<V>, SMSMutationPresenceAbsent, SMSMutationPreconditionCandidate<K, V>, SMSMutationPendingState, SMSMutationParked, SMSMutationKeyTombstoneRecord, SMSMutationKeyIdentity, SMSMutationKeyAliasRecord, SMSMutationIntentRecord, SMSMutationFailureRecord, SMSMutationFailureKind, SMSMutationFailure, SMSMutationFailed, SMSMutationExecutionRecord, SMSMutationExecutionPhase, SMSMutationEnqueued, SMSMutationEffectSkipped, SMSMutationEffectRecord, SMSMutationEffectKind, SMSMutationEffectDisposition, SMSMutationEffectApplied, SMSMutationConflictResolutionServerWins, SMSMutationConflictResolutionRetry<V>, SMSMutationConflictObserved, SMSMutationConflictBuilder<K, V>, SMSMutationClientRecord, SMSMutationCheckpointFailed, SMSMutationCheckpointConfirmed, SMSMutationAttempted, SMSMutationAttemptRecord, SMSMutationAliasState, SMSMutationAdopted, SMSMutationAcknowledged, SMSMutationAckRecord, SMSMutationAbsentAck<K, V>, SMSMutableSet<ObjectType>, SMSMutableDictionary<KeyType, ObjectType>, SMSLong, SMSKotlinUnit, SMSKotlinThrowable, SMSKotlinRuntimeException, SMSKotlinIllegalStateException, SMSKotlinException, SMSKotlinEnumCompanion, SMSKotlinEnum<E>, SMSKotlinCancellationException, SMSKotlinByteIterator, SMSKotlinByteArray, SMSKotlinArray<T>, SMSInt, SMSInMemoryMutationJournalStorage, SMSFloat, SMSDouble, SMSDeadLetter, SMSCoreStoreResultRevalidated, SMSCoreStoreResultLoading, SMSCoreStoreResultError, SMSCoreStoreResultData<V>, SMSCoreStoreNamespace, SMSCoreStoreErrorPersistence, SMSCoreStoreErrorMissing, SMSCoreStoreErrorFreshnessUnsatisfiable, SMSCoreStoreErrorFetch, SMSCoreStoreErrorConversion, SMSCoreStoreErrorConflict, SMSCoreStoreError, SMSCoreOrigin, SMSCoreKeyStatus, SMSCoreKeyEvents, SMSCoreFreshnessStaleIfError, SMSCoreFreshnessMustBeFresh, SMSCoreFreshnessMaxAge, SMSCoreFreshnessLocalOnly, SMSCoreFreshnessContext, SMSCoreFreshnessCachedOrFetch, SMSCoreFetcherResultSuccess<V>, SMSCoreFetcherResultNotModified, SMSCoreFetcherResultError, SMSCoreFetcherResultDeleted, SMSCoreFetchPlanSkip, SMSCoreFetchPlanFetch, SMSCoreFetchPlanConditional, SMSByte, SMSBoolean, SMSBase, NSString, NSSet<ObjectType>, NSObject, NSNumber, NSMutableSet<ObjectType>, NSMutableDictionary<KeyType, ObjectType>, NSMutableArray<ObjectType>, NSError, NSDictionary<KeyType, ObjectType>, NSArray<ObjectType>;
 
-@protocol SMSStore6_coreWallClock, SMSStore6_coreStoreTelemetry, SMSStore6_coreStoreResult, SMSStore6_coreStoreMeta, SMSStore6_coreStoreKey, SMSStore6_coreStore, SMSStore6_coreSourceOfTruth, SMSStore6_coreFreshnessValidator, SMSStore6_coreFreshness, SMSStore6_coreFetcherResult, SMSStore6_coreFetcher, SMSStore6_coreFetchPlan, SMSStore6_coreBookkeeper, SMSSkie_DispatcherDelegate, SMSMutationServer, SMSMutationPresence, SMSMutationKeyResolver, SMSMutationJournalTransaction, SMSMutationJournalStorage, SMSMutationIntentEvent, SMSMutationEvent, SMSMutationConflictResolution, SMSMutationCodec, SMSMutationAck, SMSKotlinx_coroutines_coreStateFlow, SMSKotlinx_coroutines_coreSharedFlow, SMSKotlinx_coroutines_coreRunnable, SMSKotlinx_coroutines_coreMutableStateFlow, SMSKotlinx_coroutines_coreMutableSharedFlow, SMSKotlinx_coroutines_coreFlowCollector, SMSKotlinx_coroutines_coreFlow, SMSKotlinSuspendFunction1, SMSKotlinIterator, SMSKotlinFunction, SMSKotlinComparable, NSCopying;
+@protocol SMSSkie_DispatcherDelegate, SMSMutationServer, SMSMutationPresence, SMSMutationKeyResolver, SMSMutationJournalTransaction, SMSMutationJournalStorage, SMSMutationIntentEvent, SMSMutationEvent, SMSMutationConflictResolution, SMSMutationCodec, SMSMutationAck, SMSKotlinx_coroutines_coreStateFlow, SMSKotlinx_coroutines_coreSharedFlow, SMSKotlinx_coroutines_coreRunnable, SMSKotlinx_coroutines_coreMutableStateFlow, SMSKotlinx_coroutines_coreMutableSharedFlow, SMSKotlinx_coroutines_coreFlowCollector, SMSKotlinx_coroutines_coreFlow, SMSKotlinSuspendFunction1, SMSKotlinIterator, SMSKotlinFunction, SMSKotlinComparable, SMSCoreWallClock, SMSCoreStoreTelemetry, SMSCoreStoreResult, SMSCoreStoreMeta, SMSCoreStoreKey, SMSCoreStore, SMSCoreSourceOfTruth, SMSCoreFreshnessValidator, SMSCoreFreshness, SMSCoreFetcherResult, SMSCoreFetcher, SMSCoreFetchPlan, SMSCoreBookkeeper, NSCopying;
 
 // Due to an Obj-C/Swift interop limitation, SKIE cannot generate Swift types with a lambda type argument.
 // Example of such type is: A<() -> Unit> where A<T> is a generic class.
@@ -840,7 +840,7 @@ __attribute__((swift_name("MutationConflictBuilder")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)preconditionSelect:(id<SMSStore6_coreStoreMeta> _Nullable (^)(SMSMutationPreconditionCandidate<K, V> *))select __attribute__((swift_name("precondition(select:)")));
+- (void)preconditionSelect:(id<SMSCoreStoreMeta> _Nullable (^)(SMSMutationPreconditionCandidate<K, V> *))select __attribute__((swift_name("precondition(select:)")));
 @end
 
 
@@ -855,7 +855,7 @@ __attribute__((swift_name("MutationConflictObserved")))
 @property (readonly) SMSMutationKeyIdentity *identity __attribute__((swift_name("identity")));
 @property (readonly) NSString *mutationId __attribute__((swift_name("mutationId")));
 @property (readonly) int64_t occurredAtEpochMillis __attribute__((swift_name("occurredAtEpochMillis")));
-@property (readonly) id<SMSStore6_coreStoreMeta> _Nullable serverMeta __attribute__((swift_name("serverMeta")));
+@property (readonly) id<SMSCoreStoreMeta> _Nullable serverMeta __attribute__((swift_name("serverMeta")));
 
 /**
  * @note annotations
@@ -1203,7 +1203,7 @@ __attribute__((swift_name("MutationKeyResolver")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)resolveIdentity:(SMSMutationKeyIdentity *)identity completionHandler:(void (^)(id<SMSStore6_coreStoreKey> _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("resolve(identity:completionHandler:)")));
+- (void)resolveIdentity:(SMSMutationKeyIdentity *)identity completionHandler:(void (^)(id<SMSCoreStoreKey> _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("resolve(identity:completionHandler:)")));
 @end
 
 
@@ -1275,7 +1275,7 @@ __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("MutationPreconditionCandidate")))
 @interface SMSMutationPreconditionCandidate<K, V> : SMSBase
 @property (readonly) id<SMSMutationPresence> base __attribute__((swift_name("base")));
-@property (readonly) id<SMSStore6_coreStoreMeta> _Nullable capturedMeta __attribute__((swift_name("capturedMeta")));
+@property (readonly) id<SMSCoreStoreMeta> _Nullable capturedMeta __attribute__((swift_name("capturedMeta")));
 @property (readonly) int32_t generation __attribute__((swift_name("generation")));
 @property (readonly) SMSMutationKeyIdentity *identity __attribute__((swift_name("identity")));
 @property (readonly) K key __attribute__((swift_name("key")));
@@ -1414,7 +1414,7 @@ __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("MutationPush")))
 @interface SMSMutationPush<K, V> : SMSBase
 @property (readonly) id<SMSMutationPresence> base __attribute__((swift_name("base")));
-@property (readonly) id<SMSStore6_coreStoreMeta> _Nullable baseMeta __attribute__((swift_name("baseMeta")));
+@property (readonly) id<SMSCoreStoreMeta> _Nullable baseMeta __attribute__((swift_name("baseMeta")));
 @property (readonly) NSString *clientId __attribute__((swift_name("clientId")));
 @property (readonly) int64_t clientSequence __attribute__((swift_name("clientSequence")));
 @property (readonly) int32_t generation __attribute__((swift_name("generation")));
@@ -1581,7 +1581,7 @@ __attribute__((swift_name("MutationServer")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)pushRequest:(SMSMutationPush<id<SMSStore6_coreStoreKey>, id> *)request completionHandler:(void (^)(id<SMSMutationAck> _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("push(request:completionHandler:)")));
+- (void)pushRequest:(SMSMutationPush<id<SMSCoreStoreKey>, id> *)request completionHandler:(void (^)(id<SMSMutationAck> _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("push(request:completionHandler:)")));
 
 /**
  * @note annotations
@@ -1597,15 +1597,15 @@ __attribute__((swift_name("MutationServer")))
  * @note annotations
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreStore")))
-@protocol SMSStore6_coreStore
+__attribute__((swift_name("CoreStore")))
+@protocol SMSCoreStore
 @required
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)clearKey:(id<SMSStore6_coreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clear(key:completionHandler:)")));
+- (void)clearKey:(id<SMSCoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clear(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -1617,20 +1617,20 @@ __attribute__((swift_name("Store6_coreStore")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)clearNamespaceNamespace:(SMSStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clearNamespace(namespace:completionHandler:)")));
+- (void)clearNamespaceNamespace:(SMSCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clearNamespace(namespace:completionHandler:)")));
 - (void)close __attribute__((swift_name("close()")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)getKey:(id<SMSStore6_coreStoreKey>)key freshness:(id<SMSStore6_coreFreshness>)freshness completionHandler:(void (^)(id _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("get(key:freshness:completionHandler:)")));
+- (void)getKey:(id<SMSCoreStoreKey>)key freshness:(id<SMSCoreFreshness>)freshness completionHandler:(void (^)(id _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("get(key:freshness:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)invalidateKey:(id<SMSStore6_coreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidate(key:completionHandler:)")));
+- (void)invalidateKey:(id<SMSCoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidate(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -1642,8 +1642,8 @@ __attribute__((swift_name("Store6_coreStore")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)invalidateNamespaceNamespace:(SMSStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidateNamespace(namespace:completionHandler:)")));
-- (id<SMSKotlinx_coroutines_coreFlow>)streamKey:(id<SMSStore6_coreStoreKey>)key freshness:(id<SMSStore6_coreFreshness>)freshness __attribute__((swift_name("stream(key:freshness:)")));
+- (void)invalidateNamespaceNamespace:(SMSCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidateNamespace(namespace:completionHandler:)")));
+- (id<SMSKotlinx_coroutines_coreFlow>)streamKey:(id<SMSCoreStoreKey>)key freshness:(id<SMSCoreFreshness>)freshness __attribute__((swift_name("stream(key:freshness:)")));
 @end
 
 
@@ -1653,7 +1653,7 @@ __attribute__((swift_name("Store6_coreStore")))
 */
 __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("MutationStore")))
-@interface SMSMutationStore<K, V> : SMSBase <SMSStore6_coreStore>
+@interface SMSMutationStore<K, V> : SMSBase <SMSCoreStore>
 @property (readonly) id<SMSKotlinx_coroutines_coreSharedFlow> events __attribute__((swift_name("events")));
 @property (readonly) id<SMSKotlinx_coroutines_coreFlow> keyEvents __attribute__((swift_name("keyEvents")));
 @property (readonly) id<SMSKotlinx_coroutines_coreSharedFlow> poisoned __attribute__((swift_name("poisoned")));
@@ -1674,7 +1674,7 @@ __attribute__((swift_name("MutationStore")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)clearNamespaceNamespace:(SMSStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clearNamespace(namespace:completionHandler:)")));
+- (void)clearNamespaceNamespace:(SMSCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clearNamespace(namespace:completionHandler:)")));
 - (void)close __attribute__((swift_name("close()")));
 
 /**
@@ -1705,7 +1705,7 @@ __attribute__((swift_name("MutationStore")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)getKey:(K)key freshness:(id<SMSStore6_coreFreshness>)freshness completionHandler:(void (^)(V _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("get(key:freshness:completionHandler:)")));
+- (void)getKey:(K)key freshness:(id<SMSCoreFreshness>)freshness completionHandler:(void (^)(V _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("get(key:freshness:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -1723,7 +1723,7 @@ __attribute__((swift_name("MutationStore")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)invalidateNamespaceNamespace:(SMSStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidateNamespace(namespace:completionHandler:)")));
+- (void)invalidateNamespaceNamespace:(SMSCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidateNamespace(namespace:completionHandler:)")));
 
 /**
  * @note annotations
@@ -1748,7 +1748,7 @@ __attribute__((swift_name("MutationStore")))
  * Other uncaught Kotlin exceptions are fatal.
 */
 - (void)pendingWritesWithCompletionHandler:(void (^)(NSArray<SMSPendingIntent *> * _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("pendingWrites(completionHandler:)")));
-- (id<SMSKotlinx_coroutines_coreFlow>)streamKey:(K)key freshness:(id<SMSStore6_coreFreshness>)freshness __attribute__((swift_name("stream(key:freshness:)")));
+- (id<SMSKotlinx_coroutines_coreFlow>)streamKey:(K)key freshness:(id<SMSCoreFreshness>)freshness __attribute__((swift_name("stream(key:freshness:)")));
 
 /**
  * @note annotations
@@ -1779,7 +1779,7 @@ __attribute__((swift_name("MutationStoreBuilder")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)bookkeeperBookkeeper:(id<SMSStore6_coreBookkeeper>)bookkeeper __attribute__((swift_name("bookkeeper(bookkeeper:)")));
+- (void)bookkeeperBookkeeper:(id<SMSCoreBookkeeper>)bookkeeper __attribute__((swift_name("bookkeeper(bookkeeper:)")));
 
 /**
  * @note annotations
@@ -1797,7 +1797,7 @@ __attribute__((swift_name("MutationStoreBuilder")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)fetcherFetcher:(id<SMSStore6_coreFetcher>)fetcher __attribute__((swift_name("fetcher(fetcher:)")));
+- (void)fetcherFetcher:(id<SMSCoreFetcher>)fetcher __attribute__((swift_name("fetcher(fetcher:)")));
 
 /**
  * @note annotations
@@ -1809,7 +1809,7 @@ __attribute__((swift_name("MutationStoreBuilder")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)freshnessValidatorValidator:(id<SMSStore6_coreFreshnessValidator>)validator __attribute__((swift_name("freshnessValidator(validator:)")));
+- (void)freshnessValidatorValidator:(id<SMSCoreFreshnessValidator>)validator __attribute__((swift_name("freshnessValidator(validator:)")));
 
 /**
  * @note annotations
@@ -1827,19 +1827,19 @@ __attribute__((swift_name("MutationStoreBuilder")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)persistenceSot:(id<SMSStore6_coreSourceOfTruth>)sot __attribute__((swift_name("persistence(sot:)")));
+- (void)persistenceSot:(id<SMSCoreSourceOfTruth>)sot __attribute__((swift_name("persistence(sot:)")));
 
 /**
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)telemetryTelemetry:(id<SMSStore6_coreStoreTelemetry>)telemetry __attribute__((swift_name("telemetry(telemetry:)")));
+- (void)telemetryTelemetry:(id<SMSCoreStoreTelemetry>)telemetry __attribute__((swift_name("telemetry(telemetry:)")));
 
 /**
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)wallClockWallClock:(id<SMSStore6_coreWallClock>)wallClock __attribute__((swift_name("wallClock(wallClock:)")));
+- (void)wallClockWallClock:(id<SMSCoreWallClock>)wallClock __attribute__((swift_name("wallClock(wallClock:)")));
 @end
 
 
@@ -1997,8 +1997,8 @@ __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("StaleSet")))
 @interface SMSStaleSet<K> : SMSBase
 @property (readonly) NSSet<K> *keys __attribute__((swift_name("keys")));
-@property (readonly) NSSet<SMSStore6_coreStoreNamespace *> *namespaces __attribute__((swift_name("namespaces")));
-- (instancetype)initWithKeys:(NSSet<K> *)keys namespaces:(NSSet<SMSStore6_coreStoreNamespace *> *)namespaces __attribute__((swift_name("init(keys:namespaces:)"))) __attribute__((objc_designated_initializer));
+@property (readonly) NSSet<SMSCoreStoreNamespace *> *namespaces __attribute__((swift_name("namespaces")));
+- (instancetype)initWithKeys:(NSSet<K> *)keys namespaces:(NSSet<SMSCoreStoreNamespace *> *)namespaces __attribute__((swift_name("init(keys:namespaces:)"))) __attribute__((objc_designated_initializer));
 
 /**
  * @note annotations
@@ -2835,7 +2835,7 @@ __attribute__((swift_name("MutationStoreKt")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-+ (SMSMutationStore<id<SMSStore6_coreStoreKey>, id> *)mutationStoreRegistry:(SMSMutatorRegistry<id<SMSStore6_coreStoreKey>, id> *)registry server:(id<SMSMutationServer>)server keyResolver:(id<SMSMutationKeyResolver>)keyResolver valueCodecVersion:(int32_t)valueCodecVersion valueCodec:(id<SMSMutationCodec>)valueCodec configure:(void (^)(SMSMutationStoreBuilder<id<SMSStore6_coreStoreKey>, id> *))configure __attribute__((swift_name("mutationStore(registry:server:keyResolver:valueCodecVersion:valueCodec:configure:)")));
++ (SMSMutationStore<id<SMSCoreStoreKey>, id> *)mutationStoreRegistry:(SMSMutatorRegistry<id<SMSCoreStoreKey>, id> *)registry server:(id<SMSMutationServer>)server keyResolver:(id<SMSMutationKeyResolver>)keyResolver valueCodecVersion:(int32_t)valueCodecVersion valueCodec:(id<SMSMutationCodec>)valueCodec configure:(void (^)(SMSMutationStoreBuilder<id<SMSCoreStoreKey>, id> *))configure __attribute__((swift_name("mutationStore(registry:server:keyResolver:valueCodecVersion:valueCodec:configure:)")));
 @end
 
 __attribute__((objc_subclassing_restricted))
@@ -2846,7 +2846,7 @@ __attribute__((swift_name("MutatorRegistryKt")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-+ (SMSMutatorRegistry<id<SMSStore6_coreStoreKey>, id> *)mutatorRegistryConfigure:(void (^)(SMSMutatorRegistryBuilder<id<SMSStore6_coreStoreKey>, id> *))configure __attribute__((swift_name("mutatorRegistry(configure:)")));
++ (SMSMutatorRegistry<id<SMSCoreStoreKey>, id> *)mutatorRegistryConfigure:(void (^)(SMSMutatorRegistryBuilder<id<SMSCoreStoreKey>, id> *))configure __attribute__((swift_name("mutatorRegistry(configure:)")));
 @end
 
 __attribute__((objc_subclassing_restricted))
@@ -2854,46 +2854,46 @@ __attribute__((swift_name("__SkieSuspendWrappersKt")))
 @interface SMS__SkieSuspendWrappersKt : SMSBase
 + (void)Skie_Suspend__0__resolveDispatchReceiver:(id<SMSMutationKeyResolver>)dispatchReceiver identity:(SMSMutationKeyIdentity *)identity suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__0__resolve(dispatchReceiver:identity:suspendHandler:)")));
 + (void)Skie_Suspend__10__emitDispatchReceiver:(id<SMSKotlinx_coroutines_coreFlowCollector>)dispatchReceiver value:(id _Nullable)value suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__10__emit(dispatchReceiver:value:suspendHandler:)")));
-+ (void)Skie_Suspend__11__clearDispatchReceiver:(id<SMSStore6_coreStore>)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__11__clear(dispatchReceiver:key:suspendHandler:)")));
-+ (void)Skie_Suspend__12__clearAllDispatchReceiver:(id<SMSStore6_coreStore>)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__12__clearAll(dispatchReceiver:suspendHandler:)")));
-+ (void)Skie_Suspend__13__clearNamespaceDispatchReceiver:(id<SMSStore6_coreStore>)dispatchReceiver namespace:(SMSStore6_coreStoreNamespace *)namespace_ suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__13__clearNamespace(dispatchReceiver:namespace:suspendHandler:)")));
-+ (void)Skie_Suspend__14__getDispatchReceiver:(id<SMSStore6_coreStore>)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key freshness:(id<SMSStore6_coreFreshness>)freshness suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__14__get(dispatchReceiver:key:freshness:suspendHandler:)")));
-+ (void)Skie_Suspend__15__invalidateDispatchReceiver:(id<SMSStore6_coreStore>)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__15__invalidate(dispatchReceiver:key:suspendHandler:)")));
-+ (void)Skie_Suspend__16__invalidateAllDispatchReceiver:(id<SMSStore6_coreStore>)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__16__invalidateAll(dispatchReceiver:suspendHandler:)")));
-+ (void)Skie_Suspend__17__invalidateNamespaceDispatchReceiver:(id<SMSStore6_coreStore>)dispatchReceiver namespace:(SMSStore6_coreStoreNamespace *)namespace_ suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__17__invalidateNamespace(dispatchReceiver:namespace:suspendHandler:)")));
-+ (void)Skie_Suspend__18__deleteDispatchReceiver:(id<SMSStore6_coreSourceOfTruth>)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__18__delete(dispatchReceiver:key:suspendHandler:)")));
-+ (void)Skie_Suspend__19__deleteAllDispatchReceiver:(id<SMSStore6_coreSourceOfTruth>)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__19__deleteAll(dispatchReceiver:suspendHandler:)")));
-+ (void)Skie_Suspend__1__pushDispatchReceiver:(id<SMSMutationServer>)dispatchReceiver request:(SMSMutationPush<id<SMSStore6_coreStoreKey>, id> *)request suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__1__push(dispatchReceiver:request:suspendHandler:)")));
-+ (void)Skie_Suspend__20__deleteNamespaceDispatchReceiver:(id<SMSStore6_coreSourceOfTruth>)dispatchReceiver namespace:(SMSStore6_coreStoreNamespace *)namespace_ suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__20__deleteNamespace(dispatchReceiver:namespace:suspendHandler:)")));
-+ (void)Skie_Suspend__21__writeDispatchReceiver:(id<SMSStore6_coreSourceOfTruth>)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key value:(id)value suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__21__write(dispatchReceiver:key:value:suspendHandler:)")));
++ (void)Skie_Suspend__11__clearDispatchReceiver:(id<SMSCoreStore>)dispatchReceiver key:(id<SMSCoreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__11__clear(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__12__clearAllDispatchReceiver:(id<SMSCoreStore>)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__12__clearAll(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__13__clearNamespaceDispatchReceiver:(id<SMSCoreStore>)dispatchReceiver namespace:(SMSCoreStoreNamespace *)namespace_ suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__13__clearNamespace(dispatchReceiver:namespace:suspendHandler:)")));
++ (void)Skie_Suspend__14__getDispatchReceiver:(id<SMSCoreStore>)dispatchReceiver key:(id<SMSCoreStoreKey>)key freshness:(id<SMSCoreFreshness>)freshness suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__14__get(dispatchReceiver:key:freshness:suspendHandler:)")));
++ (void)Skie_Suspend__15__invalidateDispatchReceiver:(id<SMSCoreStore>)dispatchReceiver key:(id<SMSCoreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__15__invalidate(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__16__invalidateAllDispatchReceiver:(id<SMSCoreStore>)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__16__invalidateAll(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__17__invalidateNamespaceDispatchReceiver:(id<SMSCoreStore>)dispatchReceiver namespace:(SMSCoreStoreNamespace *)namespace_ suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__17__invalidateNamespace(dispatchReceiver:namespace:suspendHandler:)")));
++ (void)Skie_Suspend__18__deleteDispatchReceiver:(id<SMSCoreSourceOfTruth>)dispatchReceiver key:(id<SMSCoreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__18__delete(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__19__deleteAllDispatchReceiver:(id<SMSCoreSourceOfTruth>)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__19__deleteAll(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__1__pushDispatchReceiver:(id<SMSMutationServer>)dispatchReceiver request:(SMSMutationPush<id<SMSCoreStoreKey>, id> *)request suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__1__push(dispatchReceiver:request:suspendHandler:)")));
++ (void)Skie_Suspend__20__deleteNamespaceDispatchReceiver:(id<SMSCoreSourceOfTruth>)dispatchReceiver namespace:(SMSCoreStoreNamespace *)namespace_ suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__20__deleteNamespace(dispatchReceiver:namespace:suspendHandler:)")));
++ (void)Skie_Suspend__21__writeDispatchReceiver:(id<SMSCoreSourceOfTruth>)dispatchReceiver key:(id<SMSCoreStoreKey>)key value:(id)value suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__21__write(dispatchReceiver:key:value:suspendHandler:)")));
 + (void)Skie_Suspend__22__transactionDispatchReceiver:(id<SMSMutationJournalStorage>)dispatchReceiver block:(id _Nullable (^)(id<SMSMutationJournalTransaction>))block suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__22__transaction(dispatchReceiver:block:suspendHandler:)")));
 + (void)Skie_Suspend__23__invokeDispatchReceiver:(id<SMSKotlinSuspendFunction1>)dispatchReceiver p1:(id _Nullable)p1 suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__23__invoke(dispatchReceiver:p1:suspendHandler:)")));
-+ (void)Skie_Suspend__24__fetchDispatchReceiver:(id<SMSStore6_coreFetcher>)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key etag:(NSString * _Nullable)etag suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__24__fetch(dispatchReceiver:key:etag:suspendHandler:)")));
-+ (void)Skie_Suspend__25__advanceGlobalStaleWatermarkDispatchReceiver:(id<SMSStore6_coreBookkeeper>)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__25__advanceGlobalStaleWatermark(dispatchReceiver:suspendHandler:)")));
-+ (void)Skie_Suspend__26__advanceStaleWatermarkDispatchReceiver:(id<SMSStore6_coreBookkeeper>)dispatchReceiver namespace:(SMSStore6_coreStoreNamespace *)namespace_ suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__26__advanceStaleWatermark(dispatchReceiver:namespace:suspendHandler:)")));
-+ (void)Skie_Suspend__27__forgetDispatchReceiver:(id<SMSStore6_coreBookkeeper>)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__27__forget(dispatchReceiver:key:suspendHandler:)")));
-+ (void)Skie_Suspend__28__forgetAllDispatchReceiver:(id<SMSStore6_coreBookkeeper>)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__28__forgetAll(dispatchReceiver:suspendHandler:)")));
-+ (void)Skie_Suspend__29__forgetNamespaceDispatchReceiver:(id<SMSStore6_coreBookkeeper>)dispatchReceiver namespace:(SMSStore6_coreStoreNamespace *)namespace_ suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__29__forgetNamespace(dispatchReceiver:namespace:suspendHandler:)")));
++ (void)Skie_Suspend__24__fetchDispatchReceiver:(id<SMSCoreFetcher>)dispatchReceiver key:(id<SMSCoreStoreKey>)key etag:(NSString * _Nullable)etag suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__24__fetch(dispatchReceiver:key:etag:suspendHandler:)")));
++ (void)Skie_Suspend__25__advanceGlobalStaleWatermarkDispatchReceiver:(id<SMSCoreBookkeeper>)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__25__advanceGlobalStaleWatermark(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__26__advanceStaleWatermarkDispatchReceiver:(id<SMSCoreBookkeeper>)dispatchReceiver namespace:(SMSCoreStoreNamespace *)namespace_ suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__26__advanceStaleWatermark(dispatchReceiver:namespace:suspendHandler:)")));
++ (void)Skie_Suspend__27__forgetDispatchReceiver:(id<SMSCoreBookkeeper>)dispatchReceiver key:(id<SMSCoreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__27__forget(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__28__forgetAllDispatchReceiver:(id<SMSCoreBookkeeper>)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__28__forgetAll(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__29__forgetNamespaceDispatchReceiver:(id<SMSCoreBookkeeper>)dispatchReceiver namespace:(SMSCoreStoreNamespace *)namespace_ suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__29__forgetNamespace(dispatchReceiver:namespace:suspendHandler:)")));
 + (void)Skie_Suspend__2__retireDispatchReceiver:(id<SMSMutationServer>)dispatchReceiver request:(SMSMutationRetirement *)request suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__2__retire(dispatchReceiver:request:suspendHandler:)")));
-+ (void)Skie_Suspend__30__markStaleDispatchReceiver:(id<SMSStore6_coreBookkeeper>)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__30__markStale(dispatchReceiver:key:suspendHandler:)")));
-+ (void)Skie_Suspend__31__recordFailureDispatchReceiver:(id<SMSStore6_coreBookkeeper>)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key atEpochMillis:(int64_t)atEpochMillis suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__31__recordFailure(dispatchReceiver:key:atEpochMillis:suspendHandler:)")));
-+ (void)Skie_Suspend__32__recordSuccessDispatchReceiver:(id<SMSStore6_coreBookkeeper>)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key meta:(id<SMSStore6_coreStoreMeta>)meta suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__32__recordSuccess(dispatchReceiver:key:meta:suspendHandler:)")));
-+ (void)Skie_Suspend__33__statusDispatchReceiver:(id<SMSStore6_coreBookkeeper>)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__33__status(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__30__markStaleDispatchReceiver:(id<SMSCoreBookkeeper>)dispatchReceiver key:(id<SMSCoreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__30__markStale(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__31__recordFailureDispatchReceiver:(id<SMSCoreBookkeeper>)dispatchReceiver key:(id<SMSCoreStoreKey>)key atEpochMillis:(int64_t)atEpochMillis suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__31__recordFailure(dispatchReceiver:key:atEpochMillis:suspendHandler:)")));
++ (void)Skie_Suspend__32__recordSuccessDispatchReceiver:(id<SMSCoreBookkeeper>)dispatchReceiver key:(id<SMSCoreStoreKey>)key meta:(id<SMSCoreStoreMeta>)meta suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__32__recordSuccess(dispatchReceiver:key:meta:suspendHandler:)")));
++ (void)Skie_Suspend__33__statusDispatchReceiver:(id<SMSCoreBookkeeper>)dispatchReceiver key:(id<SMSCoreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__33__status(dispatchReceiver:key:suspendHandler:)")));
 + (void)Skie_Suspend__34__hasNextDispatchReceiver:(SMSSkieColdFlowIterator<id> *)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__34__hasNext(dispatchReceiver:suspendHandler:)")));
-+ (void)Skie_Suspend__3__deadLettersDispatchReceiver:(SMSMutationStore<id<SMSStore6_coreStoreKey>, id> *)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__3__deadLetters(dispatchReceiver:suspendHandler:)")));
-+ (void)Skie_Suspend__4__drainDispatchReceiver:(SMSMutationStore<id<SMSStore6_coreStoreKey>, id> *)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__4__drain(dispatchReceiver:key:suspendHandler:)")));
-+ (void)Skie_Suspend__5__drainDispatchReceiver:(SMSMutationStore<id<SMSStore6_coreStoreKey>, id> *)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__5__drain(dispatchReceiver:suspendHandler:)")));
-+ (void)Skie_Suspend__6__mutateDispatchReceiver:(SMSMutationStore<id<SMSStore6_coreStoreKey>, id> *)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key ref:(SMSMutatorRef<id<SMSStore6_coreStoreKey>, id, id> *)ref args:(id)args suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__6__mutate(dispatchReceiver:key:ref:args:suspendHandler:)")));
-+ (void)Skie_Suspend__7__pendingDispatchReceiver:(SMSMutationStore<id<SMSStore6_coreStoreKey>, id> *)dispatchReceiver key:(id<SMSStore6_coreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__7__pending(dispatchReceiver:key:suspendHandler:)")));
-+ (void)Skie_Suspend__8__pendingWritesDispatchReceiver:(SMSMutationStore<id<SMSStore6_coreStoreKey>, id> *)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__8__pendingWrites(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__3__deadLettersDispatchReceiver:(SMSMutationStore<id<SMSCoreStoreKey>, id> *)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__3__deadLetters(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__4__drainDispatchReceiver:(SMSMutationStore<id<SMSCoreStoreKey>, id> *)dispatchReceiver key:(id<SMSCoreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__4__drain(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__5__drainDispatchReceiver:(SMSMutationStore<id<SMSCoreStoreKey>, id> *)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__5__drain(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__6__mutateDispatchReceiver:(SMSMutationStore<id<SMSCoreStoreKey>, id> *)dispatchReceiver key:(id<SMSCoreStoreKey>)key ref:(SMSMutatorRef<id<SMSCoreStoreKey>, id, id> *)ref args:(id)args suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__6__mutate(dispatchReceiver:key:ref:args:suspendHandler:)")));
++ (void)Skie_Suspend__7__pendingDispatchReceiver:(SMSMutationStore<id<SMSCoreStoreKey>, id> *)dispatchReceiver key:(id<SMSCoreStoreKey>)key suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__7__pending(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__8__pendingWritesDispatchReceiver:(SMSMutationStore<id<SMSCoreStoreKey>, id> *)dispatchReceiver suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__8__pendingWrites(dispatchReceiver:suspendHandler:)")));
 + (void)Skie_Suspend__9__collectDispatchReceiver:(id<SMSKotlinx_coroutines_coreFlow>)dispatchReceiver collector:(id<SMSKotlinx_coroutines_coreFlowCollector>)collector suspendHandler:(SMSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__9__collect(dispatchReceiver:collector:suspendHandler:)")));
 @end
 
 __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("__SkieTypeExportsKt")))
 @interface SMS__SkieTypeExportsKt : SMSBase
-+ (void)skieTypeExports_0P0:(SMSStore6_coreFreshnessCachedOrFetch *)p0 p1:(SMSStore6_coreFreshnessLocalOnly *)p1 p2:(SMSStore6_coreFreshnessMaxAge *)p2 p3:(SMSStore6_coreFreshnessMustBeFresh *)p3 p4:(SMSStore6_coreFreshnessStaleIfError *)p4 p5:(SMSStore6_coreStoreErrorConflict *)p5 p6:(SMSStore6_coreStoreErrorConversion *)p6 p7:(SMSStore6_coreStoreErrorFetch *)p7 p8:(SMSStore6_coreStoreErrorFreshnessUnsatisfiable *)p8 p9:(SMSStore6_coreStoreErrorMissing *)p9 p10:(SMSStore6_coreStoreErrorPersistence *)p10 p11:(id<SMSStore6_coreStoreResult>)p11 p12:(SMSStore6_coreFetchPlanConditional *)p12 p13:(SMSStore6_coreFetchPlanFetch *)p13 p14:(SMSStore6_coreFetchPlanSkip *)p14 p15:(SMSStore6_coreFetcherResultDeleted *)p15 p16:(SMSStore6_coreFetcherResultError *)p16 p17:(SMSStore6_coreFetcherResultNotModified *)p17 p18:(SMSStore6_coreFetcherResultSuccess<id> *)p18 p19:(SMSStore6_coreKeyEvents *)p19 __attribute__((swift_name("skieTypeExports_0(p0:p1:p2:p3:p4:p5:p6:p7:p8:p9:p10:p11:p12:p13:p14:p15:p16:p17:p18:p19:)")));
-+ (void)skieTypeExports_1P0:(SMSStore6_coreStoreResultData<id> *)p0 p1:(SMSStore6_coreStoreResultError *)p1 p2:(SMSStore6_coreStoreResultLoading *)p2 p3:(SMSStore6_coreStoreResultRevalidated *)p3 __attribute__((swift_name("skieTypeExports_1(p0:p1:p2:p3:)")));
++ (void)skieTypeExports_0P0:(SMSCoreFreshnessCachedOrFetch *)p0 p1:(SMSCoreFreshnessLocalOnly *)p1 p2:(SMSCoreFreshnessMaxAge *)p2 p3:(SMSCoreFreshnessMustBeFresh *)p3 p4:(SMSCoreFreshnessStaleIfError *)p4 p5:(SMSCoreStoreErrorConflict *)p5 p6:(SMSCoreStoreErrorConversion *)p6 p7:(SMSCoreStoreErrorFetch *)p7 p8:(SMSCoreStoreErrorFreshnessUnsatisfiable *)p8 p9:(SMSCoreStoreErrorMissing *)p9 p10:(SMSCoreStoreErrorPersistence *)p10 p11:(id<SMSCoreStoreResult>)p11 p12:(SMSCoreFetchPlanConditional *)p12 p13:(SMSCoreFetchPlanFetch *)p13 p14:(SMSCoreFetchPlanSkip *)p14 p15:(SMSCoreFetcherResultDeleted *)p15 p16:(SMSCoreFetcherResultError *)p16 p17:(SMSCoreFetcherResultNotModified *)p17 p18:(SMSCoreFetcherResultSuccess<id> *)p18 p19:(SMSCoreKeyEvents *)p19 __attribute__((swift_name("skieTypeExports_0(p0:p1:p2:p3:p4:p5:p6:p7:p8:p9:p10:p11:p12:p13:p14:p15:p16:p17:p18:p19:)")));
++ (void)skieTypeExports_1P0:(SMSCoreStoreResultData<id> *)p0 p1:(SMSCoreStoreResultError *)p1 p2:(SMSCoreStoreResultLoading *)p2 p3:(SMSCoreStoreResultRevalidated *)p3 __attribute__((swift_name("skieTypeExports_1(p0:p1:p2:p3:)")));
 @end
 
 __attribute__((swift_name("KotlinThrowable")))
@@ -2976,8 +2976,8 @@ __attribute__((swift_name("KotlinByteArray")))
 - (void)setIndex:(int32_t)index value:(int8_t)value __attribute__((swift_name("set(index:value:)")));
 @end
 
-__attribute__((swift_name("Store6_coreStoreMeta")))
-@protocol SMSStore6_coreStoreMeta
+__attribute__((swift_name("CoreStoreMeta")))
+@protocol SMSCoreStoreMeta
 @required
 @property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
 @property (readonly) int64_t writtenAtEpochMillis __attribute__((swift_name("writtenAtEpochMillis")));
@@ -3004,22 +3004,22 @@ __attribute__((swift_name("KotlinArray")))
 - (void)setIndex:(int32_t)index value:(T _Nullable)value __attribute__((swift_name("set(index:value:)")));
 @end
 
-__attribute__((swift_name("Store6_coreStoreKey")))
-@protocol SMSStore6_coreStoreKey
+__attribute__((swift_name("CoreStoreKey")))
+@protocol SMSCoreStoreKey
 @required
 - (NSString *)canonicalId __attribute__((swift_name("canonicalId()")));
-@property (readonly, getter=namespace) SMSStore6_coreStoreNamespace *namespace_ __attribute__((swift_name("namespace_")));
+@property (readonly, getter=namespace) SMSCoreStoreNamespace *namespace_ __attribute__((swift_name("namespace_")));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreNamespace")))
-@interface SMSStore6_coreStoreNamespace : SMSBase
+__attribute__((swift_name("CoreStoreNamespace")))
+@interface SMSCoreStoreNamespace : SMSBase
 @property (readonly) NSString *value __attribute__((swift_name("value")));
 - (instancetype)initWithValue:(NSString *)value __attribute__((swift_name("init(value:)"))) __attribute__((objc_designated_initializer));
 @end
 
-__attribute__((swift_name("Store6_coreFreshness")))
-@protocol SMSStore6_coreFreshness
+__attribute__((swift_name("CoreFreshness")))
+@protocol SMSCoreFreshness
 @required
 @end
 
@@ -3029,8 +3029,8 @@ __attribute__((swift_name("Store6_coreFreshness")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreBookkeeper")))
-@protocol SMSStore6_coreBookkeeper
+__attribute__((swift_name("CoreBookkeeper")))
+@protocol SMSCoreBookkeeper
 @required
 
 /**
@@ -3043,13 +3043,13 @@ __attribute__((swift_name("Store6_coreBookkeeper")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)advanceStaleWatermarkNamespace:(SMSStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("advanceStaleWatermark(namespace:completionHandler:)")));
+- (void)advanceStaleWatermarkNamespace:(SMSCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("advanceStaleWatermark(namespace:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)forgetKey:(id<SMSStore6_coreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("forget(key:completionHandler:)")));
+- (void)forgetKey:(id<SMSCoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("forget(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -3061,31 +3061,31 @@ __attribute__((swift_name("Store6_coreBookkeeper")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)forgetNamespaceNamespace:(SMSStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("forgetNamespace(namespace:completionHandler:)")));
+- (void)forgetNamespaceNamespace:(SMSCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("forgetNamespace(namespace:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)markStaleKey:(id<SMSStore6_coreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("markStale(key:completionHandler:)")));
+- (void)markStaleKey:(id<SMSCoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("markStale(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)recordFailureKey:(id<SMSStore6_coreStoreKey>)key atEpochMillis:(int64_t)atEpochMillis completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("recordFailure(key:atEpochMillis:completionHandler:)")));
+- (void)recordFailureKey:(id<SMSCoreStoreKey>)key atEpochMillis:(int64_t)atEpochMillis completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("recordFailure(key:atEpochMillis:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)recordSuccessKey:(id<SMSStore6_coreStoreKey>)key meta:(id<SMSStore6_coreStoreMeta>)meta completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("recordSuccess(key:meta:completionHandler:)")));
+- (void)recordSuccessKey:(id<SMSCoreStoreKey>)key meta:(id<SMSCoreStoreMeta>)meta completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("recordSuccess(key:meta:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)statusKey:(id<SMSStore6_coreStoreKey>)key completionHandler:(void (^)(SMSStore6_coreKeyStatus * _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("status(key:completionHandler:)")));
+- (void)statusKey:(id<SMSCoreStoreKey>)key completionHandler:(void (^)(SMSCoreKeyStatus * _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("status(key:completionHandler:)")));
 @end
 
 __attribute__((swift_name("KotlinFunction")))
@@ -3110,15 +3110,15 @@ __attribute__((swift_name("KotlinSuspendFunction1")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreFetcher")))
-@protocol SMSStore6_coreFetcher
+__attribute__((swift_name("CoreFetcher")))
+@protocol SMSCoreFetcher
 @required
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)fetchKey:(id<SMSStore6_coreStoreKey>)key etag:(NSString * _Nullable)etag completionHandler:(void (^)(id<SMSStore6_coreFetcherResult> _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("fetch(key:etag:completionHandler:)")));
+- (void)fetchKey:(id<SMSCoreStoreKey>)key etag:(NSString * _Nullable)etag completionHandler:(void (^)(id<SMSCoreFetcherResult> _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("fetch(key:etag:completionHandler:)")));
 @end
 
 
@@ -3127,10 +3127,10 @@ __attribute__((swift_name("Store6_coreFetcher")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreFreshnessValidator")))
-@protocol SMSStore6_coreFreshnessValidator
+__attribute__((swift_name("CoreFreshnessValidator")))
+@protocol SMSCoreFreshnessValidator
 @required
-- (id<SMSStore6_coreFetchPlan>)planContext:(SMSStore6_coreFreshnessContext *)context __attribute__((swift_name("plan(context:)")));
+- (id<SMSCoreFetchPlan>)planContext:(SMSCoreFreshnessContext *)context __attribute__((swift_name("plan(context:)")));
 @end
 
 
@@ -3139,15 +3139,15 @@ __attribute__((swift_name("Store6_coreFreshnessValidator")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreSourceOfTruth")))
-@protocol SMSStore6_coreSourceOfTruth
+__attribute__((swift_name("CoreSourceOfTruth")))
+@protocol SMSCoreSourceOfTruth
 @required
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)deleteKey:(id<SMSStore6_coreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("delete(key:completionHandler:)")));
+- (void)deleteKey:(id<SMSCoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("delete(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -3159,14 +3159,14 @@ __attribute__((swift_name("Store6_coreSourceOfTruth")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)deleteNamespaceNamespace:(SMSStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("deleteNamespace(namespace:completionHandler:)")));
-- (id<SMSKotlinx_coroutines_coreFlow>)readerKey:(id<SMSStore6_coreStoreKey>)key __attribute__((swift_name("reader(key:)")));
+- (void)deleteNamespaceNamespace:(SMSCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("deleteNamespace(namespace:completionHandler:)")));
+- (id<SMSKotlinx_coroutines_coreFlow>)readerKey:(id<SMSCoreStoreKey>)key __attribute__((swift_name("reader(key:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)writeKey:(id<SMSStore6_coreStoreKey>)key value:(id)value completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("write(key:value:completionHandler:)")));
+- (void)writeKey:(id<SMSCoreStoreKey>)key value:(id)value completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("write(key:value:completionHandler:)")));
 @end
 
 
@@ -3175,15 +3175,15 @@ __attribute__((swift_name("Store6_coreSourceOfTruth")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreStoreTelemetry")))
-@protocol SMSStore6_coreStoreTelemetry
+__attribute__((swift_name("CoreStoreTelemetry")))
+@protocol SMSCoreStoreTelemetry
 @required
-- (void)onClearedKey:(id<SMSStore6_coreStoreKey>)key __attribute__((swift_name("onCleared(key:)")));
-- (void)onFetchFailedKey:(id<SMSStore6_coreStoreKey>)key error:(SMSStore6_coreStoreError *)error duration:(int64_t)duration __attribute__((swift_name("onFetchFailed(key:error:duration:)")));
-- (void)onFetchStartedKey:(id<SMSStore6_coreStoreKey>)key __attribute__((swift_name("onFetchStarted(key:)")));
-- (void)onFetchSucceededKey:(id<SMSStore6_coreStoreKey>)key duration:(int64_t)duration __attribute__((swift_name("onFetchSucceeded(key:duration:)")));
-- (void)onInvalidatedKey:(id<SMSStore6_coreStoreKey>)key __attribute__((swift_name("onInvalidated(key:)")));
-- (void)onServeKey:(id<SMSStore6_coreStoreKey>)key origin:(SMSStore6_coreOrigin *)origin __attribute__((swift_name("onServe(key:origin:)")));
+- (void)onClearedKey:(id<SMSCoreStoreKey>)key __attribute__((swift_name("onCleared(key:)")));
+- (void)onFetchFailedKey:(id<SMSCoreStoreKey>)key error:(SMSCoreStoreError *)error duration:(int64_t)duration __attribute__((swift_name("onFetchFailed(key:error:duration:)")));
+- (void)onFetchStartedKey:(id<SMSCoreStoreKey>)key __attribute__((swift_name("onFetchStarted(key:)")));
+- (void)onFetchSucceededKey:(id<SMSCoreStoreKey>)key duration:(int64_t)duration __attribute__((swift_name("onFetchSucceeded(key:duration:)")));
+- (void)onInvalidatedKey:(id<SMSCoreStoreKey>)key __attribute__((swift_name("onInvalidated(key:)")));
+- (void)onServeKey:(id<SMSCoreStoreKey>)key origin:(SMSCoreOrigin *)origin __attribute__((swift_name("onServe(key:origin:)")));
 @end
 
 
@@ -3192,8 +3192,8 @@ __attribute__((swift_name("Store6_coreStoreTelemetry")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreWallClock")))
-@protocol SMSStore6_coreWallClock
+__attribute__((swift_name("CoreWallClock")))
+@protocol SMSCoreWallClock
 @required
 - (int64_t)nowEpochMillis __attribute__((swift_name("nowEpochMillis()")));
 @end
@@ -3209,9 +3209,9 @@ __attribute__((swift_name("KotlinUnit")))
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFreshnessCachedOrFetch")))
-@interface SMSStore6_coreFreshnessCachedOrFetch : SMSBase <SMSStore6_coreFreshness>
-@property (class, readonly, getter=shared) SMSStore6_coreFreshnessCachedOrFetch *shared __attribute__((swift_name("shared")));
+__attribute__((swift_name("CoreFreshnessCachedOrFetch")))
+@interface SMSCoreFreshnessCachedOrFetch : SMSBase <SMSCoreFreshness>
+@property (class, readonly, getter=shared) SMSCoreFreshnessCachedOrFetch *shared __attribute__((swift_name("shared")));
 + (instancetype)alloc __attribute__((unavailable));
 + (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
 + (instancetype)cachedOrFetch __attribute__((swift_name("init()")));
@@ -3221,9 +3221,9 @@ __attribute__((swift_name("Store6_coreFreshnessCachedOrFetch")))
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFreshnessLocalOnly")))
-@interface SMSStore6_coreFreshnessLocalOnly : SMSBase <SMSStore6_coreFreshness>
-@property (class, readonly, getter=shared) SMSStore6_coreFreshnessLocalOnly *shared __attribute__((swift_name("shared")));
+__attribute__((swift_name("CoreFreshnessLocalOnly")))
+@interface SMSCoreFreshnessLocalOnly : SMSBase <SMSCoreFreshness>
+@property (class, readonly, getter=shared) SMSCoreFreshnessLocalOnly *shared __attribute__((swift_name("shared")));
 + (instancetype)alloc __attribute__((unavailable));
 + (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
 + (instancetype)localOnly __attribute__((swift_name("init()")));
@@ -3233,16 +3233,16 @@ __attribute__((swift_name("Store6_coreFreshnessLocalOnly")))
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFreshnessMaxAge")))
-@interface SMSStore6_coreFreshnessMaxAge : SMSBase <SMSStore6_coreFreshness>
+__attribute__((swift_name("CoreFreshnessMaxAge")))
+@interface SMSCoreFreshnessMaxAge : SMSBase <SMSCoreFreshness>
 @property (readonly) int64_t notOlderThan __attribute__((swift_name("notOlderThan")));
 - (instancetype)initWithNotOlderThan:(int64_t)notOlderThan __attribute__((swift_name("init(notOlderThan:)"))) __attribute__((objc_designated_initializer));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFreshnessMustBeFresh")))
-@interface SMSStore6_coreFreshnessMustBeFresh : SMSBase <SMSStore6_coreFreshness>
-@property (class, readonly, getter=shared) SMSStore6_coreFreshnessMustBeFresh *shared __attribute__((swift_name("shared")));
+__attribute__((swift_name("CoreFreshnessMustBeFresh")))
+@interface SMSCoreFreshnessMustBeFresh : SMSBase <SMSCoreFreshness>
+@property (class, readonly, getter=shared) SMSCoreFreshnessMustBeFresh *shared __attribute__((swift_name("shared")));
 + (instancetype)alloc __attribute__((unavailable));
 + (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
 + (instancetype)mustBeFresh __attribute__((swift_name("init()")));
@@ -3252,9 +3252,9 @@ __attribute__((swift_name("Store6_coreFreshnessMustBeFresh")))
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFreshnessStaleIfError")))
-@interface SMSStore6_coreFreshnessStaleIfError : SMSBase <SMSStore6_coreFreshness>
-@property (class, readonly, getter=shared) SMSStore6_coreFreshnessStaleIfError *shared __attribute__((swift_name("shared")));
+__attribute__((swift_name("CoreFreshnessStaleIfError")))
+@interface SMSCoreFreshnessStaleIfError : SMSBase <SMSCoreFreshness>
+@property (class, readonly, getter=shared) SMSCoreFreshnessStaleIfError *shared __attribute__((swift_name("shared")));
 + (instancetype)alloc __attribute__((unavailable));
 + (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
 + (instancetype)staleIfError __attribute__((swift_name("init()")));
@@ -3263,53 +3263,53 @@ __attribute__((swift_name("Store6_coreFreshnessStaleIfError")))
 - (NSString *)description __attribute__((swift_name("description()")));
 @end
 
-__attribute__((swift_name("Store6_coreStoreError")))
-@interface SMSStore6_coreStoreError : SMSBase
+__attribute__((swift_name("CoreStoreError")))
+@interface SMSCoreStoreError : SMSBase
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreError.Conflict")))
-@interface SMSStore6_coreStoreErrorConflict : SMSStore6_coreStoreError
+__attribute__((swift_name("CoreStoreError.Conflict")))
+@interface SMSCoreStoreErrorConflict : SMSCoreStoreError
 @property (readonly) NSString *message __attribute__((swift_name("message")));
-@property (readonly) id<SMSStore6_coreStoreMeta> _Nullable serverMeta __attribute__((swift_name("serverMeta")));
+@property (readonly) id<SMSCoreStoreMeta> _Nullable serverMeta __attribute__((swift_name("serverMeta")));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreError.Conversion")))
-@interface SMSStore6_coreStoreErrorConversion : SMSStore6_coreStoreError
+__attribute__((swift_name("CoreStoreError.Conversion")))
+@interface SMSCoreStoreErrorConversion : SMSCoreStoreError
 @property (readonly) SMSKotlinThrowable * _Nullable cause __attribute__((swift_name("cause")));
 @property (readonly) NSString *message __attribute__((swift_name("message")));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreError.Fetch")))
-@interface SMSStore6_coreStoreErrorFetch : SMSStore6_coreStoreError
+__attribute__((swift_name("CoreStoreError.Fetch")))
+@interface SMSCoreStoreErrorFetch : SMSCoreStoreError
 @property (readonly) SMSKotlinThrowable * _Nullable cause __attribute__((swift_name("cause")));
 @property (readonly) NSString *message __attribute__((swift_name("message")));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreError.FreshnessUnsatisfiable")))
-@interface SMSStore6_coreStoreErrorFreshnessUnsatisfiable : SMSStore6_coreStoreError
+__attribute__((swift_name("CoreStoreError.FreshnessUnsatisfiable")))
+@interface SMSCoreStoreErrorFreshnessUnsatisfiable : SMSCoreStoreError
 @property (readonly) NSString *message __attribute__((swift_name("message")));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreError.Missing")))
-@interface SMSStore6_coreStoreErrorMissing : SMSStore6_coreStoreError
-@property (readonly) id<SMSStore6_coreStoreKey> key __attribute__((swift_name("key")));
+__attribute__((swift_name("CoreStoreError.Missing")))
+@interface SMSCoreStoreErrorMissing : SMSCoreStoreError
+@property (readonly) id<SMSCoreStoreKey> key __attribute__((swift_name("key")));
 @property (readonly) NSString *message __attribute__((swift_name("message")));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreError.Persistence")))
-@interface SMSStore6_coreStoreErrorPersistence : SMSStore6_coreStoreError
+__attribute__((swift_name("CoreStoreError.Persistence")))
+@interface SMSCoreStoreErrorPersistence : SMSCoreStoreError
 @property (readonly) SMSKotlinThrowable * _Nullable cause __attribute__((swift_name("cause")));
 @property (readonly) NSString *message __attribute__((swift_name("message")));
 @end
 
-__attribute__((swift_name("Store6_coreStoreResult")))
-@protocol SMSStore6_coreStoreResult
+__attribute__((swift_name("CoreStoreResult")))
+@protocol SMSCoreStoreResult
 @required
 @end
 
@@ -3318,30 +3318,30 @@ __attribute__((swift_name("Store6_coreStoreResult")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-__attribute__((swift_name("Store6_coreFetchPlan")))
-@protocol SMSStore6_coreFetchPlan
+__attribute__((swift_name("CoreFetchPlan")))
+@protocol SMSCoreFetchPlan
 @required
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFetchPlanConditional")))
-@interface SMSStore6_coreFetchPlanConditional : SMSBase <SMSStore6_coreFetchPlan>
+__attribute__((swift_name("CoreFetchPlanConditional")))
+@interface SMSCoreFetchPlanConditional : SMSBase <SMSCoreFetchPlan>
 @property (readonly) NSString *etag __attribute__((swift_name("etag")));
 @property (readonly) BOOL servesResidentWhileFetching __attribute__((swift_name("servesResidentWhileFetching")));
 - (instancetype)initWithEtag:(NSString *)etag servesResidentWhileFetching:(BOOL)servesResidentWhileFetching __attribute__((swift_name("init(etag:servesResidentWhileFetching:)"))) __attribute__((objc_designated_initializer));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFetchPlanFetch")))
-@interface SMSStore6_coreFetchPlanFetch : SMSBase <SMSStore6_coreFetchPlan>
+__attribute__((swift_name("CoreFetchPlanFetch")))
+@interface SMSCoreFetchPlanFetch : SMSBase <SMSCoreFetchPlan>
 @property (readonly) BOOL servesResidentWhileFetching __attribute__((swift_name("servesResidentWhileFetching")));
 - (instancetype)initWithServesResidentWhileFetching:(BOOL)servesResidentWhileFetching __attribute__((swift_name("init(servesResidentWhileFetching:)"))) __attribute__((objc_designated_initializer));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFetchPlanSkip")))
-@interface SMSStore6_coreFetchPlanSkip : SMSBase <SMSStore6_coreFetchPlan>
-@property (class, readonly, getter=shared) SMSStore6_coreFetchPlanSkip *shared __attribute__((swift_name("shared")));
+__attribute__((swift_name("CoreFetchPlanSkip")))
+@interface SMSCoreFetchPlanSkip : SMSBase <SMSCoreFetchPlan>
+@property (class, readonly, getter=shared) SMSCoreFetchPlanSkip *shared __attribute__((swift_name("shared")));
 + (instancetype)alloc __attribute__((unavailable));
 + (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
 + (instancetype)skip __attribute__((swift_name("init()")));
@@ -3350,15 +3350,15 @@ __attribute__((swift_name("Store6_coreFetchPlanSkip")))
 - (NSString *)description __attribute__((swift_name("description()")));
 @end
 
-__attribute__((swift_name("Store6_coreFetcherResult")))
-@protocol SMSStore6_coreFetcherResult
+__attribute__((swift_name("CoreFetcherResult")))
+@protocol SMSCoreFetcherResult
 @required
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFetcherResultDeleted")))
-@interface SMSStore6_coreFetcherResultDeleted : SMSBase <SMSStore6_coreFetcherResult>
-@property (class, readonly, getter=shared) SMSStore6_coreFetcherResultDeleted *shared __attribute__((swift_name("shared")));
+__attribute__((swift_name("CoreFetcherResultDeleted")))
+@interface SMSCoreFetcherResultDeleted : SMSBase <SMSCoreFetcherResult>
+@property (class, readonly, getter=shared) SMSCoreFetcherResultDeleted *shared __attribute__((swift_name("shared")));
 + (instancetype)alloc __attribute__((unavailable));
 + (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
 + (instancetype)deleted __attribute__((swift_name("init()")));
@@ -3368,22 +3368,22 @@ __attribute__((swift_name("Store6_coreFetcherResultDeleted")))
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFetcherResultError")))
-@interface SMSStore6_coreFetcherResultError : SMSBase <SMSStore6_coreFetcherResult>
+__attribute__((swift_name("CoreFetcherResultError")))
+@interface SMSCoreFetcherResultError : SMSBase <SMSCoreFetcherResult>
 @property (readonly) SMSKotlinThrowable *cause __attribute__((swift_name("cause")));
 - (instancetype)initWithCause:(SMSKotlinThrowable *)cause __attribute__((swift_name("init(cause:)"))) __attribute__((objc_designated_initializer));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFetcherResultNotModified")))
-@interface SMSStore6_coreFetcherResultNotModified : SMSBase <SMSStore6_coreFetcherResult>
+__attribute__((swift_name("CoreFetcherResultNotModified")))
+@interface SMSCoreFetcherResultNotModified : SMSBase <SMSCoreFetcherResult>
 @property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
 - (instancetype)initWithEtag:(NSString * _Nullable)etag __attribute__((swift_name("init(etag:)"))) __attribute__((objc_designated_initializer));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFetcherResultSuccess")))
-@interface SMSStore6_coreFetcherResultSuccess<V> : SMSBase <SMSStore6_coreFetcherResult>
+__attribute__((swift_name("CoreFetcherResultSuccess")))
+@interface SMSCoreFetcherResultSuccess<V> : SMSBase <SMSCoreFetcherResult>
 @property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
 @property (readonly) V value __attribute__((swift_name("value")));
 - (instancetype)initWithValue:(V)value etag:(NSString * _Nullable)etag __attribute__((swift_name("init(value:etag:)"))) __attribute__((objc_designated_initializer));
@@ -3394,36 +3394,36 @@ __attribute__((swift_name("Store6_coreFetcherResultSuccess")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-__attribute__((swift_name("Store6_coreKeyEvents")))
-@interface SMSStore6_coreKeyEvents : SMSBase
-@property (readonly) id<SMSStore6_coreStoreKey> key __attribute__((swift_name("key")));
+__attribute__((swift_name("CoreKeyEvents")))
+@interface SMSCoreKeyEvents : SMSBase
+@property (readonly) id<SMSCoreStoreKey> key __attribute__((swift_name("key")));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreResultData")))
-@interface SMSStore6_coreStoreResultData<V> : SMSBase <SMSStore6_coreStoreResult>
+__attribute__((swift_name("CoreStoreResultData")))
+@interface SMSCoreStoreResultData<V> : SMSBase <SMSCoreStoreResult>
 @property (readonly) int64_t age __attribute__((swift_name("age")));
 @property (readonly) BOOL isStale __attribute__((swift_name("isStale")));
-@property (readonly) SMSStore6_coreOrigin *origin __attribute__((swift_name("origin")));
+@property (readonly) SMSCoreOrigin *origin __attribute__((swift_name("origin")));
 @property (readonly) BOOL refreshing __attribute__((swift_name("refreshing")));
 @property (readonly) V _Nullable value __attribute__((swift_name("value")));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreResultError")))
-@interface SMSStore6_coreStoreResultError : SMSBase <SMSStore6_coreStoreResult>
-@property (readonly) SMSStore6_coreStoreError *error __attribute__((swift_name("error")));
+__attribute__((swift_name("CoreStoreResultError")))
+@interface SMSCoreStoreResultError : SMSBase <SMSCoreStoreResult>
+@property (readonly) SMSCoreStoreError *error __attribute__((swift_name("error")));
 @property (readonly) BOOL servedStale __attribute__((swift_name("servedStale")));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreResultLoading")))
-@interface SMSStore6_coreStoreResultLoading : SMSBase <SMSStore6_coreStoreResult>
+__attribute__((swift_name("CoreStoreResultLoading")))
+@interface SMSCoreStoreResultLoading : SMSBase <SMSCoreStoreResult>
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreResultRevalidated")))
-@interface SMSStore6_coreStoreResultRevalidated : SMSBase <SMSStore6_coreStoreResult>
+__attribute__((swift_name("CoreStoreResultRevalidated")))
+@interface SMSCoreStoreResultRevalidated : SMSBase <SMSCoreStoreResult>
 @property (readonly) int64_t age __attribute__((swift_name("age")));
 @end
 
@@ -3448,14 +3448,14 @@ __attribute__((swift_name("KotlinByteIterator")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreKeyStatus")))
-@interface SMSStore6_coreKeyStatus : SMSBase
+__attribute__((swift_name("CoreKeyStatus")))
+@interface SMSCoreKeyStatus : SMSBase
 @property (readonly) int32_t consecutiveFailures __attribute__((swift_name("consecutiveFailures")));
 @property (readonly) BOOL durablyStale __attribute__((swift_name("durablyStale")));
 @property (readonly) SMSLong * _Nullable lastFailureAtEpochMillis __attribute__((swift_name("lastFailureAtEpochMillis")));
 @property (readonly) SMSLong * _Nullable lastSuccessSequence __attribute__((swift_name("lastSuccessSequence")));
-@property (readonly) id<SMSStore6_coreStoreMeta> _Nullable meta __attribute__((swift_name("meta")));
-- (instancetype)initWithMeta:(id<SMSStore6_coreStoreMeta> _Nullable)meta lastSuccessSequence:(SMSLong * _Nullable)lastSuccessSequence lastFailureAtEpochMillis:(SMSLong * _Nullable)lastFailureAtEpochMillis consecutiveFailures:(int32_t)consecutiveFailures durablyStale:(BOOL)durablyStale __attribute__((swift_name("init(meta:lastSuccessSequence:lastFailureAtEpochMillis:consecutiveFailures:durablyStale:)"))) __attribute__((objc_designated_initializer));
+@property (readonly) id<SMSCoreStoreMeta> _Nullable meta __attribute__((swift_name("meta")));
+- (instancetype)initWithMeta:(id<SMSCoreStoreMeta> _Nullable)meta lastSuccessSequence:(SMSLong * _Nullable)lastSuccessSequence lastFailureAtEpochMillis:(SMSLong * _Nullable)lastFailureAtEpochMillis consecutiveFailures:(int32_t)consecutiveFailures durablyStale:(BOOL)durablyStale __attribute__((swift_name("init(meta:lastSuccessSequence:lastFailureAtEpochMillis:consecutiveFailures:durablyStale:)"))) __attribute__((objc_designated_initializer));
 @end
 
 
@@ -3464,29 +3464,29 @@ __attribute__((swift_name("Store6_coreKeyStatus")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFreshnessContext")))
-@interface SMSStore6_coreFreshnessContext : SMSBase
+__attribute__((swift_name("CoreFreshnessContext")))
+@interface SMSCoreFreshnessContext : SMSBase
 @property (readonly) BOOL epochStale __attribute__((swift_name("epochStale")));
-@property (readonly) id<SMSStore6_coreFreshness> freshness __attribute__((swift_name("freshness")));
+@property (readonly) id<SMSCoreFreshness> freshness __attribute__((swift_name("freshness")));
 @property (readonly) BOOL hasResidentValue __attribute__((swift_name("hasResidentValue")));
-@property (readonly) id<SMSStore6_coreStoreMeta> _Nullable meta __attribute__((swift_name("meta")));
+@property (readonly) id<SMSCoreStoreMeta> _Nullable meta __attribute__((swift_name("meta")));
 @property (readonly) int64_t nowEpochMillis __attribute__((swift_name("nowEpochMillis")));
-@property (readonly) SMSStore6_coreKeyStatus * _Nullable status __attribute__((swift_name("status")));
-- (instancetype)initWithHasResidentValue:(BOOL)hasResidentValue meta:(id<SMSStore6_coreStoreMeta> _Nullable)meta epochStale:(BOOL)epochStale freshness:(id<SMSStore6_coreFreshness>)freshness nowEpochMillis:(int64_t)nowEpochMillis status:(SMSStore6_coreKeyStatus * _Nullable)status __attribute__((swift_name("init(hasResidentValue:meta:epochStale:freshness:nowEpochMillis:status:)"))) __attribute__((objc_designated_initializer));
+@property (readonly) SMSCoreKeyStatus * _Nullable status __attribute__((swift_name("status")));
+- (instancetype)initWithHasResidentValue:(BOOL)hasResidentValue meta:(id<SMSCoreStoreMeta> _Nullable)meta epochStale:(BOOL)epochStale freshness:(id<SMSCoreFreshness>)freshness nowEpochMillis:(int64_t)nowEpochMillis status:(SMSCoreKeyStatus * _Nullable)status __attribute__((swift_name("init(hasResidentValue:meta:epochStale:freshness:nowEpochMillis:status:)"))) __attribute__((objc_designated_initializer));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreOrigin")))
-@interface SMSStore6_coreOrigin : SMSKotlinEnum<SMSStore6_coreOrigin *>
-@property (class, readonly) SMSStore6_coreOrigin *memory __attribute__((swift_name("memory")));
-@property (class, readonly) SMSStore6_coreOrigin *sot __attribute__((swift_name("sot")));
-@property (class, readonly) SMSStore6_coreOrigin *fetcher __attribute__((swift_name("fetcher")));
-@property (class, readonly) SMSStore6_coreOrigin *overlay __attribute__((swift_name("overlay")));
-@property (class, readonly) NSArray<SMSStore6_coreOrigin *> *entries __attribute__((swift_name("entries")));
+__attribute__((swift_name("CoreOrigin")))
+@interface SMSCoreOrigin : SMSKotlinEnum<SMSCoreOrigin *>
+@property (class, readonly) SMSCoreOrigin *memory __attribute__((swift_name("memory")));
+@property (class, readonly) SMSCoreOrigin *sot __attribute__((swift_name("sot")));
+@property (class, readonly) SMSCoreOrigin *fetcher __attribute__((swift_name("fetcher")));
+@property (class, readonly) SMSCoreOrigin *overlay __attribute__((swift_name("overlay")));
+@property (class, readonly) NSArray<SMSCoreOrigin *> *entries __attribute__((swift_name("entries")));
 + (instancetype)alloc __attribute__((unavailable));
 + (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
 - (instancetype)initWithName:(NSString *)name ordinal:(int32_t)ordinal __attribute__((swift_name("init(name:ordinal:)"))) __attribute__((objc_designated_initializer)) __attribute__((unavailable));
-+ (SMSKotlinArray<SMSStore6_coreOrigin *> *)values __attribute__((swift_name("values()")));
++ (SMSKotlinArray<SMSCoreOrigin *> *)values __attribute__((swift_name("values()")));
 @end
 
 #pragma pop_macro("_Nullable_result")
