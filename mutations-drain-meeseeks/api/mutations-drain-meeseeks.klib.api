@@ -6,3 +6,22 @@
 // - Show declarations: true
 
 // Library unique name: <Store5:mutations-drain-meeseeks>
+final class org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload : dev.mattramotar.meeseeks.runtime/TaskPayload { // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload|null[0]
+    constructor <init>(kotlin/String) // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload.<init>|<init>(kotlin.String){}[0]
+
+    final val storeName // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload.storeName|{}storeName[0]
+        final fun <get-storeName>(): kotlin/String // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload.storeName.<get-storeName>|<get-storeName>(){}[0]
+
+    final object $serializer : kotlinx.serialization.internal/GeneratedSerializer<org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload> { // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload.$serializer|null[0]
+        final val descriptor // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload.$serializer.descriptor|{}descriptor[0]
+            final fun <get-descriptor>(): kotlinx.serialization.descriptors/SerialDescriptor // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload.$serializer.descriptor.<get-descriptor>|<get-descriptor>(){}[0]
+
+        final fun childSerializers(): kotlin/Array<kotlinx.serialization/KSerializer<*>> // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload.$serializer.childSerializers|childSerializers(){}[0]
+        final fun deserialize(kotlinx.serialization.encoding/Decoder): org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload.$serializer.deserialize|deserialize(kotlinx.serialization.encoding.Decoder){}[0]
+        final fun serialize(kotlinx.serialization.encoding/Encoder, org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload) // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload.$serializer.serialize|serialize(kotlinx.serialization.encoding.Encoder;org.mobilenativefoundation.store6.mutations.drain.meeseeks.StoreDrainPayload){}[0]
+    }
+
+    final object Companion { // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload.Companion|null[0]
+        final fun serializer(): kotlinx.serialization/KSerializer<org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload> // org.mobilenativefoundation.store6.mutations.drain.meeseeks/StoreDrainPayload.Companion.serializer|serializer(){}[0]
+    }
+}
