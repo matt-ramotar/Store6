@@ -11,6 +11,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CompletableDeferred
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.mutations.MutationAck
@@ -62,6 +64,7 @@ internal object AdapterJvmStringCodec : MutationCodec<String> {
 internal class AdapterJvmBackend : MutationServer<AdapterJvmKey, String> {
     private val offlineState = AtomicBoolean(false)
     private val confirmed = ConcurrentHashMap<String, String>()
+    private val pushGate = AtomicReference<CompletableDeferred<Unit>?>(null)
     private val requestedRetirementSequence = AtomicLong(0L)
 
     internal var offline: Boolean
@@ -81,11 +84,18 @@ internal class AdapterJvmBackend : MutationServer<AdapterJvmKey, String> {
     internal suspend fun load(key: AdapterJvmKey): String =
         confirmed[key.canonicalId()] ?: "base"
 
+    internal fun gateNextPush(): CompletableDeferred<Unit> {
+        val gate = CompletableDeferred<Unit>()
+        check(pushGate.compareAndSet(null, gate))
+        return gate
+    }
+
     override suspend fun push(
         request: MutationPush<AdapterJvmKey, String>,
     ): MutationAck<AdapterJvmKey, String> {
         pushAttempts.incrementAndGet()
         check(!offlineState.get()) { "backend is offline" }
+        pushGate.getAndSet(null)?.await()
         val value =
             when (val mine = request.mine) {
                 is MutationPresence.Present -> mine.value
