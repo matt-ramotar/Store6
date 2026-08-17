@@ -42,6 +42,7 @@ project(':paging-androidx-sample').projectDir = file('paging-androidx/sample')
 include ':graphql'
 include ':graphql-sample'
 project(':graphql-sample').projectDir = file('graphql/sample')
+include ':ktor'
 include ':realtime'
 include ':realtime-sample'
 project(':realtime-sample').projectDir = file('realtime/sample')

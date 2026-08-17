@@ -50,6 +50,7 @@ jetbrainsAndroidxLifecycle = "2.9.1"
 kotlinxBenchmark = "0.4.17"
 # TEST-3 JVM-only model checking; 2.39 uses dynamic instrumentation and needs no module opens.
 lincheck = "2.39"
+ktor = "3.5.2"
 meeseeks = "1.1.1"
 
 [libraries]
@@ -100,6 +101,8 @@ jetbrains-compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", 
 jetbrains-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "jetbrainsAndroidxLifecycle" }
 kotlinx-benchmark-runtime = { module = "org.jetbrains.kotlinx:kotlinx-benchmark-runtime", version.ref = "kotlinxBenchmark" }
 lincheck = { module = "org.jetbrains.kotlinx:lincheck", version.ref = "lincheck" }
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 meeseeks-runtime = { module = "dev.mattramotar.meeseeks:runtime", version.ref = "meeseeks" }
 
 [plugins]
