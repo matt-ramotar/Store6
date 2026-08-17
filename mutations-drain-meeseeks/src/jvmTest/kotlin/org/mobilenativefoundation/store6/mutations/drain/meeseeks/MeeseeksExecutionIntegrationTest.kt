@@ -5,8 +5,12 @@ package org.mobilenativefoundation.store6.mutations.drain.meeseeks
 import dev.mattramotar.meeseeks.runtime.BGTaskManager
 import dev.mattramotar.meeseeks.runtime.Meeseeks
 import dev.mattramotar.meeseeks.runtime.TaskStatus
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -34,6 +38,27 @@ import org.mobilenativefoundation.store6.mutations.drain.MutationDrainCoordinato
 import org.mobilenativefoundation.store6.mutations.drain.mutationDrainCoordinator
 
 class MeeseeksExecutionIntegrationTest {
+    private val workingDirectory: Path = Path.of("").toAbsolutePath()
+    private val databaseFiles =
+        listOf(
+            "meeseeks.db",
+            "meeseeks.db-journal",
+            "meeseeks.db-wal",
+            "meeseeks.db-shm",
+        ).map(workingDirectory::resolve)
+
+    @BeforeTest
+    fun clearMeeseeksDatabaseBeforeTest() {
+        databaseFiles.forEach(Files::deleteIfExists)
+    }
+
+    @AfterTest
+    fun clearMeeseeksDatabaseAfterTest() {
+        databaseFiles.forEach { path ->
+            runCatching { Files.deleteIfExists(path) }
+        }
+    }
+
     @Test
     fun scheduleFromInsideRunningWorkerFiresLater(): Unit = runBlocking {
         val fixture = AdapterJvmFixture()
@@ -169,13 +194,14 @@ private class MeeseeksHarness(
     maxRetryCount: Int = 2,
 ) {
     private val context = AdapterJvmAppContext()
-    internal lateinit var manager: BGTaskManager
-        private set
-    internal val scheduler: MeeseeksDrainScheduler = MeeseeksDrainScheduler { manager }
+    internal val manager: BGTaskManager
+    internal val scheduler: MeeseeksDrainScheduler
     internal val coordinator: MutationDrainCoordinator
 
     init {
-        manager =
+        lateinit var managerReference: BGTaskManager
+        scheduler = MeeseeksDrainScheduler { managerReference }
+        managerReference =
             Meeseeks.initialize(context) {
                 maxRetryCount(maxRetryCount)
                 minBackoff(50.milliseconds)
@@ -183,6 +209,7 @@ private class MeeseeksHarness(
                     StoreDrainWorker(appContext, scheduler)
                 }
             }
+        manager = managerReference
         coordinator = mutationDrainCoordinator(scheduler)
     }
 
