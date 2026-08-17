@@ -6,7 +6,6 @@
 
 package org.mobilenativefoundation.store6.mutations.drain.meeseeks
 
-import dev.mattramotar.meeseeks.runtime.AppContext
 import dev.mattramotar.meeseeks.runtime.BGTaskManager
 import dev.mattramotar.meeseeks.runtime.RuntimeContext
 import dev.mattramotar.meeseeks.runtime.ScheduledTask
@@ -194,7 +193,7 @@ class MeeseeksDrainSchedulerUnitTest {
 
     @Test
     fun workerMapsOutcomesPerTable() = runTest {
-        val appContext = TestAppContext()
+        val appContext = testAppContext()
         val runtimeContext = RuntimeContext()
 
         val clearedFixture = WorkerFixture()
@@ -445,8 +444,6 @@ private fun unconstrainedPolicy(): DrainPolicy =
     DrainPolicy(
         constraints = DrainConstraints(requiresNetwork = false, requiresCharging = false),
     )
-
-private class TestAppContext : AppContext()
 
 private class WorkerKey(
     private val id: String,
