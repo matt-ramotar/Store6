@@ -13,6 +13,7 @@ ktlintGradle = "12.1.0"
 jacocoGradlePlugin = "0.8.12"
 mavenPublishPlugin = "0.34.0"
 moleculeGradlePlugin = "1.2.1"
+opentelemetry = "1.65.0"
 # androidx.paging KMP line (paging-common/testing); 3.5.1 = latest stable 2026-08-12. No Intel targets since 3.4.0-rc01.
 paging = "3.5.1"
 spotlessPluginGradle = "6.4.1"
@@ -84,6 +85,9 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 google-truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
 touchlab-kermit = { group = "co.touchlab", name = "kermit", version.ref = "kermit" }
+opentelemetry-api = { group = "io.opentelemetry", name = "opentelemetry-api", version.ref = "opentelemetry" }
+opentelemetry-sdk = { group = "io.opentelemetry", name = "opentelemetry-sdk", version.ref = "opentelemetry" }
+opentelemetry-sdk-testing = { group = "io.opentelemetry", name = "opentelemetry-sdk-testing", version.ref = "opentelemetry" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 binary-compatibility-validator = {module = "org.jetbrains.kotlinx:binary-compatibility-validator", version.ref = "binary-compatibility-validator"}
 sqldelight-runtime = { module = "app.cash.sqldelight:runtime", version.ref = "sqldelight" }

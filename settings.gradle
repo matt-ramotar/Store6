@@ -51,6 +51,7 @@ project(':realtime-sample').projectDir = file('realtime/sample')
 include ':file'
 include ':file-sample'
 project(':file-sample').projectDir = file('file/sample')
+include ':opentelemetry'
 include ':benchmarks'
 include ':devtools'
 include ':devtools-inspector'
