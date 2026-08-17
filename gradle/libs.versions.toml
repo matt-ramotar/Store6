@@ -49,6 +49,7 @@ jetbrainsAndroidxLifecycle = "2.9.1"
 kotlinxBenchmark = "0.4.17"
 # TEST-3 JVM-only model checking; 2.39 uses dynamic instrumentation and needs no module opens.
 lincheck = "2.39"
+meeseeks = "1.1.0"
 
 [libraries]
 android-gradle-plugin = { group = "com.android.tools.build", name = "gradle", version.ref = "androidGradlePlugin" }
@@ -97,6 +98,7 @@ jetbrains-compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", 
 jetbrains-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "jetbrainsAndroidxLifecycle" }
 kotlinx-benchmark-runtime = { module = "org.jetbrains.kotlinx:kotlinx-benchmark-runtime", version.ref = "kotlinxBenchmark" }
 lincheck = { module = "org.jetbrains.kotlinx:lincheck", version.ref = "lincheck" }
+meeseeks-runtime = { module = "dev.mattramotar.meeseeks:runtime", version.ref = "meeseeks" }
 
 [plugins]
 ktlint = {id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlintGradle"}
@@ -107,5 +109,6 @@ ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }
 room3 = { id = "androidx.room3", version.ref = "room3" }
 kotlin-compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "baseKotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "baseKotlin" }
 jetbrains-compose = { id = "org.jetbrains.compose", version.ref = "jetbrainsCompose" }
 kotlinx-benchmark = { id = "org.jetbrains.kotlinx.benchmark", version.ref = "kotlinxBenchmark" }
