@@ -11,8 +11,8 @@ after process death — without the host hand-wiring WorkManager or BGTaskSchedu
   which maps to WorkManager on Android, BGTaskScheduler on iOS, Quartz on JVM, and a
   best-effort runner on JS.
 
-Status: design for review, revised once against two adversarial reviews. Nothing here is
-implemented.
+Status: design for review, revised twice against two adversarial review rounds (four review
+passes total). Nothing here is implemented.
 
 ## 1. Problem
 
@@ -52,7 +52,7 @@ Facts the design builds on, from `mutations` at this revision:
 | The engine has an internal per-intent backoff gate: window `= 1_000ms · 2^(attempt-1)` capped at `300_000ms`, full jitter uniform on `[0, window]`, eligible when `now >= lastAttemptAt + jitter`. The gate applies only to heads in durable phases `READY`/`REFRESH_REQUIRED` with `attempt > 0`; every other phase is immediately eligible. Constants are private; "no public policy door exists" | `MutationEngine.kt` (`BACKOFF_BASE_MILLIS`, `BACKOFF_CAP_MILLIS`, `isBackoffEligible`), `MutationBackoffTest` |
 | Global `drain()` respects that gate (skips ineligible heads); keyed `drain(key)` overrides it | `MutationBackoffTest`, engine `overrideBackoff` |
 | `attempt` and `lastAttemptAt` are durable; restart recomputes eligibility from them. `PendingIntent.attempt` counts "completed network attempts for the current generation" — a conflict that prepares a new generation resets it to 0, and the reset head is immediately eligible | `MutationBackoffTest`, `MutationInspection.kt`, engine conflict resumption |
-| Inspection is the durable truth: `pending(key)`, `pendingWrites()`, `deadLetters()`. `pendingWrites()` returns every nonterminal intent (heads and FIFO suffixes) in durable client-sequence order, with `namespace`, `canonicalId`, `mutationId`, `mutatorId`, `state`, `attempt`, `createdAtEpochMillis`. `lastAttemptAt` is not exposed | `MutationInspection.kt` |
+| Inspection is the durable truth: `pending(key)`, `pendingWrites()`, `deadLetters()`. `pendingWrites()` returns every nonterminal intent (heads and FIFO suffixes) in durable client-sequence order. `PendingIntent` exposes exactly: `namespace`, `canonicalId`, `mutationId`, `mutatorId`, `state`, `attempt`, `createdAtEpochMillis`. Neither `generation` nor `lastAttemptAt` is exposed | `MutationInspection.kt` |
 | Public state mapping: `UNPREPARED`/`READY` → `PENDING`, `INFLIGHT` → `INFLIGHT`, `REFRESH_REQUIRED` → `REFRESHING`, `ACKED` → `ADOPTING`, `EFFECTS_PENDING` → `APPLYING_EFFECTS`; parked executions appear only in `deadLetters()` | `MutationInspection.kt` |
 | `events: SharedFlow<MutationEvent>` is advisory only: replay 0, buffer 64, `DROP_OLDEST`, `tryEmit`. It is "never a drain, acknowledgement, retry, or settlement protocol." There is no drain-finished/failed event | `MutationEvents.kt` |
 | There is no drain outcome API. A retryable transport failure returns normally from `drain()` (head stays pending with incremented durable `attempt`); a sanctioned retryable post-ack failure is rethrown and does not increment `attempt`; parks land in `deadLetters()` and never re-enter the FIFO | drain KDoc, `MutationDrainParkingTest`, engine post-ack handling |
@@ -79,12 +79,13 @@ Extension conventions the artifacts must follow:
 ## 3. Goals
 
 1. Conditional liveness for pending mutations, stated precisely: while retryable work
-   exists in the journal, a follow-up drain trigger always exists (an OS request, an
-   in-process timer, or the documented launch-reconciliation path), so work is pushed
-   whenever the platform grants execution and the app's registration bootstrap runs.
-   Unconditional delivery is not promised — iOS wakes are best-effort and suppressed after
-   force-quit, Android work can be deferred by Doze and standby buckets, and JS/desktop
-   hosts only drain while the process lives. §10 states each gap.
+   exists in the journal, a follow-up drain trigger exists — an OS request, an in-process
+   timer, or the launch-reconciliation pass — except in the enumerated gaps: a
+   `DrainScheduler.schedule` infrastructure failure (recovered by the next enqueue, manual
+   trigger, or launch), iOS force-quit (recovered at next user open), and platform
+   deferral (Doze, standby, best-effort BGTask grants). Work is pushed whenever the
+   platform grants execution and the app's registration bootstrap runs. §10 states each
+   gap.
 2. The scheduler layer holds no durable state of its own. Every scheduling decision is
    derivable from the journal (`pendingWrites()`, per-intent `attempt` and `state`) plus
    policy, with one bounded in-memory heuristic (the no-progress escalation in §6.4).
@@ -127,9 +128,9 @@ Extension conventions the artifacts must follow:
 │        │ events / pendingWrites / drain()                              │
 │        ▼                                                               │
 │  MutationDrainCoordinator            ← mutations-drain (all 12 targets)│
-│   · registry: name → (store, policy)                                   │
-│   · watch(name): subscribe → reconcile → react to enqueues             │
-│   · runActivation(name): the OS re-entry point and manual trigger      │
+│   · registry: name → (store, policy, registration epoch)               │
+│   · watch(name): subscribe → launch pass → react to enqueues           │
+│   · runActivation(name): OS re-entry point and manual trigger          │
 │   · owns ALL retry policy (delay derivation §6.4 + safety activations) │
 │        │ schedule(DrainRequest) / cancel(name) / validate(constraints) │
 │        ▼                                                               │
@@ -185,10 +186,13 @@ public class DrainConstraints(
 /**
  * Delay policy between scheduled activations for the same store, applied by the
  * coordinator (§6.4). `delay(attempt) = min(initialDelay * multiplier^(attempt - 1),
- * maxDelay)` for attempt >= 1.
+ * maxDelay)` for attempt >= 1. The same values drive the no-progress escalation floor;
+ * with `multiplier == 1.0` the floor stays constant at `initialDelay` (bounded, never a
+ * hot loop) instead of growing toward `maxDelay`.
  *
- * init requires: both durations finite and non-negative, multiplier finite and >= 1.0,
- * maxDelay >= initialDelay. Violations throw IllegalArgumentException.
+ * init requires: `initialDelay` strictly positive and finite, `maxDelay` finite and
+ * `>= initialDelay`, `multiplier` finite and `>= 1.0`. Violations throw
+ * IllegalArgumentException.
  */
 @ExperimentalStoreApi
 public class DrainBackoff(
@@ -203,9 +207,9 @@ public class DrainPolicy(
     public val constraints: DrainConstraints = DrainConstraints(),
     public val backoff: DrainBackoff = DrainBackoff(),
     /**
-     * When true, `watch` runs an immediate in-process pass on every journal enqueue,
-     * after persisting a safety activation. When false, `watch` only schedules. Default
-     * true.
+     * When true, `watch` runs an immediate in-process pass on every journal enqueue
+     * (the fast path: no pre-pass safety activation is persisted — §6.3). When false,
+     * `watch` only schedules an activation with Duration.ZERO delay. Default true.
      */
     public val drainOnEnqueue: Boolean = true,
 )
@@ -241,16 +245,17 @@ public interface DrainScheduler {
     public fun attach(coordinator: MutationDrainCoordinator)
 
     /**
-     * Fail-fast capability check, called by the coordinator at registration time. Throws
-     * IllegalArgumentException naming the platform and the unsupported constraint keys
-     * (no silent downgrade), mirroring Meeseeks' schedule-time behavior.
+     * Fail-fast capability check, called by the coordinator at registration time.
+     * Implementations answer from a static capability matrix (no scheduling dry-run).
+     * Throws IllegalArgumentException naming the platform and the unsupported constraint
+     * keys (no silent downgrade), mirroring Meeseeks' schedule-time behavior.
      */
     public fun validate(constraints: DrainConstraints)
 
     /**
-     * Requests one future activation. Never throws for constraint reasons after
-     * [validate] passed at registration; infrastructure failures (dead scope, scheduler
-     * backend rejection) are reported by throwing, and the coordinator converts them to
+     * Requests one future activation. Constraint validity was established by [validate]
+     * at registration; infrastructure failures (dead scope, scheduler backend rejection)
+     * are reported by throwing, and the coordinator converts them to
      * [DrainScheduleFailed] advisory events plus a null scheduledDelay on the outcome.
      */
     public fun schedule(request: DrainRequest)
@@ -276,16 +281,17 @@ public sealed interface DrainPassOutcome {
         public val pendingIntents: Int,
         /**
          * The follow-up delay the coordinator scheduled, or null when [DrainScheduler.schedule]
-         * threw (a [DrainScheduleFailed] event was emitted and launch reconciliation is the
-         * remaining recovery path).
+         * threw (a [DrainScheduleFailed] event was emitted; recovery is the next enqueue,
+         * manual trigger, or launch pass).
          */
         public val scheduledDelay: Duration?,
     ) : DrainPassOutcome
 
     /**
-     * The name is not registered, or its store is closed (`IllegalStateException("Store
-     * is closed.")` observed). Possibly transient during app startup, when an OS worker
-     * can fire before host registration completes.
+     * The name is not registered (including after [MutationDrainCoordinator.close]), or
+     * its store is closed (`IllegalStateException("Store is closed.")` observed). Possibly
+     * transient during app startup, when an OS worker can fire before host registration
+     * completes.
      */
     @ExperimentalStoreApi
     public class Unavailable(
@@ -302,10 +308,11 @@ public class MutationDrainCoordinator internal constructor(
     /**
      * Registers [store] under [name] and validates `policy.constraints` against the
      * scheduler ([DrainScheduler.validate]). Names are stable across launches (they appear
-     * in OS scheduler payloads) and match `[A-Za-z0-9._-]{1,64}`. Throws
-     * IllegalArgumentException on a duplicate name, an invalid name, an unsupported
-     * constraint set, or a store instance already registered under another name. Throws
-     * IllegalStateException after [close].
+     * in OS scheduler payloads) and match `[A-Za-z0-9._-]{1,64}`. Each registration gets a
+     * fresh epoch; a pass started under an epoch schedules no follow-up once that epoch is
+     * unregistered. Throws IllegalArgumentException on a duplicate name, an invalid name,
+     * an unsupported constraint set, or a store instance already registered under another
+     * name. Throws IllegalStateException after [close].
      */
     public fun <K : StoreKey, V : Any> register(
         name: String,
@@ -314,29 +321,32 @@ public class MutationDrainCoordinator internal constructor(
     )
 
     /**
-     * Removes the registration, cancels the tracked pending activation, and completes any
-     * active [watch] collector for [name] with CancellationException. Unknown names are a
-     * no-op.
+     * Removes the registration, cancels the tracked pending activation, completes any
+     * active [watch] collector for [name] with CancellationException, and suppresses
+     * follow-up scheduling from any in-flight pass of the removed epoch. Unknown names are
+     * a no-op. Throws IllegalStateException after [close].
      */
     public fun unregister(name: String)
 
     /**
-     * Reconciliation for hosts that do not run [watch]: for every registered store with a
-     * non-empty `pendingWrites()`, schedules an activation with the §6.4 derived delay.
-     * Stores mid-pass are skipped (the running pass schedules its own follow-up). Safe to
-     * call repeatedly and concurrently with passes.
+     * Launch reconciliation for hosts that do not run [watch]: one full pass
+     * ([runActivation]) per registered store, skipping stores already mid-pass. The pass
+     * is unconditional — it does not pre-check `pendingWrites()` — because
+     * retirement-checkpoint retry work is invisible to inspection and only an actual
+     * drain retries it. An empty journal makes the pass a cheap no-op. Safe to call
+     * repeatedly and concurrently with passes.
      */
-    public suspend fun ensureScheduled()
+    public suspend fun reconcile()
 
     /**
      * The per-store reactive loop. In order: (1) subscribes to `store.events`; (2) once
-     * the subscription is active, runs one reconciliation for [name] (schedule per §6.4 if
-     * work is pending — this closes the gap between registration and subscription); (3)
-     * reacts to `MutationEnqueued`: persists a safety activation, then either runs an
-     * immediate in-process pass (`drainOnEnqueue = true`) or leaves the safety activation
-     * as the schedule (`false`). All other event types are ignored; pass-time derivation
-     * covers them. Event bursts coalesce: events arriving during a pass trigger at most
-     * one further pass.
+     * the subscription is active, runs one unconditional pass for [name] (launch
+     * reconciliation, same semantics as [reconcile] for this store); (3) reacts to
+     * `MutationEnqueued`: with `drainOnEnqueue = true`, runs an in-process fast-path pass
+     * (no pre-pass safety activation — §6.3); with `false`, schedules an activation with
+     * Duration.ZERO. All other event types are ignored; pass-time derivation covers them.
+     * Enqueue bursts coalesce (conflated trigger): events arriving during a pass cause at
+     * most one further pass.
      *
      * Never returns normally. Completes with CancellationException when the registration
      * is removed or the coordinator closes. Throws IllegalArgumentException for an
@@ -351,22 +361,30 @@ public class MutationDrainCoordinator internal constructor(
      *
      * Sequence: (1) persist a safety activation at `backoff.maxDelay` — crash, OS
      * execution-window expiry, and process suspension mid-pass then still leave a durable
-     * wake-up hint; (2) subscribe to `store.events` for the duration of the pass (to
-     * observe `MutationCheckpointFailed`, best-effort); (3) run global `drain()` under the
-     * per-store pass mutex; (4) derive the outcome and follow-up delay per §6.4; (5)
-     * replace the safety activation with the derived follow-up, or cancel it on Cleared.
-     * CancellationException propagates after step 1's request is already persisted;
-     * non-cancellation failures from `drain()` are caught and folded into the derivation.
+     * wake-up hint. If this persist throws, the coordinator emits [DrainScheduleFailed]
+     * and proceeds with the pass anyway (draining is strictly better than not; the
+     * cancellation cover below is then absent for this pass). (2) Run the §6.3 pass and
+     * §6.4 derivation. (3) Replace the safety activation with the derived follow-up, or
+     * cancel it on Cleared. CancellationException from the pass propagates; when step 1
+     * succeeded, the safety activation is the durable cover.
+     *
+     * Reentrancy: passes serialize on a per-name mutex that is NOT reentrant. Never call
+     * this from code on the drain stack — `MutationServer`, mutators, conflict policies,
+     * or SourceOfTruth implementations — or from a [watch] event handler; deadlock
+     * results. [watch] itself never holds the mutex; only the pass does.
+     *
+     * After [close], returns [DrainPassOutcome.Unavailable] (never throws): schedulers
+     * re-enter here and must not crash platform workers.
      */
     public suspend fun runActivation(storeName: String): DrainPassOutcome
 
     /**
-     * Marks the coordinator closed: watchers complete with CancellationException, and
-     * later calls to [register], [ensureScheduled], [watch], and [runActivation] throw
-     * IllegalStateException. Pending OS activations are deliberately NOT cancelled — they
-     * must survive the process to be useful; a post-close activation in this process
-     * resolves to [DrainPassOutcome.Unavailable]. Registered stores are not closed; store
-     * lifecycle belongs to the host.
+     * Marks the coordinator closed: watchers complete with CancellationException;
+     * [register], [unregister], [reconcile], and [watch] then throw
+     * IllegalStateException; [runActivation] returns [DrainPassOutcome.Unavailable].
+     * Pending OS activations are deliberately NOT cancelled — they must survive the
+     * process to be useful. Registered stores are not closed; store lifecycle belongs to
+     * the host.
      */
     public fun close()
 
@@ -393,8 +411,8 @@ public fun mutationDrainCoordinator(
  * Windows, Node, browser tabs) and for tests. Constraints are not evaluated and
  * [validate] accepts everything (documented): activations fire after the delay
  * regardless; a pass attempted while offline fails transport and reschedules with §6.4
- * backoff, so an offline host settles at `backoff.maxDelay`-spaced passes rather than
- * spinning. [schedule] throws IllegalStateException when [scope] is no longer active.
+ * backoff, so an offline host settles at escalating-delay passes rather than spinning.
+ * [schedule] throws IllegalStateException when [scope] is no longer active.
  */
 @ExperimentalStoreApi
 public class InProcessDrainScheduler(
@@ -423,6 +441,11 @@ public class DrainPassCompleted(
 public class DrainPassFailed(..., public val message: String) : DrainSchedulerEvent
 /** [DrainScheduler.schedule] threw; no pending activation is tracked for the store. */
 public class DrainScheduleFailed(..., public val message: String) : DrainSchedulerEvent
+/**
+ * Emitted only when [DrainScheduler.cancel] cancels a tracked still-pending request
+ * (unregister, or Cleared cancelling a safety activation) — not on replacement, and not
+ * for CancellationException inside a pass.
+ */
 public class DrainActivationCancelled(...) : DrainSchedulerEvent
 ```
 
@@ -430,54 +453,75 @@ public class DrainActivationCancelled(...) : DrainSchedulerEvent
 
 | Trigger | Coordinator action |
 |---|---|
-| `watch` subscription becomes active (startup) | One reconciliation for the name: `pendingWrites()` empty → nothing; else schedule with §6.4 derived delay |
-| `MutationEnqueued` observed in `watch` (drainOnEnqueue=true) | Persist safety activation, then run in-process pass (§6.4 outcome handling applies) |
+| `watch` subscription becomes active (startup) | One unconditional pass for the name (launch reconciliation; covers pending intents AND invisible checkpoint work) |
+| `MutationEnqueued` observed in `watch` (drainOnEnqueue=true) | Fast-path pass: no pre-pass safety activation; §6.4 outcome handling schedules a follow-up only if work remains |
 | `MutationEnqueued` observed in `watch` (drainOnEnqueue=false) | `schedule(name, constraints, ZERO)` |
 | Any other `MutationEvent` in `watch` | Ignored; pass-time derivation covers state changes |
-| `ensureScheduled()` | Per registered store not currently mid-pass: reconcile as above |
-| Activation fires → `runActivation(name)` | §6.1 sequence; §6.4 derivation |
+| `reconcile()` | One unconditional pass per registered store, skipping stores mid-pass |
+| Activation fires → `runActivation(name)` | Safety activation, pass, derivation, follow-up (§6.1 sequence) |
 | Host manual trigger (foreground/connectivity signal) | Host calls `runActivation(name)` directly |
-| `unregister(name)` / `close()` | `cancel(name)` for unregister; close cancels nothing OS-side |
+| `unregister(name)` | `cancel(name)`; watcher completes; in-flight pass of that epoch schedules no follow-up |
+| `close()` | Watchers complete; OS requests untouched |
 
 ### 6.3 Pass execution
 
-A pass is: safety activation → global `drain()` → outcome derivation → follow-up
-scheduling. Rules:
+A pass is: global `drain()` → outcome derivation → follow-up scheduling, with a safety
+activation persisted first on the `runActivation` entry paths. Rules:
 
 - Scheduled passes use **global `drain()`**, never keyed `drain(key)`. Global respects the
   engine's internal per-intent backoff gate, so an activation can never hammer a head the
   engine considers ineligible; keyed drain's backoff override stays a deliberate
   foreground/manual affordance for hosts.
-- One pass per store at a time, enforced by a coordinator-internal per-name `Mutex`.
-  Concurrent activation attempts (OS replay + watch pass) queue briefly; the engine
-  additionally serializes per identity/namespace internally, and passes are idempotent, so
-  overlap from other processes' schedulers is safe if wasteful.
-- The safety activation is persisted before `drain()` starts. Crash, OS execution-window
-  expiry (`CancellationException`), jetsam, or the host backgrounding mid-pass all leave a
-  durable request at `backoff.maxDelay`; the engine's `INFLIGHT` replay contract covers the
-  transport crash window. This is the design's answer to at-least-once schedulers and to
-  Meeseeks 1.1.0's internal exception classification (which catches `CancellationException`
-  rather than rethrowing it — §8.3).
-- During the pass the coordinator collects the store's advisory events (subscription
-  established before `drain()` begins) solely to observe `MutationCheckpointFailed`.
-  Advisory delivery can drop under pressure; a dropped checkpoint-failure observation
-  delays checkpoint retry until the next pass or launch, and never loses intent data.
+- One pass per store at a time, enforced by a coordinator-internal per-name `Mutex` whose
+  only acquirer is the pass itself. Concurrent activation attempts (OS replay + a manual
+  trigger) queue briefly. The engine additionally serializes per identity/namespace
+  internally, and passes are idempotent, so overlap from a second coordinator or a host's
+  own `drain()` calls in the same process is safe if wasteful.
+- **Safety activations** cover abrupt termination mid-pass, on two of the three entry
+  paths: `runActivation` (scheduler-fired and host-manual) persists one at
+  `backoff.maxDelay` before draining. The `watch` fast path (`drainOnEnqueue = true`)
+  deliberately does not: an OS enqueue-plus-cancel per online write is unacceptable
+  scheduler churn, so the fast path's abrupt-death window is covered by the engine's
+  `INFLIGHT` replay plus the unconditional launch pass instead. This narrower cover is a
+  deliberate trade documented in §10.
+- During the pass the coordinator observes the store's advisory events solely for
+  `MutationCheckpointFailed`: collection starts undispatched before `drain()` begins,
+  forwards into a conflated flag, and is read only after a post-pass yield barrier so a
+  slow collector cannot miss an already-buffered emission. Best-effort remains
+  best-effort: `tryEmit` drops under pressure delay checkpoint retry until the next pass
+  (every launch runs one), and never lose intent data.
 
 ### 6.4 Outcome and follow-up delay derivation
 
 Inputs after the pass: `rows = store.pendingWrites()` (durable truth),
 `checkpointFailed` (observed during this pass, best-effort), whether `drain()` threw a
-non-cancellation failure, and the coordinator's in-memory no-progress counter `k` for the
-store.
+non-cancellation failure, and the no-progress state `(previousFingerprint, k)` defined
+below.
+
+**Progress fingerprint.** After each pass the coordinator computes
+`fingerprint = multiset of (mutationId, namespace, canonicalId, state, attempt)` over all
+rows — exactly the fields `PendingIntent` exposes. `k` (consecutive no-progress passes) is
+updated only after real `drain()` passes: `k = 0` when `previousFingerprint` is absent
+(first pass of this coordinator instance) or differs from the current fingerprint,
+`k + 1` when equal. An empty fingerprint equals only another empty fingerprint, never the
+absent initial state, so repeated checkpoint-only passes escalate predictably. The state
+is process-local; a restart resets it, which is safe (reconciliation re-derives).
+Limitation, accepted: a generation change that lands back on identical public fields is
+invisible and escalates conservatively.
+
+`escalation(k) = ZERO` for `k = 0`, else
+`min(initialDelay · multiplier^(k-1), maxDelay)` — strictly positive because `initialDelay`
+is validated strictly positive; with `multiplier = 1.0` it stays a constant `initialDelay`
+floor.
 
 **Outcome:**
 
 | Condition | Outcome |
 |---|---|
-| `rows` empty and not `checkpointFailed` | `Cleared` → cancel the safety activation; nothing pending |
+| `rows` empty and not `checkpointFailed` | `Cleared` → cancel the tracked pending activation; nothing scheduled |
 | `rows` empty and `checkpointFailed` | `Remaining(0, delay)` → follow-up at `max(backoff.initialDelay, escalation(k))` |
 | `rows` non-empty (whether or not `drain()` threw) | `Remaining(rows.size, delay)` → follow-up per the head derivation below |
-| Store closed / name unknown (IllegalStateException from any store call) | `Unavailable` → cancel nothing; emit `DrainPassFailed`; launch reconciliation recovers |
+| Store closed / name unknown / coordinator closed (IllegalStateException from any store call) | `Unavailable` → emit `DrainPassFailed`; schedule nothing; launch reconciliation recovers |
 
 **Head derivation.** `pendingWrites()` returns every nonterminal row; only per-identity
 FIFO heads are schedulable by a global drain, and suffix rows must not influence delay
@@ -497,24 +541,21 @@ engine cannot act on — a busy loop). So:
 3. `derived = min(per-head delays)` — progress-first: the least-delayed identity sets the
    wake-up, and identities still inside their own engine window are skipped by the engine
    and picked up by a later activation.
-4. `effective = max(derived, escalation(k))` where `k` counts consecutive passes for this
-   store without journal progress, and `escalation(k) = min(initialDelay · multiplier^(k-1),
-   maxDelay)` with `escalation(0) = ZERO`. Progress means any change in the multiset of
-   `(mutationId, state, generation-visible fields, attempt)` across all rows between passes;
-   the counter resets on any change and is process-local (a restart resets it, which is
-   safe — reconciliation re-derives).
+4. `effective = max(derived, escalation(k))`.
 
 The escalation floor is what prevents hot loops that the state table alone cannot: an
 `ADOPTING` head whose adoption keeps throwing derives `ZERO` forever (its `attempt` does
 not increment post-ack), an `INFLIGHT` row held by a concurrent pass derives `ZERO`, and a
-checkpoint that keeps failing has no row at all. Each converges to `maxDelay`-spaced
-retries instead of a spin, and any real progress snaps the delay back to the derived value.
+failing checkpoint has no row at all. Each converges to bounded, spaced retries (growing
+toward `maxDelay` for `multiplier > 1`), and any real progress snaps the delay back to the
+derived value.
 
 **Follow-up scheduling.** The follow-up (or the surviving safety activation on the
-CancellationException path) replaces the tracked pending request. If
-`DrainScheduler.schedule` throws, the coordinator emits `DrainScheduleFailed`, returns
-`Remaining(…, scheduledDelay = null)`, and the recovery path is the next enqueue, manual
-trigger, or launch reconciliation.
+CancellationException path) replaces the tracked pending request. If the pass's epoch was
+unregistered mid-pass, no follow-up is scheduled. If `DrainScheduler.schedule` throws, the
+coordinator emits `DrainScheduleFailed` and returns `Remaining(…, scheduledDelay = null)`;
+recovery is the next enqueue, manual trigger, or launch pass (and, on the Meeseeks worker
+path, the bounded native retry fallback — §7.2).
 
 ### 6.5 Registration names
 
@@ -546,10 +587,10 @@ no-op passes that the escalation floor keeps bounded. The engine constants are p
 may change; one integration test (§12.4) certifies the relationship against the real
 engine rather than restating constants.
 
-Because `ensureScheduled` and startup reconciliation measure delays from "now" rather than
-from the unknown `lastAttemptAt`, a relaunch can wait up to one full `delay(attempt)`
-longer than strictly necessary. Accepted: conservative, bounded, and disappears once
-`mutations` exposes retry timing (§15).
+Because reconciliation and follow-ups measure delays from "now" rather than from the
+unknown `lastAttemptAt`, a relaunch can wait up to one full `delay(attempt)` longer than
+strictly necessary. Accepted: conservative, bounded, and disappears once `mutations`
+exposes retry timing (§15).
 
 ## 7. Artifact 2: `mutations-drain-meeseeks` (the OS backend)
 
@@ -616,9 +657,9 @@ On retries, exactly: **returning `TaskResult.Success` from the worker is the mec
 that disables Meeseeks-native retry chains** — Meeseeks retries only on `TaskResult.Retry`
 and `Failure.Transient`, capped at `min(request.maxRetries ?: config.maxRetryCount,
 config.maxRetryCount)` (host config, default 3). The adapter leaves `maxRetries = null` so
-the small host-configured budget remains available for exactly one case: the
-startup grace period below. Verified behavior, not assumption, is an exit gate (§8.3
-item 1, §13).
+the small host-configured budget remains available for exactly two cases: the startup
+grace period and the schedule-failure fallback below. Verified behavior, not assumption,
+is an exit gate (§8.3 item 1, §14).
 
 Worker result mapping (`StoreDrainWorker.run` → `scheduler.runActivation(payload.storeName)`):
 
@@ -626,7 +667,7 @@ Worker result mapping (`StoreDrainWorker.run` → `scheduler.runActivation(paylo
 |---|---|
 | `Cleared` | `TaskResult.Success` |
 | `Remaining` (scheduledDelay != null) | `TaskResult.Success` — the follow-up was already scheduled as a NEW task from inside the pass (below); returning `Retry` would create a second, competing chain |
-| `Remaining` (scheduledDelay == null — scheduler backend rejected the follow-up) | `TaskResult.Retry` — Meeseeks' own bounded chain is the fallback wake-up |
+| `Remaining` (scheduledDelay == null — scheduler backend rejected the follow-up) | `TaskResult.Retry` — Meeseeks' own bounded chain is the fallback wake-up. After the host-configured budget exhausts, the task is terminal and only the next enqueue, manual trigger, or launch pass recovers; checkpoint-only work specifically relies on the unconditional launch pass |
 | `Unavailable` | `TaskResult.Failure.Transient` — a worker can fire before host registration completes during process start; the bounded Meeseeks retry budget is the grace period, and launch reconciliation is the authoritative recovery. Never `Failure.Permanent`: names that reappear after a hotfix or a slow `Application.onCreate` must not have their wake-up hint deleted |
 | `CancellationException` from the pass | rethrow. Meeseeks 1.1.0 classifies it internally rather than propagating (§8.3); the §6.3 safety activation is the durable cover either way |
 
@@ -639,23 +680,27 @@ never calls `reschedule` on an id whose activation may be executing:
 - Follow-ups scheduled from inside a pass always use `manager.schedule(newRequest)` — a
   new task id, no interaction with the running task. The tracked-id map then points at the
   new id; the finishing task completes `Success` and is terminal.
-- `reschedule(id, request)` is used only for ids whose status is pending
-  (`getTaskStatus(id)` reports an enqueued, non-running state) — the watch/reconciliation
-  path replacing a not-yet-fired request.
-- `cancel(storeName)` cancels the tracked id if pending; cancelling a running activation
-  is legal (pass idempotence + safety activation cover it) but the adapter avoids it.
+- `reschedule(id, request)` is used only for ids whose current `getTaskStatus(id)` is
+  pending (enqueued, not running) — the watch/reconciliation path replacing a
+  not-yet-fired request.
+- `cancel(storeName)` cancels the tracked id if still pending; cancelling a running
+  activation is legal (pass idempotence + safety activation cover it) but the adapter
+  avoids it.
 
-**Tracked-id map and recovery.** The scheduler keeps an in-memory
+**Tracked-id map, staleness, and recovery.** The scheduler keeps an in-memory
 `storeName → TaskId` map guarded by the same lock as `schedule`/`cancel` (lookup, decide,
 act, update is one critical section — two concurrent `schedule` calls must not both
-`manager.schedule`). After process death the map is empty; before scheduling anew, the
-adapter scans `manager.listTasks()` for rows whose payload is a `StoreDrainPayload` with a
-matching name **and whose status is enqueued/pending** — terminal (succeeded, failed,
-cancelled) rows are ignored, running rows are adopted without scheduling (their pass will
-chain), and a payload that fails to deserialize (schema drift from an old app version) is
-skipped, falling back to scheduling fresh. Transient duplicates that slip through are
-bounded and harmless: passes are idempotent and the next replace collapses back to one
-tracked id. (A first-class unique-key API in Meeseeks deletes this scan — §8.3 item 2.)
+`manager.schedule`). Tracked ids go stale when their task completes: every `schedule` and
+`cancel` first refreshes via `getTaskStatus(tracked)` — `null` or terminal
+(`Finished.Cancelled/Completed/Failed`) means no tracked request, running means adopt
+(leave it; its pass chains), pending means replace via `reschedule`. After process death
+the map is empty; before scheduling anew, the adapter scans `manager.listTasks()` for rows
+whose payload is a `StoreDrainPayload` with a matching name **and pending status** —
+running rows are adopted into the map without scheduling, terminal rows are ignored, and a
+payload that fails to deserialize (schema drift from an old app version) is skipped,
+falling back to scheduling fresh. Transient duplicates that slip through are bounded and
+harmless: passes are idempotent and the next replace collapses back to one tracked id.
+(A first-class unique-key API in Meeseeks deletes this scan — §8.3 item 2.)
 
 ### 7.3 Host wiring
 
@@ -682,7 +727,7 @@ class App : Application(), Configuration.Provider {
         super.onCreate()
         coordinator.register("users", usersStore)   // durable journalStorage required for
                                                     // cross-restart draining; see §10
-        appScope.launch { coordinator.watch("users") }
+        appScope.launch { coordinator.watch("users") }   // subscribes, then runs the launch pass
     }
 
     override val workManagerConfiguration: Configuration
@@ -714,7 +759,8 @@ foreground-reconnect coverage add one line on their app-active signal:
 The `validate` fail-fast (coordinator calls it at `register`) is deliberate: Meeseeks
 throws `IllegalArgumentException` at schedule time for unsupported preconditions ("no
 silent downgrade"); surfacing that at registration converts a runtime scheduling failure
-into an immediate, actionable configuration error.
+into an immediate, actionable configuration error. The adapter's `validate` answers from
+the Meeseeks capability matrix compiled per platform source set.
 
 ## 8. The Meeseeks decision
 
@@ -740,8 +786,8 @@ are live options rather than external asks.
 Used for: constraint-gated OS wake-ups, worker registration and process-death re-entry
 wiring, platform quirk ownership (WorkManager configuration, BGTask identifiers and
 expiration, Quartz), request persistence hygiene (`reschedulePendingTasks`), a bounded
-native retry budget as the startup grace period (§7.2), and its telemetry for hosts that
-already aggregate Meeseeks events.
+native retry budget as the startup grace period and schedule-failure fallback (§7.2), and
+its telemetry for hosts that already aggregate Meeseeks events.
 
 Deliberately not used for: primary retry policy (the coordinator derives delays from
 journal state; the worker returns `Success` on the normal path), payload state (payload
@@ -755,7 +801,7 @@ authoritative and the other two are self-healing hints.
 
 ### 8.3 Coordination items against Meeseeks (owner-confirmed as changeable)
 
-Item 1 blocks the adapter's exit gate (not the seam's); items 2–5 are upstream improvements
+Item 1 blocks the adapter's exit gate (not the seam's); items 2–6 are upstream improvements
 the adapter works around until they land.
 
 1. **Blocking verification (adapter jvmTest, §12):** (a) `manager.schedule(new)` from
@@ -763,11 +809,12 @@ the adapter works around until they land.
    (b) `TaskResult.Success` produces no further activations regardless of
    `maxRetryCount`; (c) `Failure.Transient` retries are bounded by
    `min(request.maxRetries ?: config.maxRetryCount, config.maxRetryCount)` as read from
-   1.1.0 sources; (d) `getTaskStatus`/`listTasks` expose enough state to distinguish
-   pending from running from terminal for the §7.2 recovery predicate; (e) a
+   1.1.0 sources; (d) `getTaskStatus`/`listTasks` distinguish pending from running from
+   terminal (`TaskStatus.Pending`/`Running`/`Finished.*`) for the §7.2 predicates; (e) a
    `StoreDrainPayload` that fails to deserialize in `listTasks` is survivable (skip, not
-   throw). Any failed verification converts its workaround into an upstream Meeseeks
-   change gating the adapter's first release.
+   throw); (f) terminal task rows are pruned or bounded, so the recovery scan does not
+   degrade with app age. Any failed verification converts its workaround into an upstream
+   Meeseeks change gating the adapter's first release.
 2. **Upstream: unique-key scheduling.** `schedule(request, uniqueKey, replacePolicy)` or
    equivalent, scoped to non-terminal tasks, eliminating the `listTasks` scan and the
    transient-duplicate window.
@@ -775,8 +822,11 @@ the adapter works around until they land.
    and classifies cancellation as retryable; expiry/cancellation should propagate so
    workers and platform runners see the platform-native contract. The safety activation
    makes this non-blocking for the adapter.
-4. **Upstream: wasmJs target**, widening the adapter matrix.
-5. **Governance:** publish Meeseeks under MNF (or mirror under
+4. **Upstream: schedule-successor-on-completion API** (worker returns a follow-up request
+   Meeseeks schedules after the task finishes), removing the schedule-new-from-inside-
+   worker pattern entirely.
+5. **Upstream: wasmJs target**, widening the adapter matrix.
+6. **Governance:** publish Meeseeks under MNF (or mirror under
    `org.mobilenativefoundation` coordinates) before `mutations-drain-meeseeks` is proposed
    for graduation past experimental. While both artifacts are experimental, a
    `dev.mattramotar` dependency is acceptable with the tier stated on the artifact — and
@@ -784,22 +834,23 @@ the adapter works around until they land.
 
 ## 9. Lifecycle and concurrency contract
 
-The table Sol/Grok review demanded; every cell is a certified behavior (§12), not prose.
+Every cell is a certified behavior (§12), not prose.
 
 | Situation | Behavior |
 |---|---|
 | `attach` called twice, or `schedule`/`cancel` before `attach` | `IllegalStateException` |
 | `register` twice with the same name, invalid name, same store under two names, unsupported constraints | `IllegalArgumentException` (from `validate` for constraints) |
-| `register` / `unregister` concurrent with passes | Registry map is mutex-guarded; a pass holds a snapshot of its (store, policy) and finishes on it; `unregister` then drops the mapping and cancels the pending activation |
+| `register` / `unregister` concurrent with passes | Registry map is mutex-guarded; a pass holds its (store, policy, epoch) snapshot and finishes on it; `unregister` drops the mapping, cancels the pending activation, and the in-flight pass of the removed epoch schedules no follow-up |
 | `watch(name)` for an unregistered name | `IllegalArgumentException` |
-| `watch` while a pass is running | Events arriving mid-pass coalesce to at most one further pass |
+| `watch` while a pass is running | Enqueue triggers conflate to at most one further pass |
 | `unregister` / `close` during active `watch` | Watcher completes with `CancellationException` |
-| `watch` cancelled externally mid-pass | Safety activation already persisted (§6.3); journal state replayable; no coordinator cleanup needed |
-| `ensureScheduled` while a pass runs for some store | That store skipped; the pass schedules its own follow-up |
+| `watch` cancelled externally mid-pass | Journal state replayable (`INFLIGHT` contract); the launch pass recovers; no coordinator cleanup needed |
+| `reconcile` while a pass runs for some store | That store skipped; the running pass schedules its own follow-up |
 | Two concurrent `runActivation(name)` (OS replay + manual) | Second waits on the per-name pass mutex, then runs; both derive from durable truth; idempotent |
+| `runActivation` from code on the drain stack (`MutationServer`, mutators, conflict policies, SoT) or from a `watch` handler | Forbidden — the pass mutex is not reentrant; deadlock. KDoc states it; not runtime-detected |
 | `cancel(name)` while that activation is executing | Legal; pass completes and its follow-up scheduling reinstates a request if work remains |
 | Store closed mid-pass | `IllegalStateException("Store is closed.")` from `drain()`/`pendingWrites()` caught → `Unavailable` |
-| Coordinator `close()` | Watchers cancelled; later API calls throw `IllegalStateException`; OS requests untouched (they outlive the process by design) |
+| Coordinator `close()` | Watchers cancelled; `register`/`unregister`/`reconcile`/`watch` throw `IllegalStateException`; `runActivation` returns `Unavailable`; OS requests untouched (they outlive the process by design) |
 | `InProcessDrainScheduler.schedule` on a cancelled scope | Throws `IllegalStateException` → coordinator emits `DrainScheduleFailed` |
 | Backward wall-clock jump | Engine eligibility uses absolute epoch millis; passes may no-op until the clock catches up; escalation bounds the waste; documented, not worked around |
 
@@ -807,18 +858,20 @@ The table Sol/Grok review demanded; every cell is a certified behavior (§12), n
 
 | Scenario | What happens |
 |---|---|
-| Enqueue online, app foreground | `watch` persists safety activation, runs immediate pass; push completes; `Cleared` cancels the safety activation |
-| Enqueue offline, app foreground | Immediate pass fails transport (attempt=1 durable); follow-up scheduled (network constraint, 30s floor); Android runs it on connectivity regain, foreground or background |
+| Enqueue online, app foreground | `watch` fast path runs the pass; push completes; `Cleared`; no OS request was created (no churn) |
+| Enqueue offline, app foreground | Fast-path pass fails transport (attempt=1 durable); follow-up scheduled (network constraint, 30s floor); Android runs it on connectivity regain, foreground or background |
+| Process dies during a fast-path pass (no safety activation) | Engine `INFLIGHT` replay preserves the write; if a follow-up had been scheduled by an earlier outcome it fires, otherwise the next launch pass recovers. Deliberate trade for zero per-write scheduler churn |
+| Process dies during a scheduler-fired or manual pass | Safety activation (persisted pre-pass) fires at `backoff.maxDelay`; `INFLIGHT` replay covers the transport window |
 | iOS: connectivity regained in foreground, no new writes | **Not covered by OS scheduling** (BGTask fires background-only) and deliberately no `NWPathMonitor` dependency. Covered when the host calls `runActivation(name)` on its app-active or reachability signal (one line, §7.3); otherwise the next background grant, enqueue, or launch drains |
-| App backgrounded seconds after enqueue, in-process pass killed | Safety activation was persisted before the pass; journal replay covers the transport window |
-| App killed with pending intents, durable journal | Next launch: `watch` reconciliation (or `ensureScheduled`) re-derives and schedules. Independently, a persisted OS request may fire first and re-enter via the worker; both paths converge on idempotent passes |
+| App killed with pending intents, durable journal | Next launch: `watch`'s unconditional pass (or `reconcile()`) drains and schedules. Independently, a persisted OS request may fire first and re-enter via the worker; both paths converge on idempotent passes |
+| Retirement checkpoint failed, journal otherwise empty | Pass-scoped observation reschedules with the `initialDelay` floor + escalation; if that request is lost (schedule failure + fallback exhaustion), the next launch's unconditional pass retries the flush — this is why reconciliation never pre-checks `pendingWrites()` |
 | OS wakes dead process (Android) | WorkManager starts the process; worker may fire before host registration completes → `Unavailable` → `Failure.Transient` grace retries (bounded by host Meeseeks config), then launch reconciliation is authoritative |
 | OS wakes dead process (iOS) | BGTask launch handler (registered by Meeseeks before launch completes) runs the worker; same grace path. Execution-window expiry cancels the pass; safety activation + `INFLIGHT` replay cover it |
 | Force-quit (iOS) | No background launches until the user reopens; first foreground launch reconciles. Documented, not worked around |
 | Doze / App Standby (Android) | Constraint-met work may defer for hours on idle devices; journal durability makes this a latency, not a loss. Documented; no expedited dispatch in v1 |
-| In-memory journal (default `journalStorage`) | Scheduling works while the process lives (connectivity-return draining); after process death there is nothing to drain and reconciliation finds an empty journal. README states plainly: durable draining requires durable journal storage (`mutations-sqldelight`) |
-| Registration renamed across app versions | Old persisted payloads resolve `Unavailable` → bounded grace → terminal; new-name reconciliation schedules fresh. No loss; documented naming discipline (§6.5) |
-| Device reboot (Android) | WorkManager persists across reboot; launch reconciliation additionally covers every platform uniformly |
+| In-memory journal (default `journalStorage`) | Scheduling works while the process lives (connectivity-return draining); after process death there is nothing to drain and the launch pass finds an empty journal. README states plainly: durable draining requires durable journal storage (`mutations-sqldelight`) |
+| Registration renamed across app versions | Old persisted payloads resolve `Unavailable` → bounded grace → terminal; new-name launch pass schedules fresh. No loss; documented naming discipline (§6.5) |
+| Device reboot (Android) | WorkManager persists across reboot; the launch pass additionally covers every platform uniformly |
 
 ## 11. Observability
 
@@ -837,9 +890,10 @@ the coordinator never consumes its own events.
 test style; virtual time via the store's `wallClock` door and the coordinator's `wallClock`
 parameter; a `RecordingDrainScheduler` test double):
 
-1. **Trigger matrix** — every §6.2 row, including: subscription-then-reconcile ordering
-   (enqueue racing `watch` startup is caught by reconciliation), event-burst coalescing
-   (N rapid enqueues → bounded passes), non-enqueue events ignored.
+1. **Trigger matrix** — every §6.2 row, including: watch startup runs the unconditional
+   pass after subscription is active (an enqueue racing watch startup is never lost);
+   enqueue-burst coalescing asserts at most 2 passes for an N-burst (one running + one
+   conflated trailing); non-enqueue events ignored; drainOnEnqueue=false schedules ZERO.
 2. **Outcome + head derivation** — every §6.4 row: all-retired → Cleared;
    transport-failure head (`PENDING`, attempt≥1) → `delay(attempt)`; never-attempted
    in-FIFO suffix behind an in-window head → suffix does NOT lower the delay (the §6.4
@@ -849,31 +903,39 @@ parameter; a `RecordingDrainScheduler` test double):
    (attempt back to 0) → ZERO and engine-eligible; checkpoint-failure observed with empty
    `pendingWrites` → Remaining(0) at `initialDelay` floor; parked-only → Cleared (dead
    letters never reschedule); closed store → Unavailable; schedule() throwing →
-   `DrainScheduleFailed` + `scheduledDelay = null`.
-3. **Escalation** — no-progress counter growth to `maxDelay`, reset on any journal
-   progress, reset on process restart semantics (new coordinator instance).
+   `DrainScheduleFailed` + `scheduledDelay = null`; safety-persist failure → pass still
+   runs.
+3. **Escalation and fingerprint** — fingerprint is exactly the multiset of
+   `(mutationId, namespace, canonicalId, state, attempt)`; absent-initial vs empty
+   distinction; `k` grows only across real passes; growth to `maxDelay`
+   (`multiplier > 1`) and constant floor (`multiplier = 1.0`); reset on any journal
+   progress; reset with a new coordinator instance.
 4. **Alignment guard** — offline-fail a head to attempt N against the real engine,
    advance virtual time by the coordinator's `delay(N)`, run a pass, assert the head was
    attempted (fails if the engine's window ever outgrows the coordinator's delay).
-5. **Safety activation** — persisted before the pass; replaced by the derived follow-up;
-   cancelled on Cleared; survives a cancelled pass (CancellationException path leaves it
-   tracked).
+5. **Safety activation** — persisted before scheduler-fired/manual passes only (fast path
+   persists none — churn regression test asserts zero schedule calls for a successful
+   online fast-path pass); replaced by the derived follow-up; cancelled on Cleared;
+   survives a cancelled pass.
 6. **Lifecycle contract** — every §9 row: attach-twice, pre-attach schedule, duplicate
-   register, same-store-two-names, unregister-during-watch, close semantics,
-   concurrent `runActivation`, `ensureScheduled`-during-pass skip, multi-store isolation
+   register, same-store-two-names, unregister-during-watch, unregister-mid-pass
+   suppresses the follow-up, close semantics (`runActivation` → Unavailable, others
+   throw), concurrent `runActivation`, `reconcile`-during-pass skip, multi-store isolation
    (store A's schedule/cancel never touches store B's tracked request).
 7. **In-process scheduler** — replace-per-store under concurrent `schedule` calls,
    cancel, fire-once per schedule, dead-scope rejection, virtual-time firing.
 8. **Event contract** — field-level assertions on every `DrainSchedulerEvent` type;
-   non-blocking emission; drop-oldest under pressure.
+   `DrainActivationCancelled` only on true cancellation (not replacement); non-blocking
+   emission; drop-oldest under pressure.
 9. **Restart replay** — enqueue → close → reopen over the same `journalStorage` →
-   reconciliation schedules; matches `MutationRestartWalkingTest` fixture style.
+   launch pass drains and schedules; matches `MutationRestartWalkingTest` fixture style.
 
 `mutations-drain-meeseeks`:
 
-1. **jvmTest against real Meeseeks (Quartz)** — the §8.3 item-1 verifications (a)–(e),
+1. **jvmTest against real Meeseeks (Quartz)** — the §8.3 item-1 verifications (a)–(f),
    each a named test; schedule→activation→worker→coordinator round trip;
-   replace-via-`reschedule` only for pending ids; recovery scan predicate (pending only,
+   replace-via-`reschedule` only for verified-pending ids; tracked-id staleness refresh
+   (`getTaskStatus` null/terminal → schedule new); recovery scan predicate (pending only,
    running adopted, terminal ignored, undeserializable skipped); concurrent `schedule`
    single-winner under the adapter lock; `Unavailable` → Transient grace → later
    registration recovers.
@@ -911,9 +973,10 @@ plan against the convention plugin's deployment targets).
 The feature is shippable in an alpha when:
 
 1. Every §6.2, §6.4, and §9 table row has a named passing test in `mutations-drain`
-   commonTest (the §12.2 busy-loop and post-ack-stall regressions explicitly included).
+   commonTest (the §12.2 busy-loop, post-ack-stall, and fast-path-churn regressions
+   explicitly included).
 2. The §6.6 alignment guard passes against the real engine.
-3. The Meeseeks jvm suite passes with all five §8.3 item-1 verifications green, or the
+3. The Meeseeks jvm suite passes with all six §8.3 item-1 verifications green, or the
    failed verification's upstream Meeseeks change has shipped and the suite passes against
    the bumped version.
 4. BCV JVM + klib dumps committed for both artifacts; core-internal ban list green;
@@ -922,7 +985,7 @@ The feature is shippable in an alpha when:
 5. Both READMEs exist with compiled snippets; the in-memory-journal caveat, the iOS
    force-quit/foreground-reconnect caveats, the Doze caveat, and the multi-process
    non-support are stated.
-6. The sample runs: offline enqueue → restart → reconciliation → drain → confirmed, on JVM
+6. The sample runs: offline enqueue → restart → launch pass → drain → confirmed, on JVM
    with the in-process scheduler.
 7. #677 can be closed with links to the named conformance tests (repo release rule:
    "closes at least one community issue with a link to the named guarantee").
@@ -934,10 +997,11 @@ would sharpen an approximation §6.4 makes from public API:
 
 1. **Structured drain report from `mutations`** — per-identity head states, retry-at
    timestamps (from the non-public `lastAttemptAt` + window), and outstanding
-   retirement-checkpoint lag. Replaces head-derivation heuristics and the
-   checkpoint-event observation with engine truth. Candidate for a mutations API review
-   after this ships and real usage exists.
-2. **Meeseeks unique-key scheduling, cancellation propagation, wasmJs** (§8.3 items 2–4).
+   retirement-checkpoint lag. Replaces head-derivation heuristics, the checkpoint-event
+   observation, and the unconditional launch pass with engine truth. Candidate for a
+   mutations API review after this ships and real usage exists.
+2. **Meeseeks unique-key scheduling, cancellation propagation, successor-on-completion,
+   wasmJs** (§8.3 items 2–5).
 3. **Expedited/priority dispatch knob** on `DrainPolicy` mapped to Meeseeks
    priority/expedited once demand shows (v1 deliberately requests none).
 4. **A public `RecordingDrainScheduler`** in a testing artifact if adapter authors appear
