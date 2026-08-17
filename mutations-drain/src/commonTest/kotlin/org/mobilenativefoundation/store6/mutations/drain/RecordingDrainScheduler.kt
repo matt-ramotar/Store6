@@ -12,6 +12,12 @@ internal class RecordingDrainScheduler : DrainScheduler {
     internal var validateThrows: Throwable? = null
 
     private var scheduleCalls = 0
+    private var coordinator: MutationDrainCoordinator? = null
+
+    override fun attach(coordinator: MutationDrainCoordinator) {
+        check(this.coordinator == null) { "RecordingDrainScheduler is already attached." }
+        this.coordinator = coordinator
+    }
 
     override fun validate(constraints: DrainConstraints) {
         log +=
@@ -38,4 +44,8 @@ internal class RecordingDrainScheduler : DrainScheduler {
         log += "cancel($storeName)"
         cancelled += storeName
     }
+
+    internal suspend fun fireActivation(name: String): DrainPassOutcome =
+        checkNotNull(coordinator) { "RecordingDrainScheduler is not attached." }
+            .runActivation(name)
 }

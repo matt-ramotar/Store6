@@ -86,6 +86,7 @@ public final class org/mobilenativefoundation/store6/mutations/drain/DrainSchedu
 }
 
 public abstract interface class org/mobilenativefoundation/store6/mutations/drain/DrainScheduler {
+	public abstract fun attach (Lorg/mobilenativefoundation/store6/mutations/drain/MutationDrainCoordinator;)V
 	public abstract fun cancel (Ljava/lang/String;)V
 	public abstract fun schedule (Lorg/mobilenativefoundation/store6/mutations/drain/DrainRequest;)V
 	public abstract fun validate (Lorg/mobilenativefoundation/store6/mutations/drain/DrainConstraints;)V
@@ -94,5 +95,20 @@ public abstract interface class org/mobilenativefoundation/store6/mutations/drai
 public abstract interface class org/mobilenativefoundation/store6/mutations/drain/DrainSchedulerEvent {
 	public abstract fun getOccurredAtEpochMillis ()J
 	public abstract fun getStoreName ()Ljava/lang/String;
+}
+
+public final class org/mobilenativefoundation/store6/mutations/drain/MutationDrainCoordinator {
+	public final fun close ()V
+	public final fun getEvents ()Lkotlinx/coroutines/flow/SharedFlow;
+	public final fun reconcile (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun register (Ljava/lang/String;Lorg/mobilenativefoundation/store6/mutations/MutationStore;Lorg/mobilenativefoundation/store6/mutations/drain/DrainPolicy;)V
+	public static synthetic fun register$default (Lorg/mobilenativefoundation/store6/mutations/drain/MutationDrainCoordinator;Ljava/lang/String;Lorg/mobilenativefoundation/store6/mutations/MutationStore;Lorg/mobilenativefoundation/store6/mutations/drain/DrainPolicy;ILjava/lang/Object;)V
+	public final fun runActivation (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public final fun unregister (Ljava/lang/String;)V
+}
+
+public final class org/mobilenativefoundation/store6/mutations/drain/MutationDrainCoordinatorKt {
+	public static final fun mutationDrainCoordinator (Lorg/mobilenativefoundation/store6/mutations/drain/DrainScheduler;Lorg/mobilenativefoundation/store6/core/seam/WallClock;)Lorg/mobilenativefoundation/store6/mutations/drain/MutationDrainCoordinator;
+	public static synthetic fun mutationDrainCoordinator$default (Lorg/mobilenativefoundation/store6/mutations/drain/DrainScheduler;Lorg/mobilenativefoundation/store6/core/seam/WallClock;ILjava/lang/Object;)Lorg/mobilenativefoundation/store6/mutations/drain/MutationDrainCoordinator;
 }
 

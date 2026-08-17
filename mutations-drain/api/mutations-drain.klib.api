@@ -7,6 +7,7 @@
 
 // Library unique name: <Store5:mutations-drain>
 abstract interface org.mobilenativefoundation.store6.mutations.drain/DrainScheduler { // org.mobilenativefoundation.store6.mutations.drain/DrainScheduler|null[0]
+    abstract fun attach(org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator) // org.mobilenativefoundation.store6.mutations.drain/DrainScheduler.attach|attach(org.mobilenativefoundation.store6.mutations.drain.MutationDrainCoordinator){}[0]
     abstract fun cancel(kotlin/String) // org.mobilenativefoundation.store6.mutations.drain/DrainScheduler.cancel|cancel(kotlin.String){}[0]
     abstract fun schedule(org.mobilenativefoundation.store6.mutations.drain/DrainRequest) // org.mobilenativefoundation.store6.mutations.drain/DrainScheduler.schedule|schedule(org.mobilenativefoundation.store6.mutations.drain.DrainRequest){}[0]
     abstract fun validate(org.mobilenativefoundation.store6.mutations.drain/DrainConstraints) // org.mobilenativefoundation.store6.mutations.drain/DrainScheduler.validate|validate(org.mobilenativefoundation.store6.mutations.drain.DrainConstraints){}[0]
@@ -138,3 +139,16 @@ final class org.mobilenativefoundation.store6.mutations.drain/DrainScheduleFaile
     final val storeName // org.mobilenativefoundation.store6.mutations.drain/DrainScheduleFailed.storeName|{}storeName[0]
         final fun <get-storeName>(): kotlin/String // org.mobilenativefoundation.store6.mutations.drain/DrainScheduleFailed.storeName.<get-storeName>|<get-storeName>(){}[0]
 }
+
+final class org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator { // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator|null[0]
+    final val events // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.events|{}events[0]
+        final fun <get-events>(): kotlinx.coroutines.flow/SharedFlow<org.mobilenativefoundation.store6.mutations.drain/DrainSchedulerEvent> // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.events.<get-events>|<get-events>(){}[0]
+
+    final fun <#A1: org.mobilenativefoundation.store6.core/StoreKey, #B1: kotlin/Any> register(kotlin/String, org.mobilenativefoundation.store6.mutations/MutationStore<#A1, #B1>, org.mobilenativefoundation.store6.mutations.drain/DrainPolicy = ...) // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.register|register(kotlin.String;org.mobilenativefoundation.store6.mutations.MutationStore<0:0,0:1>;org.mobilenativefoundation.store6.mutations.drain.DrainPolicy){0§<org.mobilenativefoundation.store6.core.StoreKey>;1§<kotlin.Any>}[0]
+    final fun close() // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.close|close(){}[0]
+    final fun unregister(kotlin/String) // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.unregister|unregister(kotlin.String){}[0]
+    final suspend fun reconcile() // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.reconcile|reconcile(){}[0]
+    final suspend fun runActivation(kotlin/String): org.mobilenativefoundation.store6.mutations.drain/DrainPassOutcome // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.runActivation|runActivation(kotlin.String){}[0]
+}
+
+final fun org.mobilenativefoundation.store6.mutations.drain/mutationDrainCoordinator(org.mobilenativefoundation.store6.mutations.drain/DrainScheduler, org.mobilenativefoundation.store6.core.seam/WallClock = ...): org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator // org.mobilenativefoundation.store6.mutations.drain/mutationDrainCoordinator|mutationDrainCoordinator(org.mobilenativefoundation.store6.mutations.drain.DrainScheduler;org.mobilenativefoundation.store6.core.seam.WallClock){}[0]

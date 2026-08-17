@@ -16,6 +16,14 @@ import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 @ExperimentalStoreApi
 public interface DrainScheduler {
     /**
+     * Binds [coordinator] before any other member is called. This method is called exactly once by
+     * [mutationDrainCoordinator]. A second call throws [IllegalStateException]. Calling [schedule]
+     * or [cancel] before attachment also throws [IllegalStateException].
+     */
+    @ExperimentalStoreApi
+    public fun attach(coordinator: MutationDrainCoordinator): Unit
+
+    /**
      * Performs a fail-fast capability check at registration time. Implementations answer from a
      * static capability matrix without a scheduling dry run. Unsupported constraints throw
      * [IllegalArgumentException] naming the platform and unsupported constraint keys instead of
