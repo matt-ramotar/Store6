@@ -1,3 +1,6 @@
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaToolchainService
+
 plugins {
     id("org.mobilenativefoundation.store.store6.multiplatform.subset")
     // Versioned alias(libs.plugins.kotlin.serialization) fails: root buildscript already
@@ -34,4 +37,15 @@ kotlin {
 
 android {
     namespace = "org.mobilenativefoundation.store6.mutations.drain.meeseeks"
+}
+
+// Meeseeks 1.1.0 publishes Java 17 bytecode. Compile targets stay on the repo-wide
+// toolchain; the test JVMs must be 17+ to load Meeseeks classes at runtime.
+val javaToolchains = extensions.getByType<JavaToolchainService>()
+tasks.withType<Test>().configureEach {
+    javaLauncher.set(
+        javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(17))
+        },
+    )
 }
