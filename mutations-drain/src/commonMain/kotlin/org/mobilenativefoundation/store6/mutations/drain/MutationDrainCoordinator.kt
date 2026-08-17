@@ -6,13 +6,15 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.BufferOverflow
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
@@ -125,16 +127,17 @@ public class MutationDrainCoordinator internal constructor(
             val watchJob = coroutineContext.job
             val handle = registration.job.invokeOnCompletion { watchJob.cancel() }
             try {
-                val kicks = Channel<Unit>(Channel.CONFLATED)
+                val kicks = MutableStateFlow(0L)
                 val subscription =
                     launch(start = CoroutineStart.UNDISPATCHED) {
                         registration.store.events.collect { event ->
-                            if (event is MutationEnqueued) kicks.trySend(Unit)
+                            if (event is MutationEnqueued) kicks.update { it + 1 }
                         }
                     }
+                var acknowledgedKicks = kicks.value
                 runPass(registration, persistSafety = true)
                 while (true) {
-                    kicks.receive()
+                    acknowledgedKicks = kicks.first { it != acknowledgedKicks }
                     if (registration.policy.drainOnEnqueue) {
                         runPass(registration, persistSafety = false)
                     } else {
@@ -215,14 +218,14 @@ public class MutationDrainCoordinator internal constructor(
     ): DrainPassOutcome {
         emitActivationStarted(registration.name)
 
-        val checkpointFailures = Channel<Unit>(Channel.CONFLATED)
+        val checkpointFailures = MutableStateFlow(false)
         try {
             coroutineScope {
                 val observer =
                     launch(start = CoroutineStart.UNDISPATCHED) {
                         registration.store.events
                             .filterIsInstance<MutationCheckpointFailed>()
-                            .collect { checkpointFailures.trySend(Unit) }
+                            .collect { checkpointFailures.value = true }
                     }
                 try {
                     registration.store.drain()
@@ -236,7 +239,7 @@ public class MutationDrainCoordinator internal constructor(
         } catch (failure: Throwable) {
             emitPassFailed(registration.name, failure.messageOrString())
         }
-        val checkpointFailed = checkpointFailures.tryReceive().isSuccess
+        val checkpointFailed = checkpointFailures.value
 
         val inspection =
             try {
