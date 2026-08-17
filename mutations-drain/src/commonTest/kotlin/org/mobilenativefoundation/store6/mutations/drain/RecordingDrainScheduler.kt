@@ -28,6 +28,7 @@ internal class RecordingDrainScheduler : DrainScheduler {
     }
 
     override fun schedule(request: DrainRequest) {
+        check(coordinator != null) { "RecordingDrainScheduler is not attached." }
         scheduleCalls += 1
         log += "schedule(${request.storeName}, ${request.earliestDelay})"
         scheduled += request
@@ -41,6 +42,7 @@ internal class RecordingDrainScheduler : DrainScheduler {
     }
 
     override fun cancel(storeName: String) {
+        check(coordinator != null) { "RecordingDrainScheduler is not attached." }
         log += "cancel($storeName)"
         cancelled += storeName
     }
