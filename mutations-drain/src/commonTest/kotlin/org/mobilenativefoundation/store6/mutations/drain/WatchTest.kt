@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest as coroutineRunTest
+import org.mobilenativefoundation.store6.mutations.MutationPendingState
 import org.mobilenativefoundation.store6.mutations.MutationRetirementAck
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -93,6 +94,42 @@ class WatchTest {
             assertEquals(listOf("+done"), harness.fixture.backend.receivedPushes)
             assertEquals(settledSchedulerLog, harness.scheduler.log)
             watch.cancelAndJoin()
+        } finally {
+            harness.close()
+        }
+    }
+
+    @Test
+    fun externallyCancelledWatchMidPassIsRecoveredByLaunchPass() = runTest {
+        val harness = WatchHarness()
+        try {
+            val watch = launch { harness.coordinator.watch(STORE_NAME) }
+            testScheduler.runCurrent()
+            val gate = CompletableDeferred<Unit>()
+            harness.fixture.backend.pushGate = gate
+
+            harness.store.mutate(
+                DrainTestKey("externally-cancelled"),
+                harness.fixture.appendRef,
+                "+recovered",
+            )
+            testScheduler.runCurrent()
+            assertEquals(1, harness.fixture.backend.maxConcurrentPushes)
+
+            watch.cancelAndJoin()
+            assertTrue(watch.isCancelled)
+            gate.complete(Unit)
+            assertEquals(
+                MutationPendingState.INFLIGHT,
+                harness.store.pendingWrites().single().state,
+            )
+
+            val recoveryWatch = launch { harness.coordinator.watch(STORE_NAME) }
+            testScheduler.runCurrent()
+
+            assertEquals(emptyList(), harness.store.pendingWrites())
+            assertEquals(listOf("+recovered"), harness.fixture.backend.receivedPushes)
+            recoveryWatch.cancelAndJoin()
         } finally {
             harness.close()
         }
