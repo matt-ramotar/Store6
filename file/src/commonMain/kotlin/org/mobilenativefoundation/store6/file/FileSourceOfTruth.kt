@@ -44,6 +44,14 @@ import kotlin.coroutines.CoroutineContext
  *
  * Reader signals are instance-scoped. Changes made through another instance are reflected in the
  * first emission of a new collection but are not announced to an already-active collection.
+ * Only one live `FileSourceOfTruth` may use a directory. A [FileBookkeeper] may use the same
+ * directory because the two classes own disjoint subtrees.
+ *
+ * This class is not a `TransactionalSourceOfTruth`, so integrations that engage only over that
+ * interface treat it as non-transactional.
+ *
+ * `namespace.value` and `canonicalId()` each must be at most 159 UTF-8 bytes. A longer
+ * component throws [IllegalArgumentException] and applies nothing. Empty strings are valid.
  *
  * @param K the key type used to locate a row
  * @param V the non-null row type
