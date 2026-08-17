@@ -6,9 +6,9 @@
 #import <Foundation/NSString.h>
 #import <Foundation/NSValue.h>
 
-@class Store6MutationsDeadLetter, Store6MutationsKotlinArray<T>, Store6MutationsKotlinByteArray, Store6MutationsKotlinByteIterator, Store6MutationsKotlinEnum<E>, Store6MutationsKotlinEnumCompanion, Store6MutationsKotlinException, Store6MutationsKotlinIllegalStateException, Store6MutationsKotlinRuntimeException, Store6MutationsKotlinThrowable, Store6MutationsKotlinUnit, Store6MutationsMutationAckRecord, Store6MutationsMutationAliasState, Store6MutationsMutationAttemptRecord, Store6MutationsMutationClientRecord, Store6MutationsMutationConflictBuilder<K, V>, Store6MutationsMutationConflictResolutionServerWins, Store6MutationsMutationEffectDisposition, Store6MutationsMutationEffectKind, Store6MutationsMutationEffectRecord, Store6MutationsMutationExecutionPhase, Store6MutationsMutationExecutionRecord, Store6MutationsMutationFailure, Store6MutationsMutationFailureKind, Store6MutationsMutationFailureRecord, Store6MutationsMutationIntentRecord, Store6MutationsMutationKeyAliasRecord, Store6MutationsMutationKeyIdentity, Store6MutationsMutationKeyTombstoneRecord, Store6MutationsMutationPendingState, Store6MutationsMutationPreconditionCandidate<K, V>, Store6MutationsMutationPresenceAbsent, Store6MutationsMutationPresenceState, Store6MutationsMutationPush<K, V>, Store6MutationsMutationRetirement, Store6MutationsMutationRetirementAck, Store6MutationsMutationStore<K, V>, Store6MutationsMutationStoreBuilder<K, V>, Store6MutationsMutationTombstoneState, Store6MutationsMutatorRef<K, V, A>, Store6MutationsMutatorRegistry<K, V>, Store6MutationsMutatorRegistryBuilder<K, V>, Store6MutationsPendingIntent, Store6MutationsStaleSet<K>, Store6MutationsStore6_coreFreshnessContext, Store6MutationsStore6_coreKeyStatus, Store6MutationsStore6_coreOrigin, Store6MutationsStore6_coreStoreError, Store6MutationsStore6_coreStoreNamespace;
+@class Store6MutationsCoreFreshnessContext, Store6MutationsCoreKeyStatus, Store6MutationsCoreOrigin, Store6MutationsCoreStoreError, Store6MutationsCoreStoreNamespace, Store6MutationsDeadLetter, Store6MutationsKotlinArray<T>, Store6MutationsKotlinByteArray, Store6MutationsKotlinByteIterator, Store6MutationsKotlinEnum<E>, Store6MutationsKotlinEnumCompanion, Store6MutationsKotlinException, Store6MutationsKotlinIllegalStateException, Store6MutationsKotlinRuntimeException, Store6MutationsKotlinThrowable, Store6MutationsKotlinUnit, Store6MutationsMutationAckRecord, Store6MutationsMutationAliasState, Store6MutationsMutationAttemptRecord, Store6MutationsMutationClientRecord, Store6MutationsMutationConflictBuilder<K, V>, Store6MutationsMutationConflictResolutionServerWins, Store6MutationsMutationEffectDisposition, Store6MutationsMutationEffectKind, Store6MutationsMutationEffectRecord, Store6MutationsMutationExecutionPhase, Store6MutationsMutationExecutionRecord, Store6MutationsMutationFailure, Store6MutationsMutationFailureKind, Store6MutationsMutationFailureRecord, Store6MutationsMutationIntentRecord, Store6MutationsMutationKeyAliasRecord, Store6MutationsMutationKeyIdentity, Store6MutationsMutationKeyTombstoneRecord, Store6MutationsMutationPendingState, Store6MutationsMutationPreconditionCandidate<K, V>, Store6MutationsMutationPresenceAbsent, Store6MutationsMutationPresenceState, Store6MutationsMutationPush<K, V>, Store6MutationsMutationRetirement, Store6MutationsMutationRetirementAck, Store6MutationsMutationStore<K, V>, Store6MutationsMutationStoreBuilder<K, V>, Store6MutationsMutationTombstoneState, Store6MutationsMutatorRef<K, V, A>, Store6MutationsMutatorRegistry<K, V>, Store6MutationsMutatorRegistryBuilder<K, V>, Store6MutationsPendingIntent, Store6MutationsStaleSet<K>;
 
-@protocol Store6MutationsKotlinComparable, Store6MutationsKotlinFunction, Store6MutationsKotlinIterator, Store6MutationsKotlinSuspendFunction1, Store6MutationsKotlinx_coroutines_coreFlow, Store6MutationsKotlinx_coroutines_coreFlowCollector, Store6MutationsKotlinx_coroutines_coreSharedFlow, Store6MutationsMutationAck, Store6MutationsMutationCodec, Store6MutationsMutationConflictResolution, Store6MutationsMutationEvent, Store6MutationsMutationIntentEvent, Store6MutationsMutationJournalStorage, Store6MutationsMutationJournalTransaction, Store6MutationsMutationKeyResolver, Store6MutationsMutationPresence, Store6MutationsMutationServer, Store6MutationsStore6_coreBookkeeper, Store6MutationsStore6_coreFetchPlan, Store6MutationsStore6_coreFetcher, Store6MutationsStore6_coreFetcherResult, Store6MutationsStore6_coreFreshness, Store6MutationsStore6_coreFreshnessValidator, Store6MutationsStore6_coreSourceOfTruth, Store6MutationsStore6_coreStore, Store6MutationsStore6_coreStoreKey, Store6MutationsStore6_coreStoreMeta, Store6MutationsStore6_coreStoreTelemetry, Store6MutationsStore6_coreWallClock;
+@protocol Store6MutationsCoreBookkeeper, Store6MutationsCoreFetchPlan, Store6MutationsCoreFetcher, Store6MutationsCoreFetcherResult, Store6MutationsCoreFreshness, Store6MutationsCoreFreshnessValidator, Store6MutationsCoreSourceOfTruth, Store6MutationsCoreStore, Store6MutationsCoreStoreKey, Store6MutationsCoreStoreMeta, Store6MutationsCoreStoreTelemetry, Store6MutationsCoreWallClock, Store6MutationsKotlinComparable, Store6MutationsKotlinFunction, Store6MutationsKotlinIterator, Store6MutationsKotlinSuspendFunction1, Store6MutationsKotlinx_coroutines_coreFlow, Store6MutationsKotlinx_coroutines_coreFlowCollector, Store6MutationsKotlinx_coroutines_coreSharedFlow, Store6MutationsMutationAck, Store6MutationsMutationCodec, Store6MutationsMutationConflictResolution, Store6MutationsMutationEvent, Store6MutationsMutationIntentEvent, Store6MutationsMutationJournalStorage, Store6MutationsMutationJournalTransaction, Store6MutationsMutationKeyResolver, Store6MutationsMutationPresence, Store6MutationsMutationServer;
 
 NS_ASSUME_NONNULL_BEGIN
 #pragma clang diagnostic push
@@ -502,7 +502,7 @@ __attribute__((swift_name("MutationConflictBuilder")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)preconditionSelect:(id<Store6MutationsStore6_coreStoreMeta> _Nullable (^)(Store6MutationsMutationPreconditionCandidate<K, V> *))select __attribute__((swift_name("precondition(select:)")));
+- (void)preconditionSelect:(id<Store6MutationsCoreStoreMeta> _Nullable (^)(Store6MutationsMutationPreconditionCandidate<K, V> *))select __attribute__((swift_name("precondition(select:)")));
 @end
 
 
@@ -542,7 +542,7 @@ __attribute__((swift_name("MutationConflictObserved")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-@property (readonly) id<Store6MutationsStore6_coreStoreMeta> _Nullable serverMeta __attribute__((swift_name("serverMeta")));
+@property (readonly) id<Store6MutationsCoreStoreMeta> _Nullable serverMeta __attribute__((swift_name("serverMeta")));
 @end
 
 
@@ -865,7 +865,7 @@ __attribute__((swift_name("MutationKeyResolver")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)resolveIdentity:(Store6MutationsMutationKeyIdentity *)identity completionHandler:(void (^)(id<Store6MutationsStore6_coreStoreKey> _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("resolve(identity:completionHandler:)")));
+- (void)resolveIdentity:(Store6MutationsMutationKeyIdentity *)identity completionHandler:(void (^)(id<Store6MutationsCoreStoreKey> _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("resolve(identity:completionHandler:)")));
 @end
 
 
@@ -947,7 +947,7 @@ __attribute__((swift_name("MutationPreconditionCandidate")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-@property (readonly) id<Store6MutationsStore6_coreStoreMeta> _Nullable capturedMeta __attribute__((swift_name("capturedMeta")));
+@property (readonly) id<Store6MutationsCoreStoreMeta> _Nullable capturedMeta __attribute__((swift_name("capturedMeta")));
 
 /**
  * @note annotations
@@ -1086,7 +1086,7 @@ __attribute__((swift_name("MutationPush")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-@property (readonly) id<Store6MutationsStore6_coreStoreMeta> _Nullable baseMeta __attribute__((swift_name("baseMeta")));
+@property (readonly) id<Store6MutationsCoreStoreMeta> _Nullable baseMeta __attribute__((swift_name("baseMeta")));
 
 /**
  * @note annotations
@@ -1243,7 +1243,7 @@ __attribute__((swift_name("MutationServer")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)pushRequest:(Store6MutationsMutationPush<id<Store6MutationsStore6_coreStoreKey>, id> *)request completionHandler:(void (^)(id<Store6MutationsMutationAck> _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("push(request:completionHandler:)")));
+- (void)pushRequest:(Store6MutationsMutationPush<id<Store6MutationsCoreStoreKey>, id> *)request completionHandler:(void (^)(id<Store6MutationsMutationAck> _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("push(request:completionHandler:)")));
 
 /**
  * @note annotations
@@ -1259,15 +1259,15 @@ __attribute__((swift_name("MutationServer")))
  * @note annotations
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreStore")))
-@protocol Store6MutationsStore6_coreStore
+__attribute__((swift_name("CoreStore")))
+@protocol Store6MutationsCoreStore
 @required
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)clearKey:(id<Store6MutationsStore6_coreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clear(key:completionHandler:)")));
+- (void)clearKey:(id<Store6MutationsCoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clear(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -1279,20 +1279,20 @@ __attribute__((swift_name("Store6_coreStore")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)clearNamespaceNamespace:(Store6MutationsStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clearNamespace(namespace:completionHandler:)")));
+- (void)clearNamespaceNamespace:(Store6MutationsCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clearNamespace(namespace:completionHandler:)")));
 - (void)close __attribute__((swift_name("close()")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)getKey:(id<Store6MutationsStore6_coreStoreKey>)key freshness:(id<Store6MutationsStore6_coreFreshness>)freshness completionHandler:(void (^)(id _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("get(key:freshness:completionHandler:)")));
+- (void)getKey:(id<Store6MutationsCoreStoreKey>)key freshness:(id<Store6MutationsCoreFreshness>)freshness completionHandler:(void (^)(id _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("get(key:freshness:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)invalidateKey:(id<Store6MutationsStore6_coreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidate(key:completionHandler:)")));
+- (void)invalidateKey:(id<Store6MutationsCoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidate(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -1304,8 +1304,8 @@ __attribute__((swift_name("Store6_coreStore")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)invalidateNamespaceNamespace:(Store6MutationsStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidateNamespace(namespace:completionHandler:)")));
-- (id<Store6MutationsKotlinx_coroutines_coreFlow>)streamKey:(id<Store6MutationsStore6_coreStoreKey>)key freshness:(id<Store6MutationsStore6_coreFreshness>)freshness __attribute__((swift_name("stream(key:freshness:)")));
+- (void)invalidateNamespaceNamespace:(Store6MutationsCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidateNamespace(namespace:completionHandler:)")));
+- (id<Store6MutationsKotlinx_coroutines_coreFlow>)streamKey:(id<Store6MutationsCoreStoreKey>)key freshness:(id<Store6MutationsCoreFreshness>)freshness __attribute__((swift_name("stream(key:freshness:)")));
 @end
 
 
@@ -1315,7 +1315,7 @@ __attribute__((swift_name("Store6_coreStore")))
 */
 __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("MutationStore")))
-@interface Store6MutationsMutationStore<K, V> : Store6MutationsBase <Store6MutationsStore6_coreStore>
+@interface Store6MutationsMutationStore<K, V> : Store6MutationsBase <Store6MutationsCoreStore>
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -1333,7 +1333,7 @@ __attribute__((swift_name("MutationStore")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)clearNamespaceNamespace:(Store6MutationsStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clearNamespace(namespace:completionHandler:)")));
+- (void)clearNamespaceNamespace:(Store6MutationsCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("clearNamespace(namespace:completionHandler:)")));
 - (void)close __attribute__((swift_name("close()")));
 
 /**
@@ -1364,7 +1364,7 @@ __attribute__((swift_name("MutationStore")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)getKey:(K)key freshness:(id<Store6MutationsStore6_coreFreshness>)freshness completionHandler:(void (^)(V _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("get(key:freshness:completionHandler:)")));
+- (void)getKey:(K)key freshness:(id<Store6MutationsCoreFreshness>)freshness completionHandler:(void (^)(V _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("get(key:freshness:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -1382,7 +1382,7 @@ __attribute__((swift_name("MutationStore")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)invalidateNamespaceNamespace:(Store6MutationsStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidateNamespace(namespace:completionHandler:)")));
+- (void)invalidateNamespaceNamespace:(Store6MutationsCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("invalidateNamespace(namespace:completionHandler:)")));
 
 /**
  * @note annotations
@@ -1407,7 +1407,7 @@ __attribute__((swift_name("MutationStore")))
  * Other uncaught Kotlin exceptions are fatal.
 */
 - (void)pendingWritesWithCompletionHandler:(void (^)(NSArray<Store6MutationsPendingIntent *> * _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("pendingWrites(completionHandler:)")));
-- (id<Store6MutationsKotlinx_coroutines_coreFlow>)streamKey:(K)key freshness:(id<Store6MutationsStore6_coreFreshness>)freshness __attribute__((swift_name("stream(key:freshness:)")));
+- (id<Store6MutationsKotlinx_coroutines_coreFlow>)streamKey:(K)key freshness:(id<Store6MutationsCoreFreshness>)freshness __attribute__((swift_name("stream(key:freshness:)")));
 
 /**
  * @note annotations
@@ -1441,7 +1441,7 @@ __attribute__((swift_name("MutationStoreBuilder")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)bookkeeperBookkeeper:(id<Store6MutationsStore6_coreBookkeeper>)bookkeeper __attribute__((swift_name("bookkeeper(bookkeeper:)")));
+- (void)bookkeeperBookkeeper:(id<Store6MutationsCoreBookkeeper>)bookkeeper __attribute__((swift_name("bookkeeper(bookkeeper:)")));
 
 /**
  * @note annotations
@@ -1459,7 +1459,7 @@ __attribute__((swift_name("MutationStoreBuilder")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)fetcherFetcher:(id<Store6MutationsStore6_coreFetcher>)fetcher __attribute__((swift_name("fetcher(fetcher:)")));
+- (void)fetcherFetcher:(id<Store6MutationsCoreFetcher>)fetcher __attribute__((swift_name("fetcher(fetcher:)")));
 
 /**
  * @note annotations
@@ -1471,7 +1471,7 @@ __attribute__((swift_name("MutationStoreBuilder")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)freshnessValidatorValidator:(id<Store6MutationsStore6_coreFreshnessValidator>)validator __attribute__((swift_name("freshnessValidator(validator:)")));
+- (void)freshnessValidatorValidator:(id<Store6MutationsCoreFreshnessValidator>)validator __attribute__((swift_name("freshnessValidator(validator:)")));
 
 /**
  * @note annotations
@@ -1489,19 +1489,19 @@ __attribute__((swift_name("MutationStoreBuilder")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)persistenceSot:(id<Store6MutationsStore6_coreSourceOfTruth>)sot __attribute__((swift_name("persistence(sot:)")));
+- (void)persistenceSot:(id<Store6MutationsCoreSourceOfTruth>)sot __attribute__((swift_name("persistence(sot:)")));
 
 /**
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)telemetryTelemetry:(id<Store6MutationsStore6_coreStoreTelemetry>)telemetry __attribute__((swift_name("telemetry(telemetry:)")));
+- (void)telemetryTelemetry:(id<Store6MutationsCoreStoreTelemetry>)telemetry __attribute__((swift_name("telemetry(telemetry:)")));
 
 /**
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-- (void)wallClockWallClock:(id<Store6MutationsStore6_coreWallClock>)wallClock __attribute__((swift_name("wallClock(wallClock:)")));
+- (void)wallClockWallClock:(id<Store6MutationsCoreWallClock>)wallClock __attribute__((swift_name("wallClock(wallClock:)")));
 @end
 
 
@@ -1658,7 +1658,7 @@ __attribute__((swift_name("PoisonedIntent")))
 __attribute__((objc_subclassing_restricted))
 __attribute__((swift_name("StaleSet")))
 @interface Store6MutationsStaleSet<K> : Store6MutationsBase
-- (instancetype)initWithKeys:(NSSet<K> *)keys namespaces:(NSSet<Store6MutationsStore6_coreStoreNamespace *> *)namespaces __attribute__((swift_name("init(keys:namespaces:)"))) __attribute__((objc_designated_initializer));
+- (instancetype)initWithKeys:(NSSet<K> *)keys namespaces:(NSSet<Store6MutationsCoreStoreNamespace *> *)namespaces __attribute__((swift_name("init(keys:namespaces:)"))) __attribute__((objc_designated_initializer));
 
 /**
  * @note annotations
@@ -1670,7 +1670,7 @@ __attribute__((swift_name("StaleSet")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-@property (readonly) NSSet<Store6MutationsStore6_coreStoreNamespace *> *namespaces __attribute__((swift_name("namespaces")));
+@property (readonly) NSSet<Store6MutationsCoreStoreNamespace *> *namespaces __attribute__((swift_name("namespaces")));
 @end
 
 
@@ -2497,7 +2497,7 @@ __attribute__((swift_name("MutationStoreKt")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-+ (Store6MutationsMutationStore<id<Store6MutationsStore6_coreStoreKey>, id> *)mutationStoreRegistry:(Store6MutationsMutatorRegistry<id<Store6MutationsStore6_coreStoreKey>, id> *)registry server:(id<Store6MutationsMutationServer>)server keyResolver:(id<Store6MutationsMutationKeyResolver>)keyResolver valueCodecVersion:(int32_t)valueCodecVersion valueCodec:(id<Store6MutationsMutationCodec>)valueCodec configure:(void (^)(Store6MutationsMutationStoreBuilder<id<Store6MutationsStore6_coreStoreKey>, id> *))configure __attribute__((swift_name("mutationStore(registry:server:keyResolver:valueCodecVersion:valueCodec:configure:)")));
++ (Store6MutationsMutationStore<id<Store6MutationsCoreStoreKey>, id> *)mutationStoreRegistry:(Store6MutationsMutatorRegistry<id<Store6MutationsCoreStoreKey>, id> *)registry server:(id<Store6MutationsMutationServer>)server keyResolver:(id<Store6MutationsMutationKeyResolver>)keyResolver valueCodecVersion:(int32_t)valueCodecVersion valueCodec:(id<Store6MutationsMutationCodec>)valueCodec configure:(void (^)(Store6MutationsMutationStoreBuilder<id<Store6MutationsCoreStoreKey>, id> *))configure __attribute__((swift_name("mutationStore(registry:server:keyResolver:valueCodecVersion:valueCodec:configure:)")));
 @end
 
 __attribute__((objc_subclassing_restricted))
@@ -2508,7 +2508,7 @@ __attribute__((swift_name("MutatorRegistryKt")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-+ (Store6MutationsMutatorRegistry<id<Store6MutationsStore6_coreStoreKey>, id> *)mutatorRegistryConfigure:(void (^)(Store6MutationsMutatorRegistryBuilder<id<Store6MutationsStore6_coreStoreKey>, id> *))configure __attribute__((swift_name("mutatorRegistry(configure:)")));
++ (Store6MutationsMutatorRegistry<id<Store6MutationsCoreStoreKey>, id> *)mutatorRegistryConfigure:(void (^)(Store6MutationsMutatorRegistryBuilder<id<Store6MutationsCoreStoreKey>, id> *))configure __attribute__((swift_name("mutatorRegistry(configure:)")));
 @end
 
 __attribute__((objc_subclassing_restricted))
@@ -2524,8 +2524,8 @@ __attribute__((swift_name("KotlinByteArray")))
 @property (readonly) int32_t size __attribute__((swift_name("size")));
 @end
 
-__attribute__((swift_name("Store6_coreStoreMeta")))
-@protocol Store6MutationsStore6_coreStoreMeta
+__attribute__((swift_name("CoreStoreMeta")))
+@protocol Store6MutationsCoreStoreMeta
 @required
 @property (readonly) NSString * _Nullable etag __attribute__((swift_name("etag")));
 @property (readonly) int64_t writtenAtEpochMillis __attribute__((swift_name("writtenAtEpochMillis")));
@@ -2613,22 +2613,22 @@ __attribute__((swift_name("KotlinCancellationException")))
 - (instancetype)initWithMessage:(NSString * _Nullable)message cause:(Store6MutationsKotlinThrowable * _Nullable)cause __attribute__((swift_name("init(message:cause:)"))) __attribute__((objc_designated_initializer));
 @end
 
-__attribute__((swift_name("Store6_coreStoreKey")))
-@protocol Store6MutationsStore6_coreStoreKey
+__attribute__((swift_name("CoreStoreKey")))
+@protocol Store6MutationsCoreStoreKey
 @required
 - (NSString *)canonicalId __attribute__((swift_name("canonicalId()")));
-@property (readonly, getter=namespace) Store6MutationsStore6_coreStoreNamespace *namespace_ __attribute__((swift_name("namespace_")));
+@property (readonly, getter=namespace) Store6MutationsCoreStoreNamespace *namespace_ __attribute__((swift_name("namespace_")));
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreStoreNamespace")))
-@interface Store6MutationsStore6_coreStoreNamespace : Store6MutationsBase
+__attribute__((swift_name("CoreStoreNamespace")))
+@interface Store6MutationsCoreStoreNamespace : Store6MutationsBase
 - (instancetype)initWithValue:(NSString *)value __attribute__((swift_name("init(value:)"))) __attribute__((objc_designated_initializer));
 @property (readonly) NSString *value __attribute__((swift_name("value")));
 @end
 
-__attribute__((swift_name("Store6_coreFreshness")))
-@protocol Store6MutationsStore6_coreFreshness
+__attribute__((swift_name("CoreFreshness")))
+@protocol Store6MutationsCoreFreshness
 @required
 @end
 
@@ -2655,8 +2655,8 @@ __attribute__((swift_name("Kotlinx_coroutines_coreSharedFlow")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreBookkeeper")))
-@protocol Store6MutationsStore6_coreBookkeeper
+__attribute__((swift_name("CoreBookkeeper")))
+@protocol Store6MutationsCoreBookkeeper
 @required
 
 /**
@@ -2669,13 +2669,13 @@ __attribute__((swift_name("Store6_coreBookkeeper")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)advanceStaleWatermarkNamespace:(Store6MutationsStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("advanceStaleWatermark(namespace:completionHandler:)")));
+- (void)advanceStaleWatermarkNamespace:(Store6MutationsCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("advanceStaleWatermark(namespace:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)forgetKey:(id<Store6MutationsStore6_coreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("forget(key:completionHandler:)")));
+- (void)forgetKey:(id<Store6MutationsCoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("forget(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -2687,31 +2687,31 @@ __attribute__((swift_name("Store6_coreBookkeeper")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)forgetNamespaceNamespace:(Store6MutationsStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("forgetNamespace(namespace:completionHandler:)")));
+- (void)forgetNamespaceNamespace:(Store6MutationsCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("forgetNamespace(namespace:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)markStaleKey:(id<Store6MutationsStore6_coreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("markStale(key:completionHandler:)")));
+- (void)markStaleKey:(id<Store6MutationsCoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("markStale(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)recordFailureKey:(id<Store6MutationsStore6_coreStoreKey>)key atEpochMillis:(int64_t)atEpochMillis completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("recordFailure(key:atEpochMillis:completionHandler:)")));
+- (void)recordFailureKey:(id<Store6MutationsCoreStoreKey>)key atEpochMillis:(int64_t)atEpochMillis completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("recordFailure(key:atEpochMillis:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)recordSuccessKey:(id<Store6MutationsStore6_coreStoreKey>)key meta:(id<Store6MutationsStore6_coreStoreMeta>)meta completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("recordSuccess(key:meta:completionHandler:)")));
+- (void)recordSuccessKey:(id<Store6MutationsCoreStoreKey>)key meta:(id<Store6MutationsCoreStoreMeta>)meta completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("recordSuccess(key:meta:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)statusKey:(id<Store6MutationsStore6_coreStoreKey>)key completionHandler:(void (^)(Store6MutationsStore6_coreKeyStatus * _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("status(key:completionHandler:)")));
+- (void)statusKey:(id<Store6MutationsCoreStoreKey>)key completionHandler:(void (^)(Store6MutationsCoreKeyStatus * _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("status(key:completionHandler:)")));
 @end
 
 __attribute__((swift_name("KotlinFunction")))
@@ -2736,15 +2736,15 @@ __attribute__((swift_name("KotlinSuspendFunction1")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreFetcher")))
-@protocol Store6MutationsStore6_coreFetcher
+__attribute__((swift_name("CoreFetcher")))
+@protocol Store6MutationsCoreFetcher
 @required
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)fetchKey:(id<Store6MutationsStore6_coreStoreKey>)key etag:(NSString * _Nullable)etag completionHandler:(void (^)(id<Store6MutationsStore6_coreFetcherResult> _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("fetch(key:etag:completionHandler:)")));
+- (void)fetchKey:(id<Store6MutationsCoreStoreKey>)key etag:(NSString * _Nullable)etag completionHandler:(void (^)(id<Store6MutationsCoreFetcherResult> _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("fetch(key:etag:completionHandler:)")));
 @end
 
 
@@ -2753,10 +2753,10 @@ __attribute__((swift_name("Store6_coreFetcher")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreFreshnessValidator")))
-@protocol Store6MutationsStore6_coreFreshnessValidator
+__attribute__((swift_name("CoreFreshnessValidator")))
+@protocol Store6MutationsCoreFreshnessValidator
 @required
-- (id<Store6MutationsStore6_coreFetchPlan>)planContext:(Store6MutationsStore6_coreFreshnessContext *)context __attribute__((swift_name("plan(context:)")));
+- (id<Store6MutationsCoreFetchPlan>)planContext:(Store6MutationsCoreFreshnessContext *)context __attribute__((swift_name("plan(context:)")));
 @end
 
 
@@ -2765,15 +2765,15 @@ __attribute__((swift_name("Store6_coreFreshnessValidator")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreSourceOfTruth")))
-@protocol Store6MutationsStore6_coreSourceOfTruth
+__attribute__((swift_name("CoreSourceOfTruth")))
+@protocol Store6MutationsCoreSourceOfTruth
 @required
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)deleteKey:(id<Store6MutationsStore6_coreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("delete(key:completionHandler:)")));
+- (void)deleteKey:(id<Store6MutationsCoreStoreKey>)key completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("delete(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -2785,14 +2785,14 @@ __attribute__((swift_name("Store6_coreSourceOfTruth")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)deleteNamespaceNamespace:(Store6MutationsStore6_coreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("deleteNamespace(namespace:completionHandler:)")));
-- (id<Store6MutationsKotlinx_coroutines_coreFlow>)readerKey:(id<Store6MutationsStore6_coreStoreKey>)key __attribute__((swift_name("reader(key:)")));
+- (void)deleteNamespaceNamespace:(Store6MutationsCoreStoreNamespace *)namespace_ completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("deleteNamespace(namespace:completionHandler:)")));
+- (id<Store6MutationsKotlinx_coroutines_coreFlow>)readerKey:(id<Store6MutationsCoreStoreKey>)key __attribute__((swift_name("reader(key:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
-- (void)writeKey:(id<Store6MutationsStore6_coreStoreKey>)key value:(id)value completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("write(key:value:completionHandler:)")));
+- (void)writeKey:(id<Store6MutationsCoreStoreKey>)key value:(id)value completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("write(key:value:completionHandler:)")));
 @end
 
 
@@ -2801,15 +2801,15 @@ __attribute__((swift_name("Store6_coreSourceOfTruth")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreStoreTelemetry")))
-@protocol Store6MutationsStore6_coreStoreTelemetry
+__attribute__((swift_name("CoreStoreTelemetry")))
+@protocol Store6MutationsCoreStoreTelemetry
 @required
-- (void)onClearedKey:(id<Store6MutationsStore6_coreStoreKey>)key __attribute__((swift_name("onCleared(key:)")));
-- (void)onFetchFailedKey:(id<Store6MutationsStore6_coreStoreKey>)key error:(Store6MutationsStore6_coreStoreError *)error duration:(int64_t)duration __attribute__((swift_name("onFetchFailed(key:error:duration:)")));
-- (void)onFetchStartedKey:(id<Store6MutationsStore6_coreStoreKey>)key __attribute__((swift_name("onFetchStarted(key:)")));
-- (void)onFetchSucceededKey:(id<Store6MutationsStore6_coreStoreKey>)key duration:(int64_t)duration __attribute__((swift_name("onFetchSucceeded(key:duration:)")));
-- (void)onInvalidatedKey:(id<Store6MutationsStore6_coreStoreKey>)key __attribute__((swift_name("onInvalidated(key:)")));
-- (void)onServeKey:(id<Store6MutationsStore6_coreStoreKey>)key origin:(Store6MutationsStore6_coreOrigin *)origin __attribute__((swift_name("onServe(key:origin:)")));
+- (void)onClearedKey:(id<Store6MutationsCoreStoreKey>)key __attribute__((swift_name("onCleared(key:)")));
+- (void)onFetchFailedKey:(id<Store6MutationsCoreStoreKey>)key error:(Store6MutationsCoreStoreError *)error duration:(int64_t)duration __attribute__((swift_name("onFetchFailed(key:error:duration:)")));
+- (void)onFetchStartedKey:(id<Store6MutationsCoreStoreKey>)key __attribute__((swift_name("onFetchStarted(key:)")));
+- (void)onFetchSucceededKey:(id<Store6MutationsCoreStoreKey>)key duration:(int64_t)duration __attribute__((swift_name("onFetchSucceeded(key:duration:)")));
+- (void)onInvalidatedKey:(id<Store6MutationsCoreStoreKey>)key __attribute__((swift_name("onInvalidated(key:)")));
+- (void)onServeKey:(id<Store6MutationsCoreStoreKey>)key origin:(Store6MutationsCoreOrigin *)origin __attribute__((swift_name("onServe(key:origin:)")));
 @end
 
 
@@ -2818,8 +2818,8 @@ __attribute__((swift_name("Store6_coreStoreTelemetry")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
-__attribute__((swift_name("Store6_coreWallClock")))
-@protocol Store6MutationsStore6_coreWallClock
+__attribute__((swift_name("CoreWallClock")))
+@protocol Store6MutationsCoreWallClock
 @required
 - (int64_t)nowEpochMillis __attribute__((swift_name("nowEpochMillis()")));
 @end
@@ -2866,18 +2866,18 @@ __attribute__((swift_name("Kotlinx_coroutines_coreFlowCollector")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreKeyStatus")))
-@interface Store6MutationsStore6_coreKeyStatus : Store6MutationsBase
-- (instancetype)initWithMeta:(id<Store6MutationsStore6_coreStoreMeta> _Nullable)meta lastSuccessSequence:(Store6MutationsLong * _Nullable)lastSuccessSequence lastFailureAtEpochMillis:(Store6MutationsLong * _Nullable)lastFailureAtEpochMillis consecutiveFailures:(int32_t)consecutiveFailures durablyStale:(BOOL)durablyStale __attribute__((swift_name("init(meta:lastSuccessSequence:lastFailureAtEpochMillis:consecutiveFailures:durablyStale:)"))) __attribute__((objc_designated_initializer));
+__attribute__((swift_name("CoreKeyStatus")))
+@interface Store6MutationsCoreKeyStatus : Store6MutationsBase
+- (instancetype)initWithMeta:(id<Store6MutationsCoreStoreMeta> _Nullable)meta lastSuccessSequence:(Store6MutationsLong * _Nullable)lastSuccessSequence lastFailureAtEpochMillis:(Store6MutationsLong * _Nullable)lastFailureAtEpochMillis consecutiveFailures:(int32_t)consecutiveFailures durablyStale:(BOOL)durablyStale __attribute__((swift_name("init(meta:lastSuccessSequence:lastFailureAtEpochMillis:consecutiveFailures:durablyStale:)"))) __attribute__((objc_designated_initializer));
 @property (readonly) int32_t consecutiveFailures __attribute__((swift_name("consecutiveFailures")));
 @property (readonly) BOOL durablyStale __attribute__((swift_name("durablyStale")));
 @property (readonly) Store6MutationsLong * _Nullable lastFailureAtEpochMillis __attribute__((swift_name("lastFailureAtEpochMillis")));
 @property (readonly) Store6MutationsLong * _Nullable lastSuccessSequence __attribute__((swift_name("lastSuccessSequence")));
-@property (readonly) id<Store6MutationsStore6_coreStoreMeta> _Nullable meta __attribute__((swift_name("meta")));
+@property (readonly) id<Store6MutationsCoreStoreMeta> _Nullable meta __attribute__((swift_name("meta")));
 @end
 
-__attribute__((swift_name("Store6_coreFetcherResult")))
-@protocol Store6MutationsStore6_coreFetcherResult
+__attribute__((swift_name("CoreFetcherResult")))
+@protocol Store6MutationsCoreFetcherResult
 @required
 @end
 
@@ -2886,8 +2886,8 @@ __attribute__((swift_name("Store6_coreFetcherResult")))
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
-__attribute__((swift_name("Store6_coreFetchPlan")))
-@protocol Store6MutationsStore6_coreFetchPlan
+__attribute__((swift_name("CoreFetchPlan")))
+@protocol Store6MutationsCoreFetchPlan
 @required
 @end
 
@@ -2897,33 +2897,33 @@ __attribute__((swift_name("Store6_coreFetchPlan")))
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 */
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreFreshnessContext")))
-@interface Store6MutationsStore6_coreFreshnessContext : Store6MutationsBase
-- (instancetype)initWithHasResidentValue:(BOOL)hasResidentValue meta:(id<Store6MutationsStore6_coreStoreMeta> _Nullable)meta epochStale:(BOOL)epochStale freshness:(id<Store6MutationsStore6_coreFreshness>)freshness nowEpochMillis:(int64_t)nowEpochMillis status:(Store6MutationsStore6_coreKeyStatus * _Nullable)status __attribute__((swift_name("init(hasResidentValue:meta:epochStale:freshness:nowEpochMillis:status:)"))) __attribute__((objc_designated_initializer));
+__attribute__((swift_name("CoreFreshnessContext")))
+@interface Store6MutationsCoreFreshnessContext : Store6MutationsBase
+- (instancetype)initWithHasResidentValue:(BOOL)hasResidentValue meta:(id<Store6MutationsCoreStoreMeta> _Nullable)meta epochStale:(BOOL)epochStale freshness:(id<Store6MutationsCoreFreshness>)freshness nowEpochMillis:(int64_t)nowEpochMillis status:(Store6MutationsCoreKeyStatus * _Nullable)status __attribute__((swift_name("init(hasResidentValue:meta:epochStale:freshness:nowEpochMillis:status:)"))) __attribute__((objc_designated_initializer));
 @property (readonly) BOOL epochStale __attribute__((swift_name("epochStale")));
-@property (readonly) id<Store6MutationsStore6_coreFreshness> freshness __attribute__((swift_name("freshness")));
+@property (readonly) id<Store6MutationsCoreFreshness> freshness __attribute__((swift_name("freshness")));
 @property (readonly) BOOL hasResidentValue __attribute__((swift_name("hasResidentValue")));
-@property (readonly) id<Store6MutationsStore6_coreStoreMeta> _Nullable meta __attribute__((swift_name("meta")));
+@property (readonly) id<Store6MutationsCoreStoreMeta> _Nullable meta __attribute__((swift_name("meta")));
 @property (readonly) int64_t nowEpochMillis __attribute__((swift_name("nowEpochMillis")));
-@property (readonly) Store6MutationsStore6_coreKeyStatus * _Nullable status __attribute__((swift_name("status")));
+@property (readonly) Store6MutationsCoreKeyStatus * _Nullable status __attribute__((swift_name("status")));
 @end
 
-__attribute__((swift_name("Store6_coreStoreError")))
-@interface Store6MutationsStore6_coreStoreError : Store6MutationsBase
+__attribute__((swift_name("CoreStoreError")))
+@interface Store6MutationsCoreStoreError : Store6MutationsBase
 @end
 
 __attribute__((objc_subclassing_restricted))
-__attribute__((swift_name("Store6_coreOrigin")))
-@interface Store6MutationsStore6_coreOrigin : Store6MutationsKotlinEnum<Store6MutationsStore6_coreOrigin *>
+__attribute__((swift_name("CoreOrigin")))
+@interface Store6MutationsCoreOrigin : Store6MutationsKotlinEnum<Store6MutationsCoreOrigin *>
 + (instancetype)alloc __attribute__((unavailable));
 + (instancetype)allocWithZone:(struct _NSZone *)zone __attribute__((unavailable));
 - (instancetype)initWithName:(NSString *)name ordinal:(int32_t)ordinal __attribute__((swift_name("init(name:ordinal:)"))) __attribute__((objc_designated_initializer)) __attribute__((unavailable));
-@property (class, readonly) Store6MutationsStore6_coreOrigin *memory __attribute__((swift_name("memory")));
-@property (class, readonly) Store6MutationsStore6_coreOrigin *sot __attribute__((swift_name("sot")));
-@property (class, readonly) Store6MutationsStore6_coreOrigin *fetcher __attribute__((swift_name("fetcher")));
-@property (class, readonly) Store6MutationsStore6_coreOrigin *overlay __attribute__((swift_name("overlay")));
-+ (Store6MutationsKotlinArray<Store6MutationsStore6_coreOrigin *> *)values __attribute__((swift_name("values()")));
-@property (class, readonly) NSArray<Store6MutationsStore6_coreOrigin *> *entries __attribute__((swift_name("entries")));
+@property (class, readonly) Store6MutationsCoreOrigin *memory __attribute__((swift_name("memory")));
+@property (class, readonly) Store6MutationsCoreOrigin *sot __attribute__((swift_name("sot")));
+@property (class, readonly) Store6MutationsCoreOrigin *fetcher __attribute__((swift_name("fetcher")));
+@property (class, readonly) Store6MutationsCoreOrigin *overlay __attribute__((swift_name("overlay")));
++ (Store6MutationsKotlinArray<Store6MutationsCoreOrigin *> *)values __attribute__((swift_name("values()")));
+@property (class, readonly) NSArray<Store6MutationsCoreOrigin *> *entries __attribute__((swift_name("entries")));
 @end
 
 #pragma pop_macro("_Nullable_result")
