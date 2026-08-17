@@ -8,7 +8,9 @@ package org.mobilenativefoundation.store6.mutations.drain
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -37,8 +39,9 @@ class WatchTest {
             harness.fixture.backend.offline = false
             harness.fixture.nowMillis = 1.hours.inWholeMilliseconds
 
+            val launchPassCompleted = nextPassCompletion(harness.coordinator)
             val watch = launch { harness.coordinator.watch(STORE_NAME) }
-            testScheduler.runCurrent()
+            launchPassCompleted.await()
 
             assertEquals(emptyList(), harness.store.pendingWrites())
             assertEquals(listOf("+pending"), harness.fixture.backend.receivedPushes)
@@ -69,8 +72,9 @@ class WatchTest {
             assertEquals(emptyList(), harness.store.pendingWrites())
             assertEquals(1, retireCalls)
 
+            val launchPassCompleted = nextPassCompletion(harness.coordinator)
             val watch = launch { harness.coordinator.watch(STORE_NAME) }
-            testScheduler.runCurrent()
+            launchPassCompleted.await()
 
             assertEquals(2, retireCalls)
             watch.cancelAndJoin()
@@ -83,12 +87,14 @@ class WatchTest {
     fun fastPathAddsNoSchedulerChurn() = runTest {
         val harness = WatchHarness()
         try {
+            val launchPassCompleted = nextPassCompletion(harness.coordinator)
             val watch = launch { harness.coordinator.watch(STORE_NAME) }
-            testScheduler.runCurrent()
+            launchPassCompleted.await()
             val settledSchedulerLog = harness.scheduler.log.toList()
 
+            val fastPathCompleted = nextPassCompletion(harness.coordinator)
             harness.store.mutate(DrainTestKey("fast"), harness.fixture.appendRef, "+done")
-            testScheduler.runCurrent()
+            fastPathCompleted.await()
 
             assertEquals(emptyList(), harness.store.pendingWrites())
             assertEquals(listOf("+done"), harness.fixture.backend.receivedPushes)
@@ -124,8 +130,9 @@ class WatchTest {
                 harness.store.pendingWrites().single().state,
             )
 
+            val recoveryPassCompleted = nextPassCompletion(harness.coordinator)
             val recoveryWatch = launch { harness.coordinator.watch(STORE_NAME) }
-            testScheduler.runCurrent()
+            recoveryPassCompleted.await()
 
             assertEquals(emptyList(), harness.store.pendingWrites())
             assertEquals(listOf("+recovered"), harness.fixture.backend.receivedPushes)
@@ -180,8 +187,9 @@ class WatchTest {
                 .filterIsInstance<DrainActivationStarted>()
                 .onEach(started::add)
                 .launchIn(backgroundScope)
+            val launchPassCompleted = nextPassCompletion(harness.coordinator)
             val watch = launch { harness.coordinator.watch(STORE_NAME) }
-            testScheduler.runCurrent()
+            launchPassCompleted.await()
             val launchPasses = started.size
             val launchScheduleCount = harness.scheduler.scheduled.size
 
@@ -204,8 +212,9 @@ class WatchTest {
         try {
             harness.store.mutate(DrainTestKey("startup"), harness.fixture.appendRef, "+pending")
 
+            val launchPassCompleted = nextPassCompletion(harness.coordinator)
             val watch = launch { harness.coordinator.watch(STORE_NAME) }
-            testScheduler.runCurrent()
+            launchPassCompleted.await()
 
             assertEquals(emptyList(), harness.store.pendingWrites())
             assertEquals(listOf("+pending"), harness.fixture.backend.receivedPushes)
@@ -224,12 +233,14 @@ class WatchTest {
                 .filterIsInstance<DrainActivationStarted>()
                 .onEach(started::add)
                 .launchIn(backgroundScope)
+            val launchPassCompleted = nextPassCompletion(harness.coordinator)
             val watch = launch { harness.coordinator.watch(STORE_NAME) }
-            testScheduler.runCurrent()
+            launchPassCompleted.await()
             val launchPasses = started.size
 
+            val fastPathCompleted = nextPassCompletion(harness.coordinator)
             harness.store.mutate(DrainTestKey("events"), harness.fixture.appendRef, "+done")
-            testScheduler.runCurrent()
+            fastPathCompleted.await()
 
             assertEquals(launchPasses + 1, started.size)
             assertEquals(emptyList(), harness.store.pendingWrites())
@@ -325,3 +336,9 @@ private class WatchHarness(
 
 private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
     coroutineRunTest(timeout = 25.seconds, testBody = testBody)
+
+private fun TestScope.nextPassCompletion(
+    coordinator: MutationDrainCoordinator,
+) = async(start = CoroutineStart.UNDISPATCHED) {
+    coordinator.events.filterIsInstance<DrainPassCompleted>().first()
+}
