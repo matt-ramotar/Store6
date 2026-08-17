@@ -53,3 +53,7 @@ include ':mutations'
 include ':mutations-quickstart'
 include ':mutations-testing'
 include ':mutations-sqldelight'
+include ':mutations-drain'
+include ':mutations-drain-sample'
+project(':mutations-drain-sample').projectDir = file('mutations-drain/sample')
+include ':mutations-drain-meeseeks'

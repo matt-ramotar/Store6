@@ -53,6 +53,8 @@ Group coordinates are unchanged: `org.mobilenativefoundation.store`. Packages ar
 | `bom` | Version alignment only; no API surface of its own. | alpha01 |
 | `devtools` | Experimental (`@ExperimentalStoreApi`). | alpha02 (target) |
 | `devtools-inspector` | Experimental (`@ExperimentalStoreApi`). | alpha02 (target) |
+| `mutations-drain` | Experimental (`@ExperimentalStoreApi`). | alpha02 (target) |
+| `mutations-drain-meeseeks` | Experimental (`@ExperimentalStoreApi`) — additionally gated on an upstream Meeseeks JVM-initialization fix. | alpha02 (target) |
 
 Inside `core`, the `org.mobilenativefoundation.store6.core.seam` package — the 13 files you
 implement to plug in your own fetcher, source of truth, bookkeeper, clock, telemetry, or overlay —

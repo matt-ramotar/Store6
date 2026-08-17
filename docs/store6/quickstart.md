@@ -165,7 +165,7 @@ The flow, end to end:
 
 1. **Offline enqueue.** `mutate` appends one intent and returns a mutation id. Nothing is pushed.
 2. **Optimistic visibility.** `stream(key)` emits `Data(value = optimistic, origin = OVERLAY)`.
-3. **Reconnect and acknowledge.** `drain(key)` pushes the pending intents and adopts each ack.
+3. **Reconnect and acknowledge.** `drain(key)` pushes the pending intents and adopts each ack. For OS-scheduled background draining, see [`mutations-drain`](../../mutations-drain/README.md).
 4. **Confirmed.** By the acknowledgement contract, the server's echo becomes the committed value,
    attributed `SOT` or `MEMORY`, and the optimistic frame is retired rather than replayed. A stream
    opened after the acknowledgement sees the echo. Convergence for a collector that was *already*

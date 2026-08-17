@@ -225,6 +225,23 @@ jobs:
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
 
+      - name: Build Store6 mutations-drain
+        run: >
+          ./gradlew :mutations-drain:build
+          -Pkotlin.native.enableKlibsCrossCompilation=true
+          -Pkotlin.apple.xcodeCompatibility.nowarn=true
+          --stacktrace
+
+      - name: Run Store6 mutations-drain sample
+        run: ./gradlew :mutations-drain-sample:run --stacktrace
+
+      - name: Build Store6 mutations-drain-meeseeks
+        run: >
+          ./gradlew :mutations-drain-meeseeks:build
+          -Pkotlin.native.enableKlibsCrossCompilation=true
+          -Pkotlin.apple.xcodeCompatibility.nowarn=true
+          --stacktrace
+
       - name: Build Store6 paging-androidx
         run: >
           ./gradlew :paging-androidx:build
@@ -260,7 +277,7 @@ jobs:
         run: |
           set -euo pipefail
           status=0
-          for module in extension-probe testing sqldelight compose compose-demo room benchmarks devtools devtools-inspector devtools-demo mutations mutations-quickstart mutations-testing mutations-sqldelight paging-androidx paging-androidx/sample graphql graphql/sample realtime realtime/sample; do
+          for module in extension-probe testing sqldelight compose compose-demo room benchmarks devtools devtools-inspector devtools-demo mutations mutations-quickstart mutations-testing mutations-sqldelight mutations-drain mutations-drain/sample mutations-drain-meeseeks paging-androidx paging-androidx/sample graphql graphql/sample realtime realtime/sample; do
             source_dir="${module}/src"
             if [[ ! -d "${source_dir}" ]]; then
               echo "ERROR: expected extension source directory is missing: ${source_dir}" >&2
@@ -311,7 +328,7 @@ jobs:
           status=0
           banned_regex='(^|[^[:alnum:]_])(runBlocking|GlobalScope|atomicfu|Channel|actor)([^[:alnum:]_]|$)|kotlinx[.]coroutines[.]channels[.][*]'
           shopt -s nullglob
-          production_source_dirs=(core/src/*Main testing/src/*Main sqldelight/src/*Main compose/src/*Main room/src/*Main devtools/src/*Main devtools-inspector/src/*Main mutations/src/*Main mutations-testing/src/*Main mutations-sqldelight/src/*Main paging-androidx/src/*Main graphql/src/*Main realtime/src/*Main)
+          production_source_dirs=(core/src/*Main testing/src/*Main sqldelight/src/*Main compose/src/*Main room/src/*Main devtools/src/*Main devtools-inspector/src/*Main mutations/src/*Main mutations-testing/src/*Main mutations-sqldelight/src/*Main mutations-drain/src/*Main mutations-drain-meeseeks/src/*Main paging-androidx/src/*Main graphql/src/*Main realtime/src/*Main)
           for source_dir in "${production_source_dirs[@]}"; do
             [[ -d "${source_dir}" ]] || continue
             if grep -rnE --include='*.kt' "${banned_regex}" "${source_dir}"; then
@@ -438,7 +455,7 @@ jobs:
           exit "${status}"
 
       - name: JS lock-discipline canary (full conformance suite on the JS lane)
-        run: ./gradlew :core:jsNodeTest :testing:jsNodeTest :mutations:jsNodeTest :mutations-testing:jsNodeTest :paging-androidx:jsNodeTest :graphql:jsNodeTest :realtime:jsNodeTest --stacktrace
+        run: ./gradlew :core:jsNodeTest :testing:jsNodeTest :mutations:jsNodeTest :mutations-testing:jsNodeTest :mutations-drain:jsNodeTest :mutations-drain-meeseeks:jsNodeTest :paging-androidx:jsNodeTest :graphql:jsNodeTest :realtime:jsNodeTest --stacktrace
 
       - name: Upload test reports
         if: ${{ failure() }}
@@ -528,6 +545,9 @@ jobs:
             :mutations-testing:macosArm64Test \
             :mutations-sqldelight:iosSimulatorArm64Test \
             :mutations-sqldelight:macosArm64Test \
+            :mutations-drain:iosSimulatorArm64Test \
+            :mutations-drain:macosArm64Test \
+            :mutations-drain-meeseeks:iosSimulatorArm64Test \
             "-Pstore6.iosSimulatorDevice=${STORE6_IOS_SIMULATOR_DEVICE}" \
             --stacktrace
 
@@ -672,7 +692,7 @@ jobs:
 
       - name: Publish Store6 core to Maven local without signing
         run: >
-          ./gradlew :core:publishToMavenLocal :testing:publishToMavenLocal :sqldelight:publishToMavenLocal :compose:publishToMavenLocal :room:publishToMavenLocal :devtools:publishToMavenLocal :devtools-inspector:publishToMavenLocal :mutations:publishToMavenLocal :mutations-testing:publishToMavenLocal :mutations-sqldelight:publishToMavenLocal :paging-androidx:publishToMavenLocal :graphql:publishToMavenLocal :realtime:publishToMavenLocal
+          ./gradlew :core:publishToMavenLocal :testing:publishToMavenLocal :sqldelight:publishToMavenLocal :compose:publishToMavenLocal :room:publishToMavenLocal :devtools:publishToMavenLocal :devtools-inspector:publishToMavenLocal :mutations:publishToMavenLocal :mutations-testing:publishToMavenLocal :mutations-sqldelight:publishToMavenLocal :mutations-drain:publishToMavenLocal :mutations-drain-meeseeks:publishToMavenLocal :paging-androidx:publishToMavenLocal :graphql:publishToMavenLocal :realtime:publishToMavenLocal
           -Pkotlin.native.enableKlibsCrossCompilation=true
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
@@ -684,7 +704,7 @@ jobs:
           version="6.0.0-SNAPSHOT"
           repository="${HOME}/.m2/repository/org/mobilenativefoundation/store"
 
-          modules=(core testing sqldelight compose room devtools devtools-inspector mutations mutations-testing mutations-sqldelight paging-androidx graphql realtime)
+          modules=(core testing sqldelight compose room devtools devtools-inspector mutations mutations-testing mutations-sqldelight mutations-drain mutations-drain-meeseeks paging-androidx graphql realtime)
           suffixes=(
             ""
             -android
@@ -713,6 +733,11 @@ jobs:
                 room:-js|room:-wasm-js|room:-mingwx64|room:-iosx64)
                   # room ships Room 3's target subset; room3 publishes no iosX64 and no
                   # web/mingw klibs for this module's scope.
+                  continue
+                  ;;
+                mutations-drain-meeseeks:-wasm-js|mutations-drain-meeseeks:-macosarm64|mutations-drain-meeseeks:-watchosarm64|mutations-drain-meeseeks:-tvosarm64|mutations-drain-meeseeks:-linuxx64|mutations-drain-meeseeks:-mingwx64)
+                  # mutations-drain-meeseeks ships the Meeseeks target subset; this module
+                  # publishes no wasmJs/macos/watchOS/tvOS/linux/mingw klibs.
                   continue
                   ;;
                 devtools-inspector:-watchosarm64|devtools-inspector:-tvosarm64|devtools-inspector:-linuxx64|devtools-inspector:-mingwx64)
