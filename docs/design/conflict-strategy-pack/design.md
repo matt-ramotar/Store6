@@ -440,13 +440,18 @@ Four layers, all in the pack (the mutations module's conflict fixtures live in i
      intent `REFRESHING`.
    Observability note: generations, idempotency keys, and base/mine blobs are asserted through
    the public journal-storage transaction API (`attempts(clientId)` etc.) and events —
-   `PendingIntent` exposes no generation. Journal reads use the engine's default client id,
-   `"client-0"`; that default is engine-internal, so the fixture derives it from the journal's
-   client row rather than assuming it blindly, and the suite fails loudly if the default moves.
+   `PendingIntent` exposes no generation. The transaction API reads rows by client id and offers
+   no client enumeration; the engine's default id is engine-internal (`"client-0"` today). The
+   fixture therefore captures the id from a recorded `MutationPush.clientId` (every push carries
+   it) and verifies a matching journal client row exists, so the suite fails loudly if the
+   default moves. The fixture's fake server must also leave retirement unconfirmed
+   (`confirmedThroughSequence = 0`) so retired rows survive pruning for assertion.
 3. **Restart determinism**: reuse one `InMemoryMutationJournalStorage` instance across
    `store.close()` and a fresh `mutationStore` (the established restart pattern in
    `MutationConflictTest`); a store closed at `REFRESH_REQUIRED` re-runs the merge after reopen
-   and lands the same outcome.
+   and lands the same outcome as an uninterrupted control run — same terminal phase, same
+   generation rows, same pushed values — one case per policy family (serverWins, clientWins,
+   lastWriteWins, threeWay).
 4. **Compiled docs snippets**: `*DocsSnippet.kt` files in `commonTest` carrying
    `docs:snippet:mutations-conflicts-pack-*` markers — the `-pack-` segment avoids colliding
    with the existing `mutations-conflicts-policy` snippet id in the mutations module.
