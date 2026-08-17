@@ -15,6 +15,7 @@ internal class DrainRegistration(
     val epoch: Long,
     val job: Job,
     val passMutex: Mutex,
+    val trackedActivation: MutableStateFlow<Boolean>,
     var derivationState: DerivationState,
 )
 
@@ -58,6 +59,7 @@ internal class DrainRegistry {
                     epoch = current.nextEpoch,
                     job = Job(),
                     passMutex = Mutex(),
+                    trackedActivation = MutableStateFlow(false),
                     derivationState =
                         DerivationState(
                             previousFingerprint = null,

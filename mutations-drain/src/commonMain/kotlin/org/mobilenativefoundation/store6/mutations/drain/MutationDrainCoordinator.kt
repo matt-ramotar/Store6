@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
@@ -20,10 +21,13 @@ import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.seam.WallClock
 import org.mobilenativefoundation.store6.mutations.MutationCheckpointFailed
+import org.mobilenativefoundation.store6.mutations.MutationEnqueued
 import org.mobilenativefoundation.store6.mutations.MutationStore
 import org.mobilenativefoundation.store6.mutations.drain.internal.DrainRegistration
 import org.mobilenativefoundation.store6.mutations.drain.internal.DrainRegistry
 import org.mobilenativefoundation.store6.mutations.drain.internal.deriveFollowUp
+import kotlin.coroutines.coroutineContext
+import kotlin.time.Duration
 
 /**
  * Coordinates registered mutation stores with a constraint-gated [DrainScheduler]. Each pass
@@ -64,14 +68,16 @@ public class MutationDrainCoordinator internal constructor(
     }
 
     /**
-     * Removes [name], cancels its registration job and tracked pending activation, and suppresses
-     * follow-up scheduling from an in-flight pass of the removed epoch. An unknown name is a no-op.
+     * Removes [name], completes its active [watch] with [CancellationException], cancels its tracked
+     * pending activation, and suppresses follow-up scheduling from an in-flight pass of the removed
+     * epoch. An unknown name is a no-op.
      *
      * @throws IllegalStateException if this coordinator is closed
      */
     @ExperimentalStoreApi
     public fun unregister(name: String): Unit {
         val registration = registry.unregister(name) ?: return
+        registration.trackedActivation.value = false
         scheduler.cancel(registration.name)
         emitActivationCancelled(registration.name)
     }
@@ -96,6 +102,50 @@ public class MutationDrainCoordinator internal constructor(
                 registration.passMutex.unlock()
             }
         }
+    }
+
+    /**
+     * Watches one registered store for mutation enqueues. Collection starts before an
+     * unconditional launch pass, so pending intents and retirement-checkpoint work that predates
+     * the subscription are retried. Later enqueues run an in-process pass when
+     * `drainOnEnqueue` is true, or schedule an activation with [Duration.ZERO] delay when it is
+     * false. Other mutation events are ignored. Enqueues arriving during a pass are conflated and
+     * cause at most one further pass.
+     *
+     * This function never returns normally. Removing the registration or closing the coordinator
+     * completes it with [CancellationException].
+     *
+     * @throws IllegalArgumentException if [name] is not registered
+     * @throws IllegalStateException if this coordinator is closed
+     */
+    @ExperimentalStoreApi
+    public suspend fun watch(name: String): Nothing {
+        val registration = requireRegistrationForWatch(name)
+        coroutineScope {
+            val watchJob = coroutineContext.job
+            val handle = registration.job.invokeOnCompletion { watchJob.cancel() }
+            try {
+                val kicks = Channel<Unit>(Channel.CONFLATED)
+                val subscription =
+                    launch(start = CoroutineStart.UNDISPATCHED) {
+                        registration.store.events.collect { event ->
+                            if (event is MutationEnqueued) kicks.trySend(Unit)
+                        }
+                    }
+                runPass(registration, persistSafety = true)
+                while (true) {
+                    kicks.receive()
+                    if (registration.policy.drainOnEnqueue) {
+                        runPass(registration, persistSafety = false)
+                    } else {
+                        scheduleZero(registration)
+                    }
+                }
+            } finally {
+                handle.dispose()
+            }
+        }
+        error("watch exited without cancellation")
     }
 
     /**
@@ -129,10 +179,11 @@ public class MutationDrainCoordinator internal constructor(
     }
 
     /**
-     * Closes the coordinator and cancels its registration jobs. Later calls to [register],
-     * [unregister], and [reconcile] throw [IllegalStateException], while [runActivation] returns
-     * [DrainPassOutcome.Unavailable]. Pending scheduler activations are deliberately not cancelled
-     * because they may outlive the current process. Registered stores are not closed.
+     * Closes the coordinator and completes active [watch] calls with [CancellationException]. Later
+     * calls to [register], [unregister], [reconcile], and [watch] throw [IllegalStateException],
+     * while [runActivation] returns [DrainPassOutcome.Unavailable]. Pending scheduler activations
+     * are deliberately not cancelled because they may outlive the current process. Registered
+     * stores are not closed.
      */
     @ExperimentalStoreApi
     public fun close(): Unit {
@@ -211,8 +262,11 @@ public class MutationDrainCoordinator internal constructor(
 
         val delay = derived.delay
         if (delay == null) {
-            scheduler.cancel(registration.name)
-            emitActivationCancelled(registration.name)
+            if (registration.trackedActivation.value) {
+                scheduler.cancel(registration.name)
+                emitActivationCancelled(registration.name)
+                registration.trackedActivation.value = false
+            }
             emitPassCompleted(
                 storeName = registration.name,
                 pendingIntents = derived.pendingIntents,
@@ -242,6 +296,7 @@ public class MutationDrainCoordinator internal constructor(
                     earliestDelay = delay,
                 ),
             )
+            registration.trackedActivation.value = true
         } catch (failure: Throwable) {
             emitScheduleFailed(registration.name, failure.messageOrString())
             emitPassCompleted(
@@ -281,9 +336,40 @@ public class MutationDrainCoordinator internal constructor(
                     earliestDelay = registration.policy.backoff.maxDelay,
                 ),
             )
+            registration.trackedActivation.value = true
         } catch (failure: Throwable) {
             emitScheduleFailed(registration.name, failure.messageOrString())
         }
+    }
+
+    private fun requireRegistrationForWatch(name: String): DrainRegistration {
+        check(!registry.isClosed) { "Drain coordinator is closed." }
+        registry.get(name)?.let { return it }
+        check(!registry.isClosed) { "Drain coordinator is closed." }
+        throw IllegalArgumentException("Drain registration name is not registered: $name")
+    }
+
+    private fun scheduleZero(registration: DrainRegistration) {
+        try {
+            scheduler.schedule(
+                DrainRequest(
+                    storeName = registration.name,
+                    constraints = registration.policy.constraints,
+                    earliestDelay = Duration.ZERO,
+                ),
+            )
+            registration.trackedActivation.value = true
+        } catch (failure: Throwable) {
+            emitScheduleFailed(registration.name, failure.messageOrString())
+            return
+        }
+        eventSink.tryEmit(
+            DrainActivationScheduled(
+                storeName = registration.name,
+                occurredAtEpochMillis = wallClock.nowEpochMillis(),
+                delayMillis = 0L,
+            ),
+        )
     }
 
     private fun emitActivationStarted(storeName: String) {

@@ -105,6 +105,7 @@ public final class org/mobilenativefoundation/store6/mutations/drain/MutationDra
 	public static synthetic fun register$default (Lorg/mobilenativefoundation/store6/mutations/drain/MutationDrainCoordinator;Ljava/lang/String;Lorg/mobilenativefoundation/store6/mutations/MutationStore;Lorg/mobilenativefoundation/store6/mutations/drain/DrainPolicy;ILjava/lang/Object;)V
 	public final fun runActivation (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public final fun unregister (Ljava/lang/String;)V
+	public final fun watch (Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public final class org/mobilenativefoundation/store6/mutations/drain/MutationDrainCoordinatorKt {

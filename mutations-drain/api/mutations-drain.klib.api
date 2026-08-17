@@ -149,6 +149,7 @@ final class org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoord
     final fun unregister(kotlin/String) // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.unregister|unregister(kotlin.String){}[0]
     final suspend fun reconcile() // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.reconcile|reconcile(){}[0]
     final suspend fun runActivation(kotlin/String): org.mobilenativefoundation.store6.mutations.drain/DrainPassOutcome // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.runActivation|runActivation(kotlin.String){}[0]
+    final suspend fun watch(kotlin/String): kotlin/Nothing // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.watch|watch(kotlin.String){}[0]
 }
 
 final fun org.mobilenativefoundation.store6.mutations.drain/mutationDrainCoordinator(org.mobilenativefoundation.store6.mutations.drain/DrainScheduler, org.mobilenativefoundation.store6.core.seam/WallClock = ...): org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator // org.mobilenativefoundation.store6.mutations.drain/mutationDrainCoordinator|mutationDrainCoordinator(org.mobilenativefoundation.store6.mutations.drain.DrainScheduler;org.mobilenativefoundation.store6.core.seam.WallClock){}[0]
