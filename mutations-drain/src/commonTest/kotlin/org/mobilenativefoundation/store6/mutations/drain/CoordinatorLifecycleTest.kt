@@ -54,6 +54,27 @@ class CoordinatorLifecycleTest {
     }
 
     @Test
+    fun reconcileAfterCloseThrows() = runTest {
+        val fixture = DrainFixture()
+        val store = fixture.openStore()
+        val coordinator = mutationDrainCoordinator(RecordingDrainScheduler(), fixture.clock)
+        coordinator.close()
+        try {
+            assertFailsWith<IllegalStateException> {
+                coordinator.reconcile()
+            }
+            assertFailsWith<IllegalStateException> {
+                coordinator.register("users", store)
+            }
+            assertFailsWith<IllegalStateException> {
+                coordinator.unregister("users")
+            }
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test
     fun registerValidatesConstraintsThroughScheduler() = runTest {
         val fixture = DrainFixture()
         val store = fixture.openStore()
