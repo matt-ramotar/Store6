@@ -140,6 +140,15 @@ final class org.mobilenativefoundation.store6.mutations.drain/DrainScheduleFaile
         final fun <get-storeName>(): kotlin/String // org.mobilenativefoundation.store6.mutations.drain/DrainScheduleFailed.storeName.<get-storeName>|<get-storeName>(){}[0]
 }
 
+final class org.mobilenativefoundation.store6.mutations.drain/InProcessDrainScheduler : org.mobilenativefoundation.store6.mutations.drain/DrainScheduler { // org.mobilenativefoundation.store6.mutations.drain/InProcessDrainScheduler|null[0]
+    constructor <init>(kotlinx.coroutines/CoroutineScope) // org.mobilenativefoundation.store6.mutations.drain/InProcessDrainScheduler.<init>|<init>(kotlinx.coroutines.CoroutineScope){}[0]
+
+    final fun attach(org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator) // org.mobilenativefoundation.store6.mutations.drain/InProcessDrainScheduler.attach|attach(org.mobilenativefoundation.store6.mutations.drain.MutationDrainCoordinator){}[0]
+    final fun cancel(kotlin/String) // org.mobilenativefoundation.store6.mutations.drain/InProcessDrainScheduler.cancel|cancel(kotlin.String){}[0]
+    final fun schedule(org.mobilenativefoundation.store6.mutations.drain/DrainRequest) // org.mobilenativefoundation.store6.mutations.drain/InProcessDrainScheduler.schedule|schedule(org.mobilenativefoundation.store6.mutations.drain.DrainRequest){}[0]
+    final fun validate(org.mobilenativefoundation.store6.mutations.drain/DrainConstraints) // org.mobilenativefoundation.store6.mutations.drain/InProcessDrainScheduler.validate|validate(org.mobilenativefoundation.store6.mutations.drain.DrainConstraints){}[0]
+}
+
 final class org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator { // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator|null[0]
     final val events // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.events|{}events[0]
         final fun <get-events>(): kotlinx.coroutines.flow/SharedFlow<org.mobilenativefoundation.store6.mutations.drain/DrainSchedulerEvent> // org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator.events.<get-events>|<get-events>(){}[0]

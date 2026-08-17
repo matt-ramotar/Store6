@@ -97,6 +97,14 @@ public abstract interface class org/mobilenativefoundation/store6/mutations/drai
 	public abstract fun getStoreName ()Ljava/lang/String;
 }
 
+public final class org/mobilenativefoundation/store6/mutations/drain/InProcessDrainScheduler : org/mobilenativefoundation/store6/mutations/drain/DrainScheduler {
+	public fun <init> (Lkotlinx/coroutines/CoroutineScope;)V
+	public fun attach (Lorg/mobilenativefoundation/store6/mutations/drain/MutationDrainCoordinator;)V
+	public fun cancel (Ljava/lang/String;)V
+	public fun schedule (Lorg/mobilenativefoundation/store6/mutations/drain/DrainRequest;)V
+	public fun validate (Lorg/mobilenativefoundation/store6/mutations/drain/DrainConstraints;)V
+}
+
 public final class org/mobilenativefoundation/store6/mutations/drain/MutationDrainCoordinator {
 	public final fun close ()V
 	public final fun getEvents ()Lkotlinx/coroutines/flow/SharedFlow;
