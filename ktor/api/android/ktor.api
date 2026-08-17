@@ -23,6 +23,13 @@ public final class org/mobilenativefoundation/store6/ktor/KtorFetchException : j
 	public final fun getUrl ()Ljava/lang/String;
 }
 
+public final class org/mobilenativefoundation/store6/ktor/KtorFetcherKt {
+	public static final fun ktorFetcher (Lio/ktor/client/HttpClient;Lorg/mobilenativefoundation/store6/ktor/KtorNotFoundPolicy;ZLorg/mobilenativefoundation/store6/ktor/KtorErrorMapper;ZLkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;)Lorg/mobilenativefoundation/store6/core/seam/Fetcher;
+	public static final fun ktorFetcher (Lorg/mobilenativefoundation/store6/core/StoreBuilder;Lio/ktor/client/HttpClient;Lorg/mobilenativefoundation/store6/ktor/KtorNotFoundPolicy;ZLorg/mobilenativefoundation/store6/ktor/KtorErrorMapper;ZLkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;)V
+	public static synthetic fun ktorFetcher$default (Lio/ktor/client/HttpClient;Lorg/mobilenativefoundation/store6/ktor/KtorNotFoundPolicy;ZLorg/mobilenativefoundation/store6/ktor/KtorErrorMapper;ZLkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;ILjava/lang/Object;)Lorg/mobilenativefoundation/store6/core/seam/Fetcher;
+	public static synthetic fun ktorFetcher$default (Lorg/mobilenativefoundation/store6/core/StoreBuilder;Lio/ktor/client/HttpClient;Lorg/mobilenativefoundation/store6/ktor/KtorNotFoundPolicy;ZLorg/mobilenativefoundation/store6/ktor/KtorErrorMapper;ZLkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function2;ILjava/lang/Object;)V
+}
+
 public final class org/mobilenativefoundation/store6/ktor/KtorNotFoundPolicy : java/lang/Enum {
 	public static final field Delete Lorg/mobilenativefoundation/store6/ktor/KtorNotFoundPolicy;
 	public static final field Error Lorg/mobilenativefoundation/store6/ktor/KtorNotFoundPolicy;

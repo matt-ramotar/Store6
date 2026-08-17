@@ -14,9 +14,68 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CancellationException
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+import org.mobilenativefoundation.store6.core.StoreBuilder
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
+
+/**
+ * Builds a [Fetcher] that revalidates over HTTP on [client].
+ *
+ * @param client caller-owned HTTP client; the kit never closes it. Must not have Ktor's HttpCache
+ *   plugin installed unless [allowHttpCache] is true (see the technical design §13.2).
+ * @param decode maps an adopted 2xx response to a value; invoked inside the response scope only for
+ *   outcomes the kit adopts as Success
+ * @param notFoundPolicy how 404 and 410 are mapped (default: typed error, non-destructive)
+ * @param lastModifiedFallback whether to record and send Last-Modified when no ETag is available
+ * @param errorMapper optional override of status-to-result mapping; returns Defer to keep defaults
+ * @param allowHttpCache set true only when you accept that HttpCache can intercept the 304 path
+ * @param configureRequest applies the per-key request shape (method, URL, headers, body)
+ */
+@ExperimentalStoreApi
+public fun <K : StoreKey, V : Any> ktorFetcher(
+    client: HttpClient,
+    notFoundPolicy: KtorNotFoundPolicy = KtorNotFoundPolicy.Error,
+    lastModifiedFallback: Boolean = true,
+    errorMapper: KtorErrorMapper = KtorErrorMapper.Default,
+    allowHttpCache: Boolean = false,
+    decode: suspend (HttpResponse) -> V,
+    configureRequest: HttpRequestBuilder.(K) -> Unit,
+): Fetcher<K, V> {
+    requireNoHttpCache(client, allowHttpCache)
+    return createKtorFetcher(
+        client = client,
+        notFoundPolicy = notFoundPolicy,
+        lastModifiedFallback = lastModifiedFallback,
+        errorMapper = errorMapper,
+        decode = decode,
+        configureRequest = configureRequest,
+    )
+}
+
+/** Installs [ktorFetcher] as this store's fetch source. Last fetcher registration wins. */
+@ExperimentalStoreApi
+public fun <K : StoreKey, V : Any> StoreBuilder<K, V>.ktorFetcher(
+    client: HttpClient,
+    notFoundPolicy: KtorNotFoundPolicy = KtorNotFoundPolicy.Error,
+    lastModifiedFallback: Boolean = true,
+    errorMapper: KtorErrorMapper = KtorErrorMapper.Default,
+    allowHttpCache: Boolean = false,
+    decode: suspend (HttpResponse) -> V,
+    configureRequest: HttpRequestBuilder.(K) -> Unit,
+) {
+    val theFetcher =
+        org.mobilenativefoundation.store6.ktor.ktorFetcher(
+            client = client,
+            notFoundPolicy = notFoundPolicy,
+            lastModifiedFallback = lastModifiedFallback,
+            errorMapper = errorMapper,
+            allowHttpCache = allowHttpCache,
+            decode = decode,
+            configureRequest = configureRequest,
+        )
+    fetcher(theFetcher)
+}
 
 @ExperimentalStoreApi
 internal fun <K : StoreKey, V : Any> createKtorFetcher(
