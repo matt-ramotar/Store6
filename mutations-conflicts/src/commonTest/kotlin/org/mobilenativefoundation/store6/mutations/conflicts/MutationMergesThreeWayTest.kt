@@ -15,7 +15,7 @@ class MutationMergesThreeWayTest {
 
     @Test
     fun threeWay_bothPresent_basePresent_mergerReceivesBaseValue() {
-        val baseValue = String(charArrayOf('b', 'a', 's', 'e'))
+        val baseValue = charArrayOf('b', 'a', 's', 'e').concatToString()
         val mineValue = "mine"
         val theirsValue = "theirs"
         val merged = "merged"

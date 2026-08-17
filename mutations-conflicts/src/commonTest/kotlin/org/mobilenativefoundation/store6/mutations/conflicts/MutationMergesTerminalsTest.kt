@@ -61,7 +61,7 @@ class MutationMergesTerminalsTest {
 
     @Test
     fun clientWins_returnsSameMineInstance() {
-        val mine: MutationPresence<String> = MutationPresence.Present(String(charArrayOf('m')))
+        val mine: MutationPresence<String> = MutationPresence.Present(charArrayOf('m').concatToString())
 
         val resolution = MutationMerges.clientWins<String>()(
             MutationPresence.Absent,
