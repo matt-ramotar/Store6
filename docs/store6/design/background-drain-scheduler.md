@@ -199,7 +199,11 @@ public class DrainBackoff(
     public val initialDelay: Duration = 30.seconds,
     public val multiplier: Double = 2.0,
     public val maxDelay: Duration = 1.hours,
-)
+) {
+    /** The §6.4 delay for a head with the given completed-attempt count; [attempt] >= 1. */
+    @ExperimentalStoreApi
+    public fun delayFor(attempt: Int): Duration
+}
 
 /** Per-store scheduling policy. */
 @ExperimentalStoreApi
@@ -499,8 +503,10 @@ non-cancellation failure, and the no-progress state `(previousFingerprint, k)` d
 below.
 
 **Progress fingerprint.** After each pass the coordinator computes
-`fingerprint = multiset of (mutationId, namespace, canonicalId, state, attempt)` over all
-rows — exactly the fields `PendingIntent` exposes. `k` (consecutive no-progress passes) is
+`fingerprint = map keyed by mutationId` over all rows, each entry carrying the remaining
+exposed `PendingIntent` fields (`namespace`, `canonicalId`, `mutatorId`, `state`,
+`attempt`, `createdAtEpochMillis`) — `mutationId` is unique, so the map is an exact
+snapshot. `k` (consecutive no-progress passes) is
 updated only after real `drain()` passes: `k = 0` when `previousFingerprint` is absent
 (first pass of this coordinator instance) or differs from the current fingerprint,
 `k + 1` when equal. An empty fingerprint equals only another empty fingerprint, never the
@@ -905,11 +911,11 @@ parameter; a `RecordingDrainScheduler` test double):
    letters never reschedule); closed store → Unavailable; schedule() throwing →
    `DrainScheduleFailed` + `scheduledDelay = null`; safety-persist failure → pass still
    runs.
-3. **Escalation and fingerprint** — fingerprint is exactly the multiset of
-   `(mutationId, namespace, canonicalId, state, attempt)`; absent-initial vs empty
-   distinction; `k` grows only across real passes; growth to `maxDelay`
-   (`multiplier > 1`) and constant floor (`multiplier = 1.0`); reset on any journal
-   progress; reset with a new coordinator instance.
+3. **Escalation and fingerprint** — fingerprint is exactly the mutationId-keyed map over
+   the exposed `PendingIntent` fields; absent-initial vs empty distinction; `k` grows
+   only across real passes; growth to `maxDelay` (`multiplier > 1`) and constant floor
+   (`multiplier = 1.0`); reset on any journal progress; reset with a new coordinator
+   instance.
 4. **Alignment guard** — offline-fail a head to attempt N against the real engine,
    advance virtual time by the coordinator's `delay(N)`, run a pass, assert the head was
    attempted (fails if the engine's window ever outgrows the coordinator's delay).
@@ -942,9 +948,11 @@ parameter; a `RecordingDrainScheduler` test double):
 2. **Mapping unit tests** — §7.2 tables as pure-function tests (request mapping, result
    mapping), commonTest.
 3. **Android/iOS** — compile + BCV/klib dumps + apple-tests lane for iosSimulatorArm64
-   unit tests of mapping code. End-to-end WorkManager/BGTask execution is exercised by
-   the sample app manually (BGTask via the documented `_simulateLaunchTask` LLDB flow) and
-   is explicitly not CI-gated — stated in the README as the platform-reality boundary, the
+   unit tests of mapping code. End-to-end WorkManager/BGTask execution is manual and not
+   CI-gated: the adapter README carries the verification recipe (Android: constraint-gated
+   drain observed via `adb` network toggling; iOS: BGTask via the documented
+   `_simulateLaunchTask` LLDB flow), executed in a host application rather than a
+   repository sample in v1 — stated in the README as the platform-reality boundary, the
    same posture Meeseeks itself takes.
 
 Docs snippets compile in tests per the repo's `*DocsSnippet.kt` convention (README code
