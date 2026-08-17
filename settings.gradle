@@ -46,6 +46,8 @@ include ':realtime'
 include ':realtime-sample'
 project(':realtime-sample').projectDir = file('realtime/sample')
 include ':file'
+include ':file-sample'
+project(':file-sample').projectDir = file('file/sample')
 include ':benchmarks'
 include ':devtools'
 include ':devtools-inspector'
