@@ -5,6 +5,7 @@ package org.mobilenativefoundation.store6.graphql
 import app.cash.turbine.test
 import app.cash.turbine.withTurbineTimeout
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.TestResult
@@ -87,7 +88,14 @@ class GraphQlStoreIntegrationTest {
         try {
             val first = async { store.get(GET_USER.key(variables)) }
             executionEntered.awaitFromDefaultContext()
-            val second = async { store.get(GET_USER.key(variables)) }
+            // The undispatched start joins the still-gated execution before this body can release
+            // it. A dispatched reader could instead arrive after the commit settles the fetch slot
+            // and before residence lands, where the engine legally launches a second execution.
+            val second =
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    store.get(GET_USER.key(variables))
+                }
+            assertEquals(1, executor.callCount(variables))
             releaseExecution.complete(Unit)
 
             assertEquals(ada, first.await())
