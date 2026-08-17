@@ -25,6 +25,7 @@ include ':swift-dumps-mutations-objc'
 project(':swift-dumps-mutations-objc').projectDir = file('swift-dumps/mutations-objc')
 include ':swift-dumps-mutations-skie'
 project(':swift-dumps-mutations-skie').projectDir = file('swift-dumps/mutations-skie')
+include ':store6-swift'
 include ':extension-probe'
 include ':testing'
 include ':sqldelight'
