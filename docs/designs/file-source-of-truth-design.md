@@ -216,7 +216,7 @@ Notes:
 - Directories are created lazily on first use, so constructing the classes performs no IO and
   cannot throw for filesystem reasons. The first operation of each instance ensures its subtrees
   exist (`createDirectories(..., mustCreate = false)`) — including the tmp and trash parents that
-  later `atomicMove` calls target — and sweeps leftover tmp/trash entries best-effort.
+  later atomic renames target — and sweeps leftover tmp/trash entries best-effort.
 
 ### D5 — `SourceOfTruth` only; no `TransactionalSourceOfTruth`
 
@@ -230,7 +230,7 @@ Consequences, stated where users will read them (README + KDoc):
 - The mutations transactional ack-path decorator, which detects `TransactionalSourceOfTruth`,
   does not engage over this adapter. Applications combining `mutations` with a file SoT get the
   same non-transactional posture as any non-transactional SoT.
-- A future journal-based transactional variant is a named deferral (§12), not a v1 promise.
+- A future journal-based transactional variant is a named deferral (§9), not a v1 promise.
 
 ### D6 — On-disk key mapping: base32 names, two-level layout, hard length limit, no hashing
 
@@ -302,9 +302,13 @@ quarantine act on a consistent snapshot.
 3. Under `QUARANTINE`, the adapter re-acquires the mutex, re-reads the canonical file, and
    quarantines **only if the bytes equal the snapshot that failed to decode** (a concurrent
    mutation may have replaced the file with a valid row; quarantining that would destroy live
-   data). If the bytes differ, the reader simply re-reads via its signal as usual. The
-   equal/differ decision is a pure function of the two byte snapshots, unit-testable in
-   isolation.
+   data). If the bytes differ, the read attempt **retries with the new snapshot inside the same
+   emission**: the reader's per-signal read is a loop of (read + structural checks under the
+   mutex → decode outside), repeating on decode-failure-with-changed-bytes until a decode
+   succeeds, a stable snapshot is quarantined or propagated, or `CancellationException` exits.
+   Each retry consumes a strictly newer snapshot, so the loop only continues while concurrent
+   mutations keep landing — deferral the conflation clause already permits. The equal/differ
+   decision is a pure function of the two byte snapshots, unit-testable in isolation.
 
 Quarantine renames the file to `<name>.corrupt` beside the original (best-effort; on rename
 failure it falls back to best-effort delete) and reports absence. `.corrupt` files are never
@@ -355,16 +359,19 @@ The mechanism is the `sqldelight` adapter's, minus SQL:
   interleave; (b) on Windows, a rename over a concurrently-open file can fail with a sharing
   violation, so reads and renames on the same subtree must not race. `sqldelight`'s single
   `DriverAccess` gate is the shape precedent. Per-key striping is a named non-goal until a real
-  workload shows contention (§12).
+  workload shows contention (§9).
 - **Cross-instance concurrency**: kotlinx-io documents `FileSystem` implementations as not
-  thread-safe in general. The shipped `SystemFileSystem` objects hold no per-call mutable state —
-  verified by reading the JVM implementation (a stateless singleton delegating to `java.io`/
-  `java.nio` statics) and the MinGW implementation (per-call Win32/POSIX calls); the remaining
-  platform implementations were not audited and this reliance is a stated assumption. Under the
-  D13 ownership rule, distinct instances touch disjoint subtrees, so cross-instance calls are
-  concurrent platform-API calls on distinct paths. If kotlinx-io later documents a stricter
-  requirement, the named fallback is a companion-object striped gate shared by all instances
-  (the `RoomDatabaseAdmissionCoordinator` shape) — a one-file change.
+  thread-safe in general. All five shipped `SystemFileSystem` implementation families at the
+  pinned 0.9.1 were audited for this design — JVM (stateless object over `java.io`/`java.nio`
+  statics; the one retained field is the immutable lazily-initialized NIO mover), Unix native and
+  Apple (per-call POSIX `rename(2)`/`mkdir`/`realpath`; Apple metadata via a per-call
+  `NSFileManager.defaultManager()`), MinGW (per-call Win32/POSIX calls), and the shared Node
+  implementation for js/wasmJs (per-call `fs.*Sync`) — none holds mutable state across calls.
+  Under the D13 ownership rule, distinct instances touch disjoint subtrees, so cross-instance
+  calls are concurrent platform-API calls on distinct paths. **The audit is valid for the pinned
+  version only**: re-run it on any kotlinx-io bump (a named dependency-update step), and if a
+  future version adds shared state, the fallback is a companion-object striped gate shared by all
+  instances (the `RoomDatabaseAdmissionCoordinator` shape) — a one-file change.
 - **Payload work stays outside the mutex.** `encode` runs before acquisition (into a `Buffer`);
   `decode` runs after release (from the byte snapshot read under the mutex; structural checks
   happen under the mutex per D7). User codec time never blocks other keys; only raw file transfer
@@ -398,13 +405,26 @@ The mechanism is the `sqldelight` adapter's, minus SQL:
   3. On any throw before the rename completes: best-effort delete of the temp file; the canonical
      path is untouched — "throwing means it was not applied" holds exactly.
 - **`atomicReplace` (internal expect/actual).** Every rename in both components goes through one
-  internal function. On jvm, native, js, and wasmJs the actual is `SystemFileSystem.atomicMove`.
-  On android the actual calls `SystemFileSystem.atomicMove` and, when it throws the API 24–25
-  `UnsupportedOperationException` (D1 fact 1), falls back to `java.io.File.renameTo` — `rename(2)`
-  on Android, which atomically replaces within one filesystem — throwing `IOException` when
-  `renameTo` returns false. The fallback branch is a separately-testable internal function; CI has
-  no Android-device lane (the repository posture for every module), so the branch is proven by
-  direct unit test, not emulator.
+  internal function. On jvm, native, js, and wasmJs the actual is `SystemFileSystem.atomicMove`
+  (itself POSIX `rename(2)` on Unix/Apple, `MoveFileEx` with replace on Windows, `fs.renameSync`
+  on Node — verified in kotlinx-io 0.9.1 sources). On android the actual calls
+  `SystemFileSystem.atomicMove` and, when it throws the API 24–25 `UnsupportedOperationException`
+  (D1 fact 1), falls back to `android.system.Os.rename` — available since API 21 and documented
+  as the `rename(2)` binding, so the atomic-replace contract is the platform's, not an
+  implementation accident (`java.io.File.renameTo` was rejected here: its contract explicitly
+  permits non-atomic behavior and failure when the destination exists) — translating
+  `ErrnoException` to `IOException`. The fallback branch is a separately-testable internal
+  function; CI has no Android-device lane (the repository posture for every module), so the
+  branch is proven by direct unit test, not emulator, and only executes below API 26.
+- **Internal test gates.** Deterministic interleaving tests (pre-admission vs. post-admission
+  cancellation, storage-failure absorption) need controlled suspension and fault points. The
+  precedent is core's own `InMemoryBookkeeper(beforeMaintenancePublishTestGate: () -> Unit = {})`
+  internal constructor parameter. Both classes here follow it: the public D4 constructor delegates
+  to an `internal` constructor carrying no-op-defaulted gates (before-admission, after-admission,
+  before-disk-write). Internal declarations do not appear in BCV dumps, so the public surface is
+  unchanged; same-module `commonTest` reaches them directly. A gate that throws inside the
+  bookkeeper's persistence call is also the storage-failure injector for the absorption boundary
+  (D12).
 - **TD-8 compliance**: the implementation uses `Mutex` and `StateFlow` only — no `runBlocking`,
   `GlobalScope`, `atomicfu`, `Channel`, or `actor` — the banned-primitive regex in the "Enforce
   the TD-8 primitive whitelist and single-writer residence" step runs against `file/src/*Main`
@@ -457,7 +477,7 @@ kotlinx-io (and Okio) expose no fsync. v1 therefore guarantees, and documents, e
   corruption yields absence and a refetch.
 
 An opt-in `SYNC` durability mode (per-platform fsync via expect/actual) is a named deferral
-(§12), not silently absent: the README's durability section links it.
+(§9), not silently absent: the README's durability section links it.
 
 ### D12 — `FileBookkeeper`: in-memory mirror with write-through records and a watermark control file
 
@@ -498,16 +518,19 @@ from a storage failure, and not absorbed).
   (`status`) are then memory-only. The monotone sequence is recovered as the maximum over every
   persisted `lastSuccessSequence`, `staleSequence`, and watermark — allocation can therefore never
   reuse a value that any surviving persisted artifact carries.
-- **Infallible operations** (`recordSuccess`, `recordFailure`, `forget`): update the mirror first
-  (cannot fail), then write through to disk absorbing any non-cancellation `Exception` —
-  `IOException` is the common case, but `UnsupportedOperationException` and platform surprises
-  are absorbed too, because the seam says these operations "absorb or report their own storage
-  failures and do not throw them through this interface". `CancellationException` still
-  propagates, and the sequence-exhaustion `IllegalStateException` still throws (invariant, not
-  storage). **Divergence consequence, stated accurately**: while storage is failing, the mirror
-  and disk diverge; process-local answers stay correct, and a restart resumes from the last
-  durably written record for each key — which may be older than what the mirror reported, or
-  absent. It is not guaranteed to look never-fetched.
+- **Infallible operations** (`recordSuccess`, `recordFailure`, `forget`): allocate the sequence
+  and update the mirror first (invariant failures like sequence exhaustion throw here, before any
+  absorption boundary), encode the record payload outside any catch (an encoding defect is a bug
+  and must surface), then hand the finished bytes to one persistence call — write tmp,
+  `atomicReplace` — and absorb any non-cancellation exception **that call** throws:
+  `kotlinx.io.IOException` is the common case, `UnsupportedOperationException` and platform
+  surprises are covered by the same boundary, because the seam says these operations "absorb or
+  report their own storage failures and do not throw them through this interface". The absorption
+  boundary is exactly the disk call, so it cannot swallow programming defects elsewhere.
+  `CancellationException` always propagates. **Divergence consequence, stated accurately**: while
+  storage is failing, the mirror and disk diverge; process-local answers stay correct, and a
+  restart resumes from the last durably written record for each key — which may be older than
+  what the mirror reported, or absent. It is not guaranteed to look never-fetched.
 - **Fallible maintenance operations** (`markStale`, `advanceStaleWatermark`,
   `advanceGlobalStaleWatermark`, `forgetNamespace`, `forgetAll`): persist first, then update the
   mirror. Single-file atomic writes for marks and watermark advances; trash-rename (D10
@@ -518,13 +541,19 @@ from a storage failure, and not absorbed).
 - **Corruption during recovery**: a corrupt record file is quarantined and skipped — the key then
   has no per-key record, so `status()` returns null unless a covering watermark exists, in which
   case it reports the watermark-only durably-stale shape (the `watermarkOnlyKey_reportsDurablyStale`
-  contract). A corrupt watermarks file is quarantined and replaced by
-  `globalStaleWatermark = recoveredMax + 1` where `recoveredMax` is the maximum sequence over all
+  contract). A corrupt watermarks file is replaced by a control file carrying
+  `globalStaleWatermark = recoveredMax + 1`, where `recoveredMax` is the maximum sequence over all
   surviving records (0 when none) — the `+ 1` matters because the staleness comparison is strict
-  (`>`), so a watermark equal to a surviving success would leave that key fresh. The live sequence
-  advances to the same value, and `recoveredMax = Long.MAX_VALUE` fails recovery with the
-  exhaustion invariant error rather than wrapping. Every surviving success is then outranked,
-  forcing refetch rather than silently forgetting invalidations. Both behaviors are documented.
+  (`>`), so a watermark equal to a surviving success would leave that key fresh. **Replacement
+  ordering is crash-safe by construction**: first the exhaustion check
+  (`recoveredMax = Long.MAX_VALUE` fails recovery with the invariant error before any mutation),
+  then a best-effort diagnostic copy of the corrupt bytes to a `.corrupt` sibling, then the
+  replacement is written to tmp and `atomicReplace`d **directly onto the canonical watermarks
+  path** — one atomic swap, so no crash window ever exposes a missing watermarks file (a missing
+  file would read as empty state and silently forget invalidations, the exact failure this rule
+  exists to prevent). The live sequence advances to the same value. Every surviving success is
+  then outranked, forcing refetch rather than silently forgetting invalidations. Both behaviors
+  are documented.
 - Concurrency and cancellation follow D9 (own mutex, own `ioContext` dispatch, the same
   `NonCancellable`-then-dispatch nesting for disk writes, `atomicReplace` for every rename).
 
@@ -618,7 +647,8 @@ infallible vs. fallible operations, forget-never-resets-watermarks).
    own).
 6. **Cancellation tests**: cancellation before admission applies nothing; a mutation admitted
    under a cancelled caller still completes, notifies, and returns normally (the D9 shield).
-7. **Android fallback test**: the `renameTo`-based branch of the android `atomicReplace` actual,
+   Deterministic interleaving comes from the D9 internal test gates, not timing.
+7. **Android fallback test**: the `Os.rename`-based branch of the android `atomicReplace` actual,
    exercised directly (host unit tests always have NIO, so the branch is called explicitly).
 8. **Cross-instance visibility test**: write via instance A; an already-active reader on instance
    B does not re-emit; a new collection on B starts with A's value.
@@ -675,8 +705,8 @@ All in `.github/workflows/store6.yml` unless noted:
 |---|---|---|
 | kotlinx-io filesystem gaps on `wasmJs`/`js` Node lanes | Medium | D3 fallback gate: subset plugin, `room` precedent; decided by test evidence during implementation |
 | kotlinx-io 0.x API break on version bump | Medium over the artifact's life | Pinned catalog version; experimental tier; public-surface blast radius limited to `Path`/`Source`/`Sink` (D1) |
-| Android API 24–25 `atomicMove` unsupported in kotlinx-io | Certain (verified in source) | D9 `atomicReplace` android fallback via `File.renameTo`; branch unit-tested; README statement |
-| mingwX64 ANSI Win32 APIs mis-encode non-ASCII roots | Certain for affected paths (verified in source) | Adapter names are ASCII; README constrains roots; kotlinx-io issue to be filed upstream |
+| Android API 24–25 `atomicMove` unsupported in kotlinx-io | Certain (verified in source) | D9 `atomicReplace` android fallback via `android.system.Os.rename`; branch unit-tested; README statement |
+| mingwX64 ANSI Win32 APIs mis-encode non-ASCII roots | Certain for affected paths (verified in source) | Adapter names are ASCII; README constrains roots; an upstream kotlinx-io report is a recorded PR action item (maintainer-filed) |
 | Windows rename-over-open-file semantics | Low (mutex excludes in-instance races; cross-instance is unsupported per D13) | D9 single mutex; README statement; no mingwX64 CI runner exists to prove more |
 | Power-loss undo or torn writes without fsync | Real but bounded | D7 CRC → detected absence → refetch; D11 documents undo of recent mutations; SYNC mode deferred |
 | `runTest` + real IO flakiness (virtual time vs. real dispatchers) | Low | The kits drive real Room/SQLDelight IO under `runTest` on jvm/native lanes today; js/wasmJs are new ground and carry the D3 gate |
