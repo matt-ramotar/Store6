@@ -263,6 +263,36 @@ class KtorFetcherTransportTest {
         }
 
     @Test
+    fun head_sendsIfNoneMatchOnly_304adoptsResponseEtag() =
+        runTest {
+            val engine =
+                MockEngine { request ->
+                    assertEquals(HttpMethod.Head, request.method)
+                    assertEquals(listOf("\"v1\""), request.headers.getAll(HttpHeaders.IfNoneMatch))
+                    assertNoHeader(request, HttpHeaders.IfModifiedSince)
+                    respond(
+                        content = "",
+                        status = HttpStatusCode.NotModified,
+                        headers = headersOf(HttpHeaders.ETag, "\"v2\""),
+                    )
+                }
+
+            HttpClient(engine).use { client ->
+                val result =
+                    assertIs<FetcherResult.NotModified>(
+                        transportFetcher(
+                            client,
+                            configureRequest = { key ->
+                                method = HttpMethod.Head
+                                url("https://example.test/items/${key.canonicalId()}")
+                            },
+                        ).fetch(KEY, "\"v1\""),
+                    )
+                assertEquals("\"v2\"", result.etag)
+            }
+        }
+
+    @Test
     fun replaceNotAppend_etagPlan_keepsExactlyOneIfNoneMatch() =
         runTest {
             val engine =
