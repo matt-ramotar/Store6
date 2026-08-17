@@ -45,6 +45,7 @@ project(':graphql-sample').projectDir = file('graphql/sample')
 include ':realtime'
 include ':realtime-sample'
 project(':realtime-sample').projectDir = file('realtime/sample')
+include ':file'
 include ':benchmarks'
 include ':devtools'
 include ':devtools-inspector'
