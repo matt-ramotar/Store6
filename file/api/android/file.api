@@ -6,6 +6,20 @@ public final class org/mobilenativefoundation/store6/file/ByteArrayFileCodec : o
 	public fun encode ([BLkotlinx/io/Sink;)V
 }
 
+public final class org/mobilenativefoundation/store6/file/FileBookkeeper : org/mobilenativefoundation/store6/core/seam/Bookkeeper {
+	public fun <init> (Lkotlinx/io/files/Path;Lkotlin/coroutines/CoroutineContext;)V
+	public synthetic fun <init> (Lkotlinx/io/files/Path;Lkotlin/coroutines/CoroutineContext;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public fun advanceGlobalStaleWatermark (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun advanceStaleWatermark (Lorg/mobilenativefoundation/store6/core/StoreNamespace;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun forget (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun forgetAll (Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun forgetNamespace (Lorg/mobilenativefoundation/store6/core/StoreNamespace;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun markStale (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordFailure (Lorg/mobilenativefoundation/store6/core/StoreKey;JLkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun recordSuccess (Lorg/mobilenativefoundation/store6/core/StoreKey;Lorg/mobilenativefoundation/store6/core/StoreMeta;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public fun status (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
 public abstract interface class org/mobilenativefoundation/store6/file/FileCodec {
 	public abstract fun decode (Lkotlinx/io/Source;)Ljava/lang/Object;
 	public abstract fun encode (Ljava/lang/Object;Lkotlinx/io/Sink;)V

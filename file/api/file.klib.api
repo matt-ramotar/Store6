@@ -32,6 +32,20 @@ final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any
     final suspend fun write(#A, #B) // org.mobilenativefoundation.store6.file/FileSourceOfTruth.write|write(1:0;1:1){}[0]
 }
 
+final class org.mobilenativefoundation.store6.file/FileBookkeeper : org.mobilenativefoundation.store6.core.seam/Bookkeeper { // org.mobilenativefoundation.store6.file/FileBookkeeper|null[0]
+    constructor <init>(kotlinx.io.files/Path, kotlin.coroutines/CoroutineContext = ...) // org.mobilenativefoundation.store6.file/FileBookkeeper.<init>|<init>(kotlinx.io.files.Path;kotlin.coroutines.CoroutineContext){}[0]
+
+    final suspend fun advanceGlobalStaleWatermark() // org.mobilenativefoundation.store6.file/FileBookkeeper.advanceGlobalStaleWatermark|advanceGlobalStaleWatermark(){}[0]
+    final suspend fun advanceStaleWatermark(org.mobilenativefoundation.store6.core/StoreNamespace) // org.mobilenativefoundation.store6.file/FileBookkeeper.advanceStaleWatermark|advanceStaleWatermark(org.mobilenativefoundation.store6.core.StoreNamespace){}[0]
+    final suspend fun forget(org.mobilenativefoundation.store6.core/StoreKey) // org.mobilenativefoundation.store6.file/FileBookkeeper.forget|forget(org.mobilenativefoundation.store6.core.StoreKey){}[0]
+    final suspend fun forgetAll() // org.mobilenativefoundation.store6.file/FileBookkeeper.forgetAll|forgetAll(){}[0]
+    final suspend fun forgetNamespace(org.mobilenativefoundation.store6.core/StoreNamespace) // org.mobilenativefoundation.store6.file/FileBookkeeper.forgetNamespace|forgetNamespace(org.mobilenativefoundation.store6.core.StoreNamespace){}[0]
+    final suspend fun markStale(org.mobilenativefoundation.store6.core/StoreKey) // org.mobilenativefoundation.store6.file/FileBookkeeper.markStale|markStale(org.mobilenativefoundation.store6.core.StoreKey){}[0]
+    final suspend fun recordFailure(org.mobilenativefoundation.store6.core/StoreKey, kotlin/Long) // org.mobilenativefoundation.store6.file/FileBookkeeper.recordFailure|recordFailure(org.mobilenativefoundation.store6.core.StoreKey;kotlin.Long){}[0]
+    final suspend fun recordSuccess(org.mobilenativefoundation.store6.core/StoreKey, org.mobilenativefoundation.store6.core/StoreMeta) // org.mobilenativefoundation.store6.file/FileBookkeeper.recordSuccess|recordSuccess(org.mobilenativefoundation.store6.core.StoreKey;org.mobilenativefoundation.store6.core.StoreMeta){}[0]
+    final suspend fun status(org.mobilenativefoundation.store6.core/StoreKey): org.mobilenativefoundation.store6.core.seam/KeyStatus? // org.mobilenativefoundation.store6.file/FileBookkeeper.status|status(org.mobilenativefoundation.store6.core.StoreKey){}[0]
+}
+
 final object org.mobilenativefoundation.store6.file/ByteArrayFileCodec : org.mobilenativefoundation.store6.file/FileCodec<kotlin/ByteArray> { // org.mobilenativefoundation.store6.file/ByteArrayFileCodec|null[0]
     final fun decode(kotlinx.io/Source): kotlin/ByteArray // org.mobilenativefoundation.store6.file/ByteArrayFileCodec.decode|decode(kotlinx.io.Source){}[0]
     final fun encode(kotlin/ByteArray, kotlinx.io/Sink) // org.mobilenativefoundation.store6.file/ByteArrayFileCodec.encode|encode(kotlin.ByteArray;kotlinx.io.Sink){}[0]
