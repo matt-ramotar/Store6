@@ -69,3 +69,28 @@ public fun <K : StoreKey, V : Any> MutationConflictBuilder<K, V>.threeWayMerge(
         ),
     )
 }
+
+/**
+ * Registers [MutationMerges.fields] via [MutationConflictBuilder.merge].
+ *
+ * The extension name `mergeFields` pairs with the factory name `fields`.
+ *
+ * This function never registers a precondition selector, so it composes with a caller-supplied
+ * `precondition { }` in the same conflict block.
+ */
+@ExperimentalStoreApi
+public fun <K : StoreKey, V : Any> MutationConflictBuilder<K, V>.mergeFields(
+    onMineAbsent: MutationConflictBias = MutationConflictBias.THEIRS,
+    onTheirsAbsent: MutationConflictBias = MutationConflictBias.THEIRS,
+    onBothChanged: MutationConflictBias = MutationConflictBias.THEIRS,
+    configure: MutationFieldMergeBuilder<V>.() -> Unit,
+) {
+    this.merge(
+        MutationMerges.fields(
+            onMineAbsent = onMineAbsent,
+            onTheirsAbsent = onTheirsAbsent,
+            onBothChanged = onBothChanged,
+            configure = configure,
+        ),
+    )
+}

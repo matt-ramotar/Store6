@@ -166,4 +166,107 @@ public object MutationMerges {
                     }
             }
         }
+
+    /**
+     * This policy merges the fields you register and resolves every unregistered field to
+     * `theirs`. The builder cannot enumerate a type's properties in common Kotlin, so it cannot
+     * detect an unregistered locally-mutated field. Forgetting one silently surrenders that
+     * field's local edit. Register every field the app mutates locally.
+     *
+     * Decision table (P = present, A = absent; base is any):
+     * - mine P, theirs P: merge registered fields and resolve `Retry(Present(canvas))`.
+     * - mine A, theirs P: [onMineAbsent] — `THEIRS` resolves `ServerWins`; `MINE` resolves
+     *   `Retry(Absent)`.
+     * - mine P, theirs A: [onTheirsAbsent] — `THEIRS` resolves `ServerWins`; `MINE` resolves
+     *   `Retry(mine)`.
+     * - mine A, theirs A: `ServerWins`; nothing to contend.
+     *
+     * For each registered field, `m = get(mine)`, `t = get(theirs)`, and `b = get(base)` when
+     * base is `Present`:
+     * - base P, `m == b`: keep `t`.
+     * - base P, `m != b && t == b`: apply `set(canvas, m)`.
+     * - base P, `m != b && t != b && m == t`: keep `t`.
+     * - base P, `m != b && t != b && m != t`: the field is contested.
+     * - base A, `m == t`: keep `t`.
+     * - base A, `m != t`: the field is contested.
+     * - contested with a field combiner: apply `set(canvas, combine(baseOrNull, m, t))`.
+     * - contested without a field combiner: [onBothChanged] — `THEIRS` keeps `t`; `MINE`
+     *   applies `set(canvas, m)`.
+     *
+     * Field values compare with `==` (`Any.equals`). `Array` and `ByteArray` compare by identity,
+     * not content, and `Double.NaN != NaN`. Registrations apply in order over one local canvas
+     * initialized to `theirs`; the policy makes no additional copy. A later registration's `set`
+     * sees earlier results, and the later registration wins where overlapping lenses collide.
+     *
+     * A field's `combine` receives the whole base value as `V?`, not the baseline field as `F?`.
+     * It receives the base value when base is `Present` and null when base is `Absent`. This
+     * distinguishes an absent baseline entity from a present entity whose field is null. The
+     * factory runs [configure] on a fresh builder and snapshots the registrations into an
+     * immutable list before returning. An empty block throws `IllegalArgumentException`. Calling
+     * `field(...)` on an escaped builder after the factory returns throws `IllegalStateException`.
+     *
+     * `get`, `set`, and `combine` must be pure and deterministic. A throw parks the intent with
+     * kind `CONFLICT` and detail `"merge-failed"`.
+     */
+    @ExperimentalStoreApi
+    public fun <V : Any> fields(
+        onMineAbsent: MutationConflictBias = MutationConflictBias.THEIRS,
+        onTheirsAbsent: MutationConflictBias = MutationConflictBias.THEIRS,
+        onBothChanged: MutationConflictBias = MutationConflictBias.THEIRS,
+        configure: MutationFieldMergeBuilder<V>.() -> Unit,
+    ): MutationMergeFunction<V> {
+        val builder = MutationFieldMergeBuilder<V>()
+        builder.configure()
+        val registrations = builder.sealAndSnapshot()
+        require(registrations.isNotEmpty()) {
+            "MutationMerges.fields requires at least one registered field."
+        }
+
+        return { base, mine, theirs ->
+            when (mine) {
+                is MutationPresence.Present ->
+                    when (theirs) {
+                        is MutationPresence.Present -> {
+                            var canvas = theirs.value
+                            for (registration in registrations) {
+                                canvas =
+                                    registration(
+                                        base,
+                                        mine.value,
+                                        theirs.value,
+                                        canvas,
+                                        onBothChanged,
+                                    )
+                            }
+                            MutationConflictResolution.Retry(
+                                MutationPresence.Present(canvas),
+                            )
+                        }
+
+                        MutationPresence.Absent ->
+                            when (onTheirsAbsent) {
+                                MutationConflictBias.THEIRS ->
+                                    MutationConflictResolution.ServerWins
+
+                                MutationConflictBias.MINE ->
+                                    MutationConflictResolution.Retry(mine)
+                            }
+                    }
+
+                MutationPresence.Absent ->
+                    when (theirs) {
+                        is MutationPresence.Present ->
+                            when (onMineAbsent) {
+                                MutationConflictBias.THEIRS ->
+                                    MutationConflictResolution.ServerWins
+
+                                MutationConflictBias.MINE ->
+                                    MutationConflictResolution.Retry(mine)
+                            }
+
+                        MutationPresence.Absent -> MutationConflictResolution.ServerWins
+                    }
+            }
+        }
+    }
 }
