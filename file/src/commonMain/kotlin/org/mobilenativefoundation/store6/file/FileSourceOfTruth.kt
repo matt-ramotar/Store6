@@ -30,6 +30,8 @@ import org.mobilenativefoundation.store6.file.internal.FileNames
 import org.mobilenativefoundation.store6.file.internal.UniqueFileNameGenerator
 import org.mobilenativefoundation.store6.file.internal.atomicReplace
 import org.mobilenativefoundation.store6.file.internal.ensureDirectories
+import org.mobilenativefoundation.store6.file.internal.purgeRecursively
+import org.mobilenativefoundation.store6.file.internal.sweepTemporaryDirectories
 import kotlin.coroutines.CoroutineContext
 
 /**
@@ -75,10 +77,12 @@ public class FileSourceOfTruth<K : StoreKey, V : Any> internal constructor(
     private val ioContext: CoroutineContext = ioContext.minusKey(Job)
     private val valuesDirectory: Path = Path(directory, "values")
     private val temporaryDirectory: Path = Path(directory, "values-tmp")
+    private val trashDirectory: Path = Path(directory, "values-trash")
     private val mutex: Mutex = Mutex()
     private val temporaryNames: UniqueFileNameGenerator = UniqueFileNameGenerator()
     private val activeReaders: MutableStateFlow<Map<KeyIdentity, ReaderEntry>> =
         MutableStateFlow(emptyMap())
+    private var temporaryDirectoriesSwept: Boolean = false
 
     public override fun reader(key: K): Flow<V?> {
         val identity = KeyIdentity(key)
@@ -108,6 +112,7 @@ public class FileSourceOfTruth<K : StoreKey, V : Any> internal constructor(
             withContext(NonCancellable) {
                 afterAdmissionTestGate()
                 withContext(ioContext) {
+                    sweepTemporaryDirectoriesIfNeeded()
                     writeFile(identity, fileBytes)
                 }
                 bumpSignal(identity)
@@ -124,6 +129,7 @@ public class FileSourceOfTruth<K : StoreKey, V : Any> internal constructor(
             withContext(NonCancellable) {
                 afterAdmissionTestGate()
                 withContext(ioContext) {
+                    sweepTemporaryDirectoriesIfNeeded()
                     val path = pathFor(identity)
                     SystemFileSystem.delete(path, mustExist = false)
                     bestEffortDelete(FileNames.corruptSibling(path))
@@ -134,11 +140,44 @@ public class FileSourceOfTruth<K : StoreKey, V : Any> internal constructor(
     }
 
     public override suspend fun deleteNamespace(namespace: StoreNamespace) {
-        throw NotImplementedError("FileSourceOfTruth.deleteNamespace is not implemented")
+        val namespaceValue = namespace.value
+        FileNames.requireComponentLengths(namespaceValue, "")
+
+        beforeAdmissionTestGate()
+        mutex.withLock {
+            withContext(NonCancellable) {
+                afterAdmissionTestGate()
+                val trashedPath =
+                    withContext(ioContext) {
+                        sweepTemporaryDirectoriesIfNeeded()
+                        moveToTrashIfExists(
+                            FileNames.namespaceDirectory(valuesDirectory, namespaceValue),
+                        )
+                    }
+                bumpNamespaceSignals(namespaceValue)
+                withContext(ioContext) {
+                    trashedPath?.let(::purgeRecursively)
+                }
+            }
+        }
     }
 
     public override suspend fun deleteAll() {
-        throw NotImplementedError("FileSourceOfTruth.deleteAll is not implemented")
+        beforeAdmissionTestGate()
+        mutex.withLock {
+            withContext(NonCancellable) {
+                afterAdmissionTestGate()
+                val trashedPath =
+                    withContext(ioContext) {
+                        sweepTemporaryDirectoriesIfNeeded()
+                        moveToTrashIfExists(valuesDirectory)
+                    }
+                bumpAllSignals()
+                withContext(ioContext) {
+                    trashedPath?.let(::purgeRecursively)
+                }
+            }
+        }
     }
 
     private suspend fun readCurrentRow(identity: KeyIdentity): V? {
@@ -146,6 +185,7 @@ public class FileSourceOfTruth<K : StoreKey, V : Any> internal constructor(
             val snapshot =
                 mutex.withLock {
                     withContext(ioContext) {
+                        sweepTemporaryDirectoriesIfNeeded()
                         readSnapshot(identity)
                     }
                 } ?: return null
@@ -161,12 +201,26 @@ public class FileSourceOfTruth<K : StoreKey, V : Any> internal constructor(
                 val quarantined =
                     mutex.withLock {
                         withContext(ioContext) {
+                            sweepTemporaryDirectoriesIfNeeded()
                             quarantineIfUnchanged(identity, snapshot.fileBytes)
                         }
                     }
                 if (quarantined) return null
             }
         }
+    }
+
+    private fun sweepTemporaryDirectoriesIfNeeded() {
+        if (temporaryDirectoriesSwept) return
+        sweepTemporaryDirectories(temporaryDirectory, trashDirectory)
+        temporaryDirectoriesSwept = true
+    }
+
+    private fun moveToTrashIfExists(path: Path): Path? {
+        if (!SystemFileSystem.exists(path)) return null
+        val trashedPath = Path(trashDirectory, temporaryNames.nextName())
+        atomicReplace(path, trashedPath)
+        return trashedPath
     }
 
     private fun readSnapshot(identity: KeyIdentity): FileSnapshot? {
@@ -290,6 +344,20 @@ public class FileSourceOfTruth<K : StoreKey, V : Any> internal constructor(
 
     private fun bumpSignal(key: KeyIdentity) {
         activeReaders.value[key]?.signal?.update { version -> version + 1L }
+    }
+
+    private fun bumpNamespaceSignals(namespace: String) {
+        activeReaders.value.forEach { (key, entry) ->
+            if (key.namespace == namespace) {
+                entry.signal.update { version -> version + 1L }
+            }
+        }
+    }
+
+    private fun bumpAllSignals() {
+        activeReaders.value.values.forEach { entry ->
+            entry.signal.update { version -> version + 1L }
+        }
     }
 
     private data class KeyIdentity(
