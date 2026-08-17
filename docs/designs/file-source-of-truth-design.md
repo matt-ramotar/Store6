@@ -254,7 +254,9 @@ alphabet, so the sentinel cannot collide with any non-empty encoding. Implemente
 Why base32 and not base64url or percent-escaping: APFS (macOS default) and NTFS (Windows default)
 are case-insensitive. Base64url is case-sensitive, so two distinct canonical ids could collide on
 one file. Base32 lowercase is case-stable, filesystem-safe on every supported platform, and
-reversible (useful for debugging; reversibility is not load-bearing — no code path decodes names).
+reversible (load-bearing for one path: the D12 bookkeeper recovery scan decodes record-file names
+back into key components to rebuild its in-memory mirror; a name that fails to decode is treated
+as a corrupt record and quarantined).
 The `.corrupt` quarantine suffix (D7) contains `.`, which is outside the alphabet, so quarantine
 names cannot collide with value names either.
 

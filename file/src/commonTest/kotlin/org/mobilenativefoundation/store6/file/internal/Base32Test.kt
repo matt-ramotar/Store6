@@ -1,8 +1,11 @@
+@file:OptIn(org.mobilenativefoundation.store6.core.ExperimentalStoreApi::class)
+
 package org.mobilenativefoundation.store6.file.internal
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 
 class Base32Test {
     @Test
@@ -14,6 +17,28 @@ class Base32Test {
         assertEquals("mzxw6yq", Base32.encode("foob"))
         assertEquals("mzxw6ytb", Base32.encode("fooba"))
         assertEquals("mzxw6ytboi", Base32.encode("foobar"))
+    }
+
+    @Test
+    fun decode_invertsRfc4648Vectors() {
+        assertEquals("", Base32.decode("0"))
+        assertEquals("f", Base32.decode("my"))
+        assertEquals("fo", Base32.decode("mzxq"))
+        assertEquals("foo", Base32.decode("mzxw6"))
+        assertEquals("foob", Base32.decode("mzxw6yq"))
+        assertEquals("fooba", Base32.decode("mzxw6ytb"))
+        assertEquals("foobar", Base32.decode("mzxw6ytboi"))
+    }
+
+    @Test
+    fun decode_rejectsInvalidCharactersLengthsAndTrailingBits() {
+        assertNull(Base32.decode(""))
+        assertNull(Base32.decode("MZXW6"))
+        assertNull(Base32.decode("m1"))
+        assertNull(Base32.decode("a"))
+        assertNull(Base32.decode("aaa"))
+        assertNull(Base32.decode("aaaaaa"))
+        assertNull(Base32.decode("mz"))
     }
 
     @Test

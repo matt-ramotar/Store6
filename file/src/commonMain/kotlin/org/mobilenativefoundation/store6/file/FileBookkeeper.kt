@@ -10,6 +10,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.io.buffered
 import kotlinx.io.files.Path
 import kotlinx.io.files.SystemFileSystem
+import kotlinx.io.readByteArray
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
@@ -17,8 +18,10 @@ import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.KeyStatus
+import org.mobilenativefoundation.store6.file.internal.Base32
 import org.mobilenativefoundation.store6.file.internal.BookkeeperFormats
 import org.mobilenativefoundation.store6.file.internal.Envelope
+import org.mobilenativefoundation.store6.file.internal.EnvelopeResult
 import org.mobilenativefoundation.store6.file.internal.FileNames
 import org.mobilenativefoundation.store6.file.internal.PersistedMeta
 import org.mobilenativefoundation.store6.file.internal.PersistedRecord
@@ -34,8 +37,8 @@ import kotlin.coroutines.CoroutineContext
  * Filesystem-backed [Bookkeeper] with process-local status reads.
  *
  * Durable per-key records and namespace and global watermarks are written through atomic file
- * replacement. A new instance currently starts with an empty mirror and does not load previously
- * persisted state.
+ * replacement. A new instance reconstructs its process-local mirror from those files on its first
+ * operation.
  *
  * [recordSuccess], [recordFailure], and [forget] update the process-local mirror first and absorb
  * non-cancellation failures from their persistence call. The maintenance operations persist first
@@ -305,6 +308,126 @@ public class FileBookkeeper internal constructor(
     private fun recoverFromDisk() {
         ensureDirectories(recordsDirectory)
         sweepTemporaryDirectories(temporaryDirectory, trashDirectory)
+
+        val recoveredRecords = HashMap<KeyIdentity, Record>()
+        for (namespacePath in SystemFileSystem.list(recordsDirectory)) {
+            if (namespacePath.name.contains('.')) continue
+            val namespace = Base32.decode(namespacePath.name)
+            if (namespace == null) {
+                quarantine(namespacePath)
+                continue
+            }
+            for (recordPath in SystemFileSystem.list(namespacePath)) {
+                if (recordPath.name.contains('.')) continue
+                val canonicalId = Base32.decode(recordPath.name)
+                val persistedRecord =
+                    canonicalId?.let {
+                        decodeRecord(readFile(recordPath))
+                    }
+                if (canonicalId == null || persistedRecord == null) {
+                    quarantine(recordPath)
+                    continue
+                }
+                recoveredRecords[KeyIdentity(namespace, canonicalId)] =
+                    recordFromPersisted(persistedRecord)
+            }
+        }
+
+        val recoveredRecordMax = maxRecordSequence(recoveredRecords)
+        var recoveredNamespaceWatermarks = HashMap<String, Long>()
+        var recoveredGlobalWatermark = 0L
+        if (SystemFileSystem.exists(watermarksPath)) {
+            val watermarksBytes = readFile(watermarksPath)
+            val persistedWatermarks = decodeWatermarks(watermarksBytes)
+            if (persistedWatermarks == null) {
+                check(recoveredRecordMax < Long.MAX_VALUE) { "Bookkeeper sequence exhausted" }
+                copyCorruptWatermarks(watermarksBytes)
+                recoveredGlobalWatermark = recoveredRecordMax + 1L
+                persistWatermarks(
+                    encodeWatermarks(
+                        namespaceWatermarks = emptyMap(),
+                        globalWatermark = recoveredGlobalWatermark,
+                    ),
+                )
+            } else {
+                recoveredNamespaceWatermarks =
+                    HashMap<String, Long>(persistedWatermarks.namespaceWatermarks.size).also { recovered ->
+                        recovered.putAll(persistedWatermarks.namespaceWatermarks)
+                    }
+                recoveredGlobalWatermark = persistedWatermarks.globalStaleWatermark
+            }
+        }
+
+        var recoveredSequence = maxOf(recoveredRecordMax, recoveredGlobalWatermark)
+        for (watermark in recoveredNamespaceWatermarks.values) {
+            recoveredSequence = maxOf(recoveredSequence, watermark)
+        }
+        records = recoveredRecords
+        namespaceStaleWatermarks = recoveredNamespaceWatermarks
+        globalStaleWatermark = recoveredGlobalWatermark
+        sequence = recoveredSequence
+    }
+
+    private fun readFile(path: Path): ByteArray =
+        SystemFileSystem.source(path).buffered().use { source ->
+            source.readByteArray()
+        }
+
+    private fun decodeRecord(fileBytes: ByteArray): PersistedRecord? =
+        when (val envelope = Envelope.read(Envelope.MAGIC_RECORD, fileBytes)) {
+            is EnvelopeResult.Valid -> BookkeeperFormats.decodeRecord(envelope.payload)
+            is EnvelopeResult.StructurallyCorrupt -> null
+        }
+
+    private fun decodeWatermarks(fileBytes: ByteArray): PersistedWatermarks? =
+        when (val envelope = Envelope.read(Envelope.MAGIC_WATERMARKS, fileBytes)) {
+            is EnvelopeResult.Valid -> BookkeeperFormats.decodeWatermarks(envelope.payload)
+            is EnvelopeResult.StructurallyCorrupt -> null
+        }
+
+    private fun recordFromPersisted(persisted: PersistedRecord): Record =
+        Record(
+            meta =
+                persisted.meta?.let { meta ->
+                    RecoveredMeta(
+                        writtenAtEpochMillis = meta.writtenAtEpochMillis,
+                        etag = meta.etag,
+                    )
+                },
+            lastSuccessSequence = persisted.lastSuccessSequence,
+            lastFailureAtEpochMillis = persisted.lastFailureAtEpochMillis,
+            consecutiveFailures = persisted.consecutiveFailures,
+            staleSequence = persisted.staleSequence,
+        )
+
+    private fun maxRecordSequence(recoveredRecords: Map<KeyIdentity, Record>): Long {
+        var recoveredMax = 0L
+        for (record in recoveredRecords.values) {
+            recoveredMax = maxOf(
+                recoveredMax,
+                record.lastSuccessSequence ?: 0L,
+                record.staleSequence ?: 0L,
+            )
+        }
+        return recoveredMax
+    }
+
+    private fun copyCorruptWatermarks(fileBytes: ByteArray) {
+        try {
+            SystemFileSystem.sink(FileNames.corruptSibling(watermarksPath)).buffered().use { sink ->
+                sink.write(fileBytes)
+            }
+        } catch (_: Throwable) {
+            // The diagnostic copy does not affect replacement of the canonical watermarks file.
+        }
+    }
+
+    private fun quarantine(path: Path) {
+        try {
+            atomicReplace(path, FileNames.corruptSibling(path))
+        } catch (_: Throwable) {
+            bestEffortDelete(path)
+        }
     }
 
     private fun statusFromMirror(identity: KeyIdentity): KeyStatus? {
@@ -439,6 +562,11 @@ public class FileBookkeeper internal constructor(
         val staleSequence: Long?,
         var cachedStatus: KeyStatus? = null,
     )
+
+    private data class RecoveredMeta(
+        override val writtenAtEpochMillis: Long,
+        override val etag: String?,
+    ) : StoreMeta
 
     private data class KeyIdentity(
         val namespace: String,
