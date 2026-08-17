@@ -131,7 +131,8 @@ what the ubuntu CI job checks.
 |---|---|---|
 | `:ktor:compileKotlinJvm`, `:ktor:jvmTest` | Yes | No Android SDK needed for these |
 | `:ktor:jsNodeTest`, `:ktor:wasmJsNodeTest` | Yes | Requires `-Dorg.gradle.configureondemand=false` |
-| `:ktor:linuxX64Test`, `:ktor:mingwX64Test` | Yes | Kotlin/Native downloads the linux/MinGW toolchains |
+| `:ktor:linuxX64Test` | Yes | Kotlin/Native downloads the linux toolchain |
+| `:ktor:mingwX64Test` | **Compile+link only** | The Kotlin Gradle plugin (2.3.20) disables MinGW test execution off Windows (`onlyIf 'Task is enabled'` is false; verified on this host — the task reports `SKIPPED` after a successful compile and link). MinGW test execution is not a repo CI lane either; the Linux-checkable gate is compile+link (`:ktor:linkDebugTestMingwX64`) |
 | Apple **klib compile** (`compileKotlinIosArm64`, `…Macos…`, with the cross-compile flag) | Yes | Compile-only; produces klibs, not test binaries |
 | Apple **link/test** (`macosArm64Test`, `iosSimulatorArm64Test`, `linkDebugTest*`) | **No** | macOS + Xcode/simulator only; **CI-only** |
 | `:ktor:apiDump` / `:ktor:apiCheck` (JVM + Android + klib) | Yes* | *`androidApiDump` and `:ktor:build`/`publishToMavenLocal` need an Android SDK (`ANDROID_HOME`) |
@@ -386,9 +387,14 @@ Apple test execution is left to CI.
 ### Phase 3 exit — Linux multiplatform canary
 - Owner: Grok · Focus 45m · Tripwire 90m · Depends on: T3.1–T3.3
 - Run, with the flag prefix, `:ktor:jsNodeTest`, `:ktor:wasmJsNodeTest`, `:ktor:linuxX64Test`,
-  `:ktor:mingwX64Test`. These surface a target-specific MockEngine or coroutines-test issue. Apple
-  test execution is **CI-only** and is not attempted here (gate on `uname`, not konan cache).
-- DoD / verify: the four Linux-runnable lanes green (paste each summary; no `SKIPPED`).
+  `:ktor:linkDebugTestMingwX64`. These surface a target-specific MockEngine or coroutines-test issue.
+  Apple test execution is **CI-only** and is not attempted here (gate on `uname`, not konan cache).
+  MinGW test execution is disabled off Windows by the Kotlin Gradle plugin
+  ([§4.2](#42-host-capability-matrix-what-a-linux-cloud-agent-can-and-cannot-do)), so the MinGW lane
+  is compile+link.
+- DoD / verify: the three executable lanes green and the MinGW link green (paste each summary; no
+  required task `SKIPPED` — the `mingwX64Test` execution task itself is exempt, being
+  host-disabled).
 
 ## 11. Phase 4 — sample
 
@@ -506,7 +512,9 @@ rescope (for example, drop the optional dokka doc T5.2 to protect the critical p
 - `:ktor:build` (runs `apiCheck`) green on the Linux lanes with the flag prefix (needs Android SDK;
   else CI).
 - `:ktor-sample:run` exits 0.
-- `:ktor:jsNodeTest`, `:ktor:wasmJsNodeTest`, `:ktor:linuxX64Test`, `:ktor:mingwX64Test` green on Linux.
+- `:ktor:jsNodeTest`, `:ktor:wasmJsNodeTest`, `:ktor:linuxX64Test` green and
+  `:ktor:linkDebugTestMingwX64` link green on Linux (MinGW test execution is host-disabled off
+  Windows, [§4.2](#42-host-capability-matrix-what-a-linux-cloud-agent-can-and-cannot-do)).
 - `:ktor:publishToMavenLocal` produces all 13 publication artifacts (empty + 12 target suffixes) —
   CI or an SDK-equipped host.
 - `actionlint` clean on the edited workflow.
