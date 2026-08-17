@@ -220,7 +220,7 @@ jobs:
 
       - name: Build Store6 mutation journal support
         run: >
-          ./gradlew :mutations-testing:build :mutations-sqldelight:build
+          ./gradlew :mutations-testing:build :mutations-sqldelight:build :mutations-conflicts:build
           -Pkotlin.native.enableKlibsCrossCompilation=true
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
@@ -307,7 +307,7 @@ jobs:
         run: |
           set -euo pipefail
           status=0
-          for module in extension-probe testing sqldelight compose compose-demo room benchmarks devtools devtools-inspector devtools-demo mutations mutations-quickstart mutations-testing mutations-sqldelight mutations-drain mutations-drain/sample mutations-drain-meeseeks paging-androidx paging-androidx/sample graphql graphql/sample realtime realtime/sample file file/sample ktor ktor/sample opentelemetry opentelemetry/sample; do
+          for module in extension-probe testing sqldelight compose compose-demo room benchmarks devtools devtools-inspector devtools-demo mutations mutations-quickstart mutations-testing mutations-sqldelight mutations-drain mutations-drain/sample mutations-drain-meeseeks mutations-conflicts paging-androidx paging-androidx/sample graphql graphql/sample realtime realtime/sample file file/sample ktor ktor/sample opentelemetry opentelemetry/sample; do
             source_dir="${module}/src"
             if [[ ! -d "${source_dir}" ]]; then
               echo "ERROR: expected extension source directory is missing: ${source_dir}" >&2
@@ -358,7 +358,7 @@ jobs:
           status=0
           banned_regex='(^|[^[:alnum:]_])(runBlocking|GlobalScope|atomicfu|Channel|actor)([^[:alnum:]_]|$)|kotlinx[.]coroutines[.]channels[.][*]'
           shopt -s nullglob
-          production_source_dirs=(core/src/*Main testing/src/*Main sqldelight/src/*Main compose/src/*Main room/src/*Main devtools/src/*Main devtools-inspector/src/*Main mutations/src/*Main mutations-testing/src/*Main mutations-sqldelight/src/*Main mutations-drain/src/*Main mutations-drain-meeseeks/src/*Main paging-androidx/src/*Main graphql/src/*Main realtime/src/*Main file/src/*Main ktor/src/*Main opentelemetry/src/*Main)
+          production_source_dirs=(core/src/*Main testing/src/*Main sqldelight/src/*Main compose/src/*Main room/src/*Main devtools/src/*Main devtools-inspector/src/*Main mutations/src/*Main mutations-testing/src/*Main mutations-sqldelight/src/*Main mutations-drain/src/*Main mutations-drain-meeseeks/src/*Main mutations-conflicts/src/*Main paging-androidx/src/*Main graphql/src/*Main realtime/src/*Main file/src/*Main ktor/src/*Main opentelemetry/src/*Main)
           for source_dir in "${production_source_dirs[@]}"; do
             [[ -d "${source_dir}" ]] || continue
             if grep -rnE --include='*.kt' "${banned_regex}" "${source_dir}"; then
@@ -485,7 +485,7 @@ jobs:
           exit "${status}"
 
       - name: JS lock-discipline canary (full conformance suite on the JS lane)
-        run: ./gradlew :core:jsNodeTest :testing:jsNodeTest :mutations:jsNodeTest :mutations-testing:jsNodeTest :mutations-drain:jsNodeTest :mutations-drain-meeseeks:jsNodeTest :paging-androidx:jsNodeTest :graphql:jsNodeTest :realtime:jsNodeTest :file:jsNodeTest :ktor:jsNodeTest --stacktrace
+        run: ./gradlew :core:jsNodeTest :testing:jsNodeTest :mutations:jsNodeTest :mutations-testing:jsNodeTest :mutations-drain:jsNodeTest :mutations-drain-meeseeks:jsNodeTest :mutations-conflicts:jsNodeTest :paging-androidx:jsNodeTest :graphql:jsNodeTest :realtime:jsNodeTest :file:jsNodeTest :ktor:jsNodeTest --stacktrace
 
       - name: Upload test reports
         if: ${{ failure() }}
@@ -580,6 +580,8 @@ jobs:
             :mutations-drain:iosSimulatorArm64Test \
             :mutations-drain:macosArm64Test \
             :mutations-drain-meeseeks:iosSimulatorArm64Test \
+            :mutations-conflicts:iosSimulatorArm64Test \
+            :mutations-conflicts:macosArm64Test \
             :file:iosSimulatorArm64Test \
             :file:macosArm64Test \
             "-Pstore6.iosSimulatorDevice=${STORE6_IOS_SIMULATOR_DEVICE}" \
@@ -726,7 +728,7 @@ jobs:
 
       - name: Publish Store6 core to Maven local without signing
         run: >
-          ./gradlew :core:publishToMavenLocal :testing:publishToMavenLocal :sqldelight:publishToMavenLocal :compose:publishToMavenLocal :room:publishToMavenLocal :devtools:publishToMavenLocal :devtools-inspector:publishToMavenLocal :mutations:publishToMavenLocal :mutations-testing:publishToMavenLocal :mutations-sqldelight:publishToMavenLocal :mutations-drain:publishToMavenLocal :mutations-drain-meeseeks:publishToMavenLocal :paging-androidx:publishToMavenLocal :graphql:publishToMavenLocal :realtime:publishToMavenLocal :file:publishToMavenLocal :ktor:publishToMavenLocal :opentelemetry:publishToMavenLocal
+          ./gradlew :core:publishToMavenLocal :testing:publishToMavenLocal :sqldelight:publishToMavenLocal :compose:publishToMavenLocal :room:publishToMavenLocal :devtools:publishToMavenLocal :devtools-inspector:publishToMavenLocal :mutations:publishToMavenLocal :mutations-testing:publishToMavenLocal :mutations-sqldelight:publishToMavenLocal :mutations-drain:publishToMavenLocal :mutations-drain-meeseeks:publishToMavenLocal :mutations-conflicts:publishToMavenLocal :paging-androidx:publishToMavenLocal :graphql:publishToMavenLocal :realtime:publishToMavenLocal :file:publishToMavenLocal :ktor:publishToMavenLocal :opentelemetry:publishToMavenLocal
           -Pkotlin.native.enableKlibsCrossCompilation=true
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
@@ -738,7 +740,7 @@ jobs:
           version="6.0.0-SNAPSHOT"
           repository="${HOME}/.m2/repository/org/mobilenativefoundation/store"
 
-          modules=(core testing sqldelight compose room devtools devtools-inspector mutations mutations-testing mutations-sqldelight mutations-drain mutations-drain-meeseeks paging-androidx graphql realtime file ktor opentelemetry)
+          modules=(core testing sqldelight compose room devtools devtools-inspector mutations mutations-testing mutations-sqldelight mutations-drain mutations-drain-meeseeks mutations-conflicts paging-androidx graphql realtime file ktor opentelemetry)
           suffixes=(
             ""
             -android
