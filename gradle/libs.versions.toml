@@ -49,7 +49,7 @@ jetbrainsAndroidxLifecycle = "2.9.1"
 kotlinxBenchmark = "0.4.17"
 # TEST-3 JVM-only model checking; 2.39 uses dynamic instrumentation and needs no module opens.
 lincheck = "2.39"
-meeseeks = "1.1.0"
+meeseeks = "1.1.1"
 
 [libraries]
 android-gradle-plugin = { group = "com.android.tools.build", name = "gradle", version.ref = "androidGradlePlugin" }
