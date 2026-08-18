@@ -45,6 +45,10 @@ class MeeseeksRecoveryIntegrationTest {
             "meeseeks.db-journal",
             "meeseeks.db-wal",
             "meeseeks.db-shm",
+            "quartz-scheduler.db",
+            "quartz-scheduler.db-journal",
+            "quartz-scheduler.db-wal",
+            "quartz-scheduler.db-shm",
         ).map(workingDirectory::resolve)
 
     @BeforeTest
