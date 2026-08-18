@@ -6,7 +6,7 @@ plugins {
 }
 
 kotlin {
-    // Meeseeks 1.1.1 publishes Java 17 bytecode and a public inline API; compiling against it
+    // Meeseeks 1.1.0 publishes Java 17 bytecode and a public inline API; compiling against it
     // and running its classes require a Java 17 toolchain. Android compilation still targets
     // the repo-wide Java 11 through the Android compileOptions.
     jvmToolchain(17)

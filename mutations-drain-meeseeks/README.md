@@ -2,8 +2,8 @@
 
 Maps [`mutations-drain`](../mutations-drain/README.md) activations onto WorkManager,
 BGTaskScheduler, Quartz, and the Meeseeks JS runner through
-[Meeseeks](https://github.com/matt-ramotar/meeseeks) 1.1.1
-(`dev.mattramotar.meeseeks:runtime:1.1.1`).
+[Meeseeks](https://github.com/matt-ramotar/meeseeks) 1.1.0
+(`dev.mattramotar.meeseeks:runtime:1.1.0`).
 
 This artifact never calls `Meeseeks.initialize`. The host owns the manager, the
 `register<StoreDrainPayload>` worker line, the WorkManager factory, and the iOS
@@ -31,7 +31,7 @@ This artifact publishes Android, JVM, `iosArm64`, `iosSimulatorArm64`, `iosX64`,
 Depend on it from a source set that participates in that matrix. A 12-target `commonMain`
 cannot resolve the missing targets.
 
-Meeseeks 1.1.1 publishes Java 17 bytecode and a public inline API. JVM compilation and
+Meeseeks 1.1.0 publishes Java 17 bytecode and a public inline API. JVM compilation and
 tests that consume this artifact require a Java 17 toolchain. This module sets
 `jvmToolchain(17)`.
 
@@ -166,7 +166,7 @@ scope.launch { coordinator.runActivation("com.example.users") }
 |---|---|---|---|
 | Android | WorkManager (`BGTaskCoroutineWorker` + `MeeseeksWorkerFactory`) | network, charging | Constraint-met work runs in foreground or background, subject to Doze, App Standby buckets, and background restrictions. Deferral by hours is possible on idle devices. The adapter does not request expedited dispatch. Requests survive process death and reboot in WorkManager's store. |
 | iOS | BGTaskScheduler (`BGAppRefreshTask` / `BGProcessingTask` under Meeseeks' identifiers) | network, charging | Wakes are OS-managed and best-effort. Activations do not fire while the app is foregrounded. Force-quit suppresses launches until the next user open. Meeseeks states that its database is the source of truth and that platform task requests are hints to the OS. The mutation journal is the drain source of truth. |
-| JVM | Quartz | none (Meeseeks fails fast on constraints) | Registration with default constraints fails at `validate`. The message names the fix: `DrainConstraints(requiresNetwork = false, requiresCharging = false)` or `InProcessDrainScheduler`. Meeseeks 1.1.1 initializes but does not execute scheduled tasks with its bundled Quartz store. See [JVM scheduling](#jvm-scheduling). Desktop hosts should use `InProcessDrainScheduler` from `mutations-drain` until upstream fixes ship. |
+| JVM | Quartz | none (Meeseeks fails fast on constraints) | Registration with default constraints fails at `validate`. The message names the fix: `DrainConstraints(requiresNetwork = false, requiresCharging = false)` or `InProcessDrainScheduler`. Meeseeks 1.1.0 also fails to initialize on the JVM. See [JVM initialization](#jvm-initialization). Desktop hosts should use `InProcessDrainScheduler` from `mutations-drain` until an upstream fix ships. |
 | JS | Meeseeks runner | none | Same `validate` behavior as JVM. Browser and Node hosts should prefer `InProcessDrainScheduler`. There is no background execution beyond the live page or process. |
 
 ## Constraint validation
@@ -178,27 +178,19 @@ and no silent downgrade. The adapter surfaces that failure at `register` through
 `DrainConstraints(requiresNetwork = false, requiresCharging = false)` or
 `InProcessDrainScheduler`.
 
-## JVM scheduling
+## JVM initialization
 
-Meeseeks 1.1.1 fixes the 1.1.0 initialization failure: `Meeseeks.initialize` completes on
-a stock classpath. Scheduled tasks still do not execute. The bundled Quartz configuration
-pairs the JDBC job store's stock delegate (`StdJDBCDelegate`) with the SQLite driver,
-which does not implement JDBC features that delegate requires; trigger operations fail
-with `SQLFeatureNotSupportedException` (surfaced as `JobPersistenceException`), and
-scheduled work never fires. A host-supplied root-classpath `quartz.properties` cannot
-switch to a non-JDBC store, because Meeseeks' factory requires
-`org.quartz.jobStore.dataSource`. Separately, `listTasks` throws
-`IllegalArgumentException` ("Unknown payload type id") when the Meeseeks database holds a
-payload type the current process has not registered, so the adapter's recovery scan
-cannot survive foreign rows.
+Meeseeks 1.1.0 fails to initialize on the JVM. `Meeseeks.initialize` throws a deterministic
+`NullPointerException` in Meeseeks' task-manager factory while loading Quartz
+configuration. No public API bypasses that path.
 
 This artifact's JVM execution and recovery suites (`MeeseeksExecutionIntegrationTest`,
-`MeeseeksRecoveryIntegrationTest`) are red on those behaviors and gate release of this
-artifact until upstream fixes ship. Unit suites that use a scripted fake manager, and
+`MeeseeksRecoveryIntegrationTest`) are red on that version and gate release of this
+artifact until an upstream fix ships. Unit suites that use a scripted fake manager, and
 every compile target, are green.
 
-Track the upstream items in [Meeseeks](https://github.com/matt-ramotar/meeseeks). The
-`wireJvmHost` snippet remains compile-certified only.
+Track the upstream item in [Meeseeks](https://github.com/matt-ramotar/meeseeks). The
+compile-only `wireJvmHost` snippet must not be invoked on 1.1.0.
 
 ## Delivery and platform gaps
 
