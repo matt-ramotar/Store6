@@ -17,6 +17,7 @@ import org.mobilenativefoundation.store6.mutations.MutationStore
 import org.mobilenativefoundation.store6.mutations.drain.DrainFixture
 import org.mobilenativefoundation.store6.mutations.drain.DrainTestKey
 import org.mobilenativefoundation.store6.mutations.drain.InProcessDrainScheduler
+import org.mobilenativefoundation.store6.mutations.drain.waitUntilCurrent
 import org.mobilenativefoundation.store6.mutations.drain.mutationDrainCoordinator
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -31,6 +32,7 @@ class DrainQuickstartDocsSnippet {
             users.mutate(DrainTestKey("quickstart"), fixture.appendRef, "+done")
 
             quickstart(users, backgroundScope)
+            waitUntilCurrent { users.pendingWrites().isEmpty() }
 
             assertEquals(emptyList(), users.pendingWrites())
             assertEquals(listOf("+done"), fixture.backend.receivedPushes)

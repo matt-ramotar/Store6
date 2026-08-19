@@ -195,7 +195,7 @@ class RunActivationTest {
             harness.store.mutate(DrainTestKey("safety-order"), harness.fixture.appendRef, "+pending")
 
             val activation = async { harness.scheduler.fireActivation(STORE_NAME) }
-            testScheduler.runCurrent()
+            harness.fixture.backend.pushEntered.awaitFromDefaultContext()
 
             assertEquals(1, harness.fixture.backend.maxConcurrentPushes)
             assertEquals(
@@ -280,7 +280,7 @@ class RunActivationTest {
             harness.store.mutate(DrainTestKey("cancelled"), harness.fixture.appendRef, "+pending")
 
             val activation = async { harness.scheduler.fireActivation(STORE_NAME) }
-            testScheduler.runCurrent()
+            harness.fixture.backend.pushEntered.awaitFromDefaultContext()
             activation.cancelAndJoin()
 
             assertEquals(1.hours, harness.scheduler.scheduled.last().earliestDelay)
@@ -303,7 +303,7 @@ class RunActivationTest {
         try {
             harness.store.mutate(DrainTestKey("unregister"), harness.fixture.appendRef, "+pending")
             val activation = async { harness.scheduler.fireActivation(STORE_NAME) }
-            testScheduler.runCurrent()
+            harness.fixture.backend.pushEntered.awaitFromDefaultContext()
 
             harness.coordinator.unregister(STORE_NAME)
             gate.complete(Unit)
@@ -364,7 +364,7 @@ class RunActivationTest {
 
             val first = async { harness.scheduler.fireActivation(STORE_NAME) }
             val second = async { harness.scheduler.fireActivation(STORE_NAME) }
-            testScheduler.runCurrent()
+            harness.fixture.backend.pushEntered.awaitFromDefaultContext()
             assertEquals(1, harness.fixture.backend.maxConcurrentPushes)
 
             gate.complete(Unit)
@@ -407,7 +407,7 @@ class RunActivationTest {
             storeA.mutate(DrainTestKey("busy"), fixtureA.appendRef, "+done")
             storeB.mutate(DrainTestKey("ready"), fixtureB.appendRef, "+done")
             val aPass = async { scheduler.fireActivation("a") }
-            testScheduler.runCurrent()
+            fixtureA.backend.pushEntered.awaitFromDefaultContext()
             val aSchedulesBeforeReconcile =
                 scheduler.scheduled.count { request -> request.storeName == "a" }
 

@@ -136,7 +136,7 @@ class DelayDerivationTest {
         try {
             store.mutate(DrainTestKey("inflight"), fixture.appendRef, "+inflight")
             val pass = async { store.drain() }
-            testScheduler.runCurrent()
+            fixture.backend.pushEntered.awaitFromDefaultContext()
             assertEquals(1, fixture.backend.maxConcurrentPushes)
             pass.cancelAndJoin()
             val rows = store.pendingWrites()

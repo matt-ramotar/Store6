@@ -8,8 +8,11 @@ package org.mobilenativefoundation.store6.mutations.drain
 
 import app.cash.turbine.test
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -19,6 +22,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest as coroutineRunTest
+import kotlinx.coroutines.withContext
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
@@ -44,7 +48,9 @@ import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJourn
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
 
 internal class DrainTestKey(
     private val id: String,
@@ -76,6 +82,7 @@ internal class DrainFixtureBackend : MutationServer<DrainTestKey, String> {
     internal var offline: Boolean = false
     internal val receivedPushes: MutableList<String> = mutableListOf()
     internal var pushGate: CompletableDeferred<Unit>? = null
+    internal val pushEntered: CompletableDeferred<Unit> = CompletableDeferred()
     internal var maxConcurrentPushes: Int = 0
         private set
     internal var retireBehavior: suspend () -> MutationRetirementAck = {
@@ -90,6 +97,7 @@ internal class DrainFixtureBackend : MutationServer<DrainTestKey, String> {
     ): MutationAck<DrainTestKey, String> {
         concurrentPushes += 1
         maxConcurrentPushes = maxOf(maxConcurrentPushes, concurrentPushes)
+        pushEntered.complete(Unit)
         try {
             pushGate?.await()
             check(!offline) { "backend is offline" }
@@ -303,7 +311,7 @@ class DrainTestFixturesTest {
             store.mutate(DrainTestKey("gated"), fixture.appendRef, "+gated")
 
             val pass = async { store.drain() }
-            testScheduler.runCurrent()
+            fixture.backend.pushEntered.awaitFromDefaultContext()
 
             assertEquals(1, fixture.backend.maxConcurrentPushes)
             gate.complete(Unit)
@@ -356,3 +364,41 @@ class DrainTestFixturesTest {
 
 private fun runTest(testBody: suspend TestScope.() -> Unit): TestResult =
     coroutineRunTest(timeout = 25.seconds, testBody = testBody)
+
+// RealStore's engine scope is Dispatchers.Default, so it never observes runTest virtual
+// time. Waiting on Default is the same barrier used by the core and graphql suites.
+internal suspend fun <T> CompletableDeferred<T>.awaitFromDefaultContext(): T =
+    withContext(Dispatchers.Default) {
+        await()
+    }
+
+internal suspend fun awaitUntil(
+    timeout: Duration = 10.seconds,
+    condition: suspend () -> Boolean,
+) {
+    withContext(Dispatchers.Default) {
+        val started = TimeSource.Monotonic.markNow()
+        while (!condition()) {
+            check(started.elapsedNow() < timeout) {
+                "Condition was not satisfied within $timeout."
+            }
+            delay(20)
+        }
+    }
+}
+
+// Pump the test scheduler only. Hopping to Default with a real delay lets
+// InProcessDrainScheduler's virtual timers run away (advanceUntilIdle-equivalent).
+internal suspend fun TestScope.waitUntilCurrent(
+    timeout: Duration = 5.seconds,
+    condition: suspend () -> Boolean,
+) {
+    val started = TimeSource.Monotonic.markNow()
+    while (!condition()) {
+        testScheduler.runCurrent()
+        yield()
+        check(started.elapsedNow() < timeout) {
+            "Condition was not satisfied within $timeout."
+        }
+    }
+}

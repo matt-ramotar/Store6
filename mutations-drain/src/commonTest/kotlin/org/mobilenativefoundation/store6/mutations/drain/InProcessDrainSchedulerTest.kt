@@ -36,7 +36,10 @@ class InProcessDrainSchedulerTest {
             assertEquals(emptyList(), harness.fixture.backend.receivedPushes)
 
             testScheduler.advanceTimeBy(1L)
-            testScheduler.runCurrent()
+            waitUntilCurrent {
+                harness.fixture.backend.receivedPushes == listOf("+done") &&
+                    harness.store.pendingWrites().isEmpty()
+            }
             assertEquals(listOf("+done"), harness.fixture.backend.receivedPushes)
         } finally {
             harness.close()
@@ -58,7 +61,10 @@ class InProcessDrainSchedulerTest {
             assertEquals(emptyList(), harness.fixture.backend.receivedPushes)
 
             testScheduler.advanceTimeBy(1L)
-            testScheduler.runCurrent()
+            waitUntilCurrent {
+                harness.fixture.backend.receivedPushes == listOf("+done") &&
+                    harness.store.pendingWrites().isEmpty()
+            }
             assertEquals(listOf("+done"), harness.fixture.backend.receivedPushes)
         } finally {
             harness.close()
@@ -112,7 +118,10 @@ class InProcessDrainSchedulerTest {
                 }
             }
             testScheduler.advanceTimeBy(10_000L)
-            testScheduler.runCurrent()
+            waitUntilCurrent {
+                harness.fixture.backend.receivedPushes == listOf("+done") &&
+                    harness.store.pendingWrites().isEmpty()
+            }
 
             assertEquals(listOf("+done"), harness.fixture.backend.receivedPushes)
         } finally {
@@ -133,13 +142,13 @@ class InProcessDrainSchedulerTest {
         try {
             harness.store.mutate(DrainTestKey("running"), harness.fixture.appendRef, "+pending")
             harness.scheduler.schedule(request(delay = Duration.ZERO))
-            testScheduler.runCurrent()
+            waitUntilCurrent { events.count { it is DrainActivationStarted } == 1 }
             assertEquals(1, events.count { it is DrainActivationStarted })
 
             harness.scheduler.schedule(request(delay = 10.seconds))
             harness.coordinator.close()
             gate.complete(Unit)
-            testScheduler.runCurrent()
+            waitUntilCurrent { events.count { it is DrainPassCompleted } == 1 }
             assertEquals(1, events.count { it is DrainPassCompleted })
 
             testScheduler.advanceTimeBy(9_999L)
@@ -147,7 +156,7 @@ class InProcessDrainSchedulerTest {
             assertEquals(0, events.count { it is DrainPassFailed })
 
             testScheduler.advanceTimeBy(1L)
-            testScheduler.runCurrent()
+            waitUntilCurrent { events.count { it is DrainPassFailed } == 1 }
             assertEquals(1, events.count { it is DrainPassFailed })
         } finally {
             harness.close()

@@ -174,7 +174,7 @@ class CoordinatorLifecycleTest {
         try {
             store.mutate(DrainTestKey("cancel-running"), fixture.appendRef, "+pending")
             val pass = async { scheduler.fireActivation("users") }
-            testScheduler.runCurrent()
+            fixture.backend.pushEntered.awaitFromDefaultContext()
             assertEquals(1, fixture.backend.maxConcurrentPushes)
 
             scheduler.cancel("users")
@@ -216,7 +216,7 @@ class CoordinatorLifecycleTest {
                 "+pending",
             )
             val pass = async { scheduler.fireActivation("primary") }
-            testScheduler.runCurrent()
+            primaryFixture.backend.pushEntered.awaitFromDefaultContext()
             assertEquals(1, primaryFixture.backend.maxConcurrentPushes)
 
             val churn =
