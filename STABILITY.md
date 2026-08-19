@@ -55,6 +55,7 @@ Group coordinates are unchanged: `org.mobilenativefoundation.store`. Packages ar
 | `devtools-inspector` | Experimental (`@ExperimentalStoreApi`). | alpha02 (target) |
 | `mutations-drain` | Experimental (`@ExperimentalStoreApi`). | alpha02 (target) |
 | `mutations-drain-meeseeks` | Experimental (`@ExperimentalStoreApi`) — additionally gated on upstream Meeseeks JVM scheduling fixes. | alpha02 (target) |
+| `opentelemetry` | Experimental (`@ExperimentalStoreApi`). | Joins the line in the first release it is green for. |
 
 Inside `core`, the `org.mobilenativefoundation.store6.core.seam` package — the 13 files you
 implement to plug in your own fetcher, source of truth, bookkeeper, clock, telemetry, or overlay —
