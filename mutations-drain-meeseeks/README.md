@@ -194,8 +194,9 @@ cannot survive foreign rows.
 
 This artifact's JVM execution and recovery suites (`MeeseeksExecutionIntegrationTest`,
 `MeeseeksRecoveryIntegrationTest`) are red on those behaviors and gate release of this
-artifact until upstream fixes ship. Unit suites that use a scripted fake manager, and
-every compile target, are green.
+artifact until upstream fixes ship. Default `jvmTest` excludes those two classes. Pass
+`-Pstore6.meeseeksJvmIntegration` to run them. Unit suites that use a scripted fake
+manager, and every compile target, are green.
 
 Track the upstream items in [Meeseeks](https://github.com/matt-ramotar/meeseeks). The
 `wireJvmHost` snippet remains compile-certified only.

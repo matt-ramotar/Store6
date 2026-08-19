@@ -109,8 +109,9 @@ class WatchTest {
     fun externallyCancelledWatchMidPassIsRecoveredByLaunchPass() = runTest {
         val harness = WatchHarness()
         try {
+            val launchPassCompleted = nextPassCompletion(harness.coordinator)
             val watch = launch { harness.coordinator.watch(STORE_NAME) }
-            testScheduler.runCurrent()
+            launchPassCompleted.await()
             val gate = CompletableDeferred<Unit>()
             harness.fixture.backend.pushGate = gate
 
@@ -119,7 +120,7 @@ class WatchTest {
                 harness.fixture.appendRef,
                 "+recovered",
             )
-            testScheduler.runCurrent()
+            harness.fixture.backend.pushEntered.awaitFromDefaultContext()
             assertEquals(1, harness.fixture.backend.maxConcurrentPushes)
 
             watch.cancelAndJoin()
@@ -147,18 +148,18 @@ class WatchTest {
         val harness = WatchHarness()
         val started = mutableListOf<DrainActivationStarted>()
         try {
+            val launchPassCompleted = nextPassCompletion(harness.coordinator)
             val watch = launch { harness.coordinator.watch(STORE_NAME) }
-            testScheduler.runCurrent()
+            launchPassCompleted.await()
             harness.coordinator.events
                 .filterIsInstance<DrainActivationStarted>()
                 .onEach(started::add)
                 .launchIn(backgroundScope)
-            testScheduler.runCurrent()
 
             val gate = CompletableDeferred<Unit>()
             harness.fixture.backend.pushGate = gate
             harness.store.mutate(DrainTestKey("burst"), harness.fixture.appendRef, "+0")
-            testScheduler.runCurrent()
+            harness.fixture.backend.pushEntered.awaitFromDefaultContext()
             repeat(4) { index ->
                 harness.store.mutate(
                     DrainTestKey("burst"),
@@ -166,9 +167,8 @@ class WatchTest {
                     "+${index + 1}",
                 )
             }
-            testScheduler.runCurrent()
             gate.complete(Unit)
-            testScheduler.runCurrent()
+            awaitUntil { harness.store.pendingWrites().isEmpty() }
 
             assertTrue(started.isNotEmpty())
             assertTrue(started.size <= 2, "Expected at most two passes, but saw ${started.size}.")
@@ -194,7 +194,7 @@ class WatchTest {
             val launchScheduleCount = harness.scheduler.scheduled.size
 
             harness.store.mutate(DrainTestKey("scheduled"), harness.fixture.appendRef, "+pending")
-            testScheduler.runCurrent()
+            awaitUntil { harness.scheduler.scheduled.size == launchScheduleCount + 1 }
 
             assertEquals(launchPasses, started.size)
             assertEquals(launchScheduleCount + 1, harness.scheduler.scheduled.size)
@@ -244,8 +244,6 @@ class WatchTest {
 
             assertEquals(launchPasses + 1, started.size)
             assertEquals(emptyList(), harness.store.pendingWrites())
-            testScheduler.runCurrent()
-            assertEquals(launchPasses + 1, started.size)
             watch.cancelAndJoin()
         } finally {
             harness.close()
@@ -256,10 +254,11 @@ class WatchTest {
     fun unregisterCancelsWatch() = runTest {
         val harness = WatchHarness()
         try {
+            val launchPassCompleted = nextPassCompletion(harness.coordinator)
             val watch = launch(start = CoroutineStart.UNDISPATCHED) {
                 harness.coordinator.watch(STORE_NAME)
             }
-            testScheduler.runCurrent()
+            launchPassCompleted.await()
 
             harness.coordinator.unregister(STORE_NAME)
             watch.join()
@@ -274,10 +273,11 @@ class WatchTest {
     fun closeCancelsWatch() = runTest {
         val harness = WatchHarness()
         try {
+            val launchPassCompleted = nextPassCompletion(harness.coordinator)
             val watch = launch(start = CoroutineStart.UNDISPATCHED) {
                 harness.coordinator.watch(STORE_NAME)
             }
-            testScheduler.runCurrent()
+            launchPassCompleted.await()
 
             harness.coordinator.close()
             watch.join()
