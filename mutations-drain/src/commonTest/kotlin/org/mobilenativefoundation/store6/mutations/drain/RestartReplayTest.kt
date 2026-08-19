@@ -42,7 +42,7 @@ class RestartReplayTest {
                 coordinator.watch(STORE_NAME)
             }
         try {
-            awaitUntil {
+            waitUntilCurrent {
                 fixture.backend.receivedPushes == listOf("+replayed") &&
                     secondSession.pendingWrites().isEmpty()
             }

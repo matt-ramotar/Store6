@@ -38,9 +38,9 @@ class EngineAlignmentGuardTest {
                 coordinator.watch(STORE_NAME)
             }
         try {
-            awaitUntil { events.any { it is DrainPassCompleted } }
+            waitUntilCurrent { events.any { it is DrainPassCompleted } }
             store.mutate(DrainTestKey("alignment"), fixture.appendRef, "+aligned")
-            awaitUntil { store.pendingWrites().singleOrNull()?.attempt == 1 }
+            waitUntilCurrent { store.pendingWrites().singleOrNull()?.attempt == 1 }
 
             var attempt = store.pendingWrites().single().attempt
             assertEquals(1, attempt)
@@ -53,8 +53,7 @@ class EngineAlignmentGuardTest {
 
                 fixture.nowMillis += delay.inWholeMilliseconds
                 testScheduler.advanceTimeBy(delay)
-                testScheduler.runCurrent()
-                awaitUntil { store.pendingWrites().singleOrNull()?.attempt == attempt + 1 }
+                waitUntilCurrent { store.pendingWrites().singleOrNull()?.attempt == attempt + 1 }
 
                 val nextAttempt = store.pendingWrites().single().attempt
                 assertEquals(attempt + 1, nextAttempt)
@@ -71,8 +70,7 @@ class EngineAlignmentGuardTest {
 
             fixture.nowMillis += finalDelay.inWholeMilliseconds
             testScheduler.advanceTimeBy(finalDelay)
-            testScheduler.runCurrent()
-            awaitUntil { store.pendingWrites().isEmpty() }
+            waitUntilCurrent { store.pendingWrites().isEmpty() }
 
             assertEquals(startsBeforeClear + 1, events.activationStarts())
             assertEquals(cancellationsBeforeClear + 1, events.activationCancellations())

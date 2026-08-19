@@ -33,12 +33,10 @@ class InProcessDrainSchedulerTest {
             harness.scheduler.schedule(request(delay = 10.seconds))
             testScheduler.advanceTimeBy(9_999L)
             testScheduler.runCurrent()
-            yieldToDefaultDispatcher()
             assertEquals(emptyList(), harness.fixture.backend.receivedPushes)
 
             testScheduler.advanceTimeBy(1L)
-            testScheduler.runCurrent()
-            awaitUntil {
+            waitUntilCurrent {
                 harness.fixture.backend.receivedPushes == listOf("+done") &&
                     harness.store.pendingWrites().isEmpty()
             }
@@ -60,12 +58,10 @@ class InProcessDrainSchedulerTest {
 
             testScheduler.advanceTimeBy(19_999L)
             testScheduler.runCurrent()
-            yieldToDefaultDispatcher()
             assertEquals(emptyList(), harness.fixture.backend.receivedPushes)
 
             testScheduler.advanceTimeBy(1L)
-            testScheduler.runCurrent()
-            awaitUntil {
+            waitUntilCurrent {
                 harness.fixture.backend.receivedPushes == listOf("+done") &&
                     harness.store.pendingWrites().isEmpty()
             }
@@ -85,7 +81,6 @@ class InProcessDrainSchedulerTest {
             harness.scheduler.cancel(STORE_NAME)
             testScheduler.advanceTimeBy(10_000L)
             testScheduler.runCurrent()
-            yieldToDefaultDispatcher()
 
             assertEquals(emptyList(), harness.fixture.backend.receivedPushes)
             assertEquals(1, harness.store.pendingWrites().size)
@@ -123,8 +118,7 @@ class InProcessDrainSchedulerTest {
                 }
             }
             testScheduler.advanceTimeBy(10_000L)
-            testScheduler.runCurrent()
-            awaitUntil {
+            waitUntilCurrent {
                 harness.fixture.backend.receivedPushes == listOf("+done") &&
                     harness.store.pendingWrites().isEmpty()
             }
@@ -148,23 +142,21 @@ class InProcessDrainSchedulerTest {
         try {
             harness.store.mutate(DrainTestKey("running"), harness.fixture.appendRef, "+pending")
             harness.scheduler.schedule(request(delay = Duration.ZERO))
-            awaitUntil { events.count { it is DrainActivationStarted } == 1 }
+            waitUntilCurrent { events.count { it is DrainActivationStarted } == 1 }
             assertEquals(1, events.count { it is DrainActivationStarted })
 
             harness.scheduler.schedule(request(delay = 10.seconds))
             harness.coordinator.close()
             gate.complete(Unit)
-            awaitUntil { events.count { it is DrainPassCompleted } == 1 }
+            waitUntilCurrent { events.count { it is DrainPassCompleted } == 1 }
             assertEquals(1, events.count { it is DrainPassCompleted })
 
             testScheduler.advanceTimeBy(9_999L)
             testScheduler.runCurrent()
-            yieldToDefaultDispatcher()
             assertEquals(0, events.count { it is DrainPassFailed })
 
             testScheduler.advanceTimeBy(1L)
-            testScheduler.runCurrent()
-            awaitUntil { events.count { it is DrainPassFailed } == 1 }
+            waitUntilCurrent { events.count { it is DrainPassFailed } == 1 }
             assertEquals(1, events.count { it is DrainPassFailed })
         } finally {
             harness.close()

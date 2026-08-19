@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
@@ -386,6 +387,18 @@ internal suspend fun awaitUntil(
     }
 }
 
-internal suspend fun yieldToDefaultDispatcher() {
-    withContext(Dispatchers.Default) { delay(20) }
+// Pump the test scheduler only. Hopping to Default with a real delay lets
+// InProcessDrainScheduler's virtual timers run away (advanceUntilIdle-equivalent).
+internal suspend fun TestScope.waitUntilCurrent(
+    timeout: Duration = 5.seconds,
+    condition: suspend () -> Boolean,
+) {
+    val started = TimeSource.Monotonic.markNow()
+    while (!condition()) {
+        testScheduler.runCurrent()
+        yield()
+        check(started.elapsedNow() < timeout) {
+            "Condition was not satisfied within $timeout."
+        }
+    }
 }
