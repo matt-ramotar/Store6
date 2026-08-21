@@ -1,5 +1,6 @@
 package org.mobilenativefoundation.store6.core.seam
 
+import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreBuilder
 import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreResult
@@ -19,6 +20,7 @@ import org.mobilenativefoundation.store6.core.StoreResult
  *
  * @param V the non-null value type produced by the fetcher
  */
+@ExperimentalStoreApi
 public sealed interface FetcherResult<out V : Any> {
     /** A fetched `value`, optionally identified by `etag`. */
     public class Success<V : Any>(
