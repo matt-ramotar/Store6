@@ -43,6 +43,8 @@ under principle 1. The confidence range above is real: treat Q1 2027 as the hone
 |---|---|
 | `core`, `testing` | The engine and its conformance kit. |
 | `mutations` | The write path: journal, drain, rebase, conflict stack, restart replay. Experimental artifact, in the floor rather than the may-slip list. |
+| `graphql`, `realtime` | Experimental integration artifacts: GraphQL fetcher integration and server-message bindings onto stores. |
+| `mutations-sqldelight`, `mutations-testing` | Experimental companions to `mutations`: SQLDelight-backed journal storage and the journal and mutator contract kits. |
 | STABILITY.md + this roadmap | The published policy: tiers, deprecation cycle, cadence commitment. |
 | Quickstart + Important Defaults | The mental model before the API reference. |
 
