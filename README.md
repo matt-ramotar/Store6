@@ -1,6 +1,6 @@
 <img src=".github/images/hero-light.svg" width="100%"/>
 
-# Store5
+# Store6
 
 [![codecov](https://codecov.io/gh/MobileNativeFoundation/Store/branch/main/graph/badge.svg?token=0UCmG3QHPf)](https://codecov.io/gh/MobileNativeFoundation/Store)
 
