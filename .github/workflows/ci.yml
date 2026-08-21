@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [ main, store6 ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, store6 ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -74,7 +76,11 @@ jobs:
           retention-days: 7
 
   publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'MobileNativeFoundation/Store'
+    if: |
+      github.repository == 'MobileNativeFoundation/Store' && (
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+        github.event_name == 'workflow_dispatch'
+      )
     runs-on: macos-latest
     needs: build-and-test
     steps:
