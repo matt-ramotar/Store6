@@ -2,6 +2,60 @@
 
 ### Thank you to all our wonderful contributors and users
 
+## [6.0.0-alpha01] (2026-08-21)
+
+The first Store 6 alpha. Store 6 is the next major line, a Kotlin Multiplatform library for reading
+and writing data that lives in more than one place: a network, a local database, and memory. The
+stability policy is in [STABILITY.md](./STABILITY.md); each artifact's tier is stated there.
+
+**New Features**
+
+* Ship `core`, `testing`, `mutations`, `mutations-sqldelight`, `mutations-testing`, `sqldelight`,
+  `room`, `compose`, `graphql`, and `realtime` as experimental-track artifacts, plus `bom` for
+  version alignment. `paging-androidx` joins in the first release it is green for; `devtools` and
+  `devtools-inspector` target alpha02.
+* Mutations ship the two-step durable acknowledgement posture: the server echo is adopted first and
+  the journal row retired last, so a crash inside the window leaves a replayable pending intent.
+  Design mutation endpoints to treat a repeated idempotency key as the same request.
+* A conformance suite under `core/src/commonTest` names every zero-config behavior as a readable
+  test, including single-flight, freshness policy, overlay projection, invalidation, and engine
+  eviction.
+
+**Bug Fixes**
+
+* Fix `Store.get` surfacing a joined-fetch failure when a concurrent write already committed a
+  fresher value; the resident value is served instead.
+* Fix invalidation telemetry and key events firing for invalidations that were superseded before
+  signaling.
+* Fix a silent wedge when a mutation `stales` function throws: the intent now parks durably with a
+  dead-letter row instead of blocking its key's queue invisibly.
+* Fix cross-namespace canonical acknowledgements looping forever: alias rejection is terminal and
+  the accepted generation is never re-pushed after parking.
+* Make post-acknowledgement codec blocks visible through the event stream while the execution stays
+  `ACKED` without re-pushing.
+* Fix nested writes across different Room databases silently deadlocking on opposite stripe order;
+  admission now fails fast with an exception naming both databases.
+* Stop adapter bookkeepers from swallowing `OutOfMemoryError` and other VM failures as "stale".
+* Replace quadratic UTF-8 truncation in the in-memory journal storage with a single pass.
+
+**Known limitations**
+
+* The zero-config in-memory source of truth and bookkeeper retain one entry per distinct key for
+  the store's lifetime and are not bounded by `maxIdleKeys`. Install persistent implementations
+  when key cardinality can grow without limit; bounded defaults are tracked for the beta line.
+* A `clearNamespace` or `clearAll` call racing demand that starts during the sweep can let that
+  demand commit into the cleared namespace after the call returns. Tracked for beta01.
+* On a long-lived `stream(MaxAge)` collection started against fresh data, nothing replans when the
+  value ages past the window until another event touches the key. Drive refreshes from your own
+  timer if this matters.
+* An overlay frame's `refreshing` bit can lag one projection cycle behind a fetch that started
+  after the identical overlay value became visible. It self-corrects on the next distinct frame.
+* Room echo publication backpressures writers behind a stopped collector instead of dropping the
+  mutation; one wedged collector freezes writes to its database. This tradeoff is documented at
+  the adapter.
+
+The next alpha targets September 2026.
+
 ## [5.1.0-alpha10] (2026-07-13)
 
 **Bug Fixes**
