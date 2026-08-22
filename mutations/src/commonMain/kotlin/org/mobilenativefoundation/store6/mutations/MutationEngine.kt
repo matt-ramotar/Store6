@@ -72,6 +72,9 @@ internal const val DRAIN_FAILURE_DETAIL_RESOLVER_THROW: String = "resolver-throw
 /** Stable machine detail for a mutator projection that threw before transport. */
 internal const val DRAIN_FAILURE_DETAIL_PROJECTION_THROW: String = "projection-throw"
 
+/** Stable machine detail for a mutator stales function that threw before transport. */
+internal const val DRAIN_FAILURE_DETAIL_STALES_THROW: String = "stales-throw"
+
 /** Stable machine detail for a keyed drain whose aliased terminal key failed to resolve. */
 internal const val DRAIN_FAILURE_DETAIL_KEYED_TERMINAL_UNRESOLVED: String =
     "keyed-terminal-unresolved"
@@ -920,8 +923,8 @@ internal class MutationEngine<K : StoreKey, V : Any>(
 
     /**
      * The normalized in-memory drain failure carriers recorded so far: resolver `IDENTITY`
-     * failures and alias `PROTOCOL` failures. No original `Throwable` or `StoreError` is
-     * retained.
+     * failures, alias `PROTOCOL` failures, and hydrated `CODEC` evidence. No original
+     * `Throwable` or `StoreError` is retained.
      */
     internal fun drainFailuresForInspection(): List<MutationFailure> = drainFailures.toList()
 
@@ -1894,10 +1897,9 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                 continue
             }
             if (entry.mutationId in codecBlockedMutationIds) {
-                if (
-                    phase != MutationExecutionPhase.ACKED ||
-                    !probeDurableAckCodec(entry)
-                ) {
+                if (phase != MutationExecutionPhase.ACKED) return null
+                if (!probeDurableAckCodec(entry)) {
+                    emitAdoptionBlockedSignal(entry.mutationId)
                     return null
                 }
                 codecBlockedMutationIds.remove(entry.mutationId)
@@ -1996,14 +1998,12 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     when (recordDurableAckReceipt(entry, attempt, ack)) {
                         DurableAckReceiptOutcome.ACKED -> Unit
                         DurableAckReceiptOutcome.PARKED -> continue
-                        DurableAckReceiptOutcome.HALTED -> return null
                     }
                 }
                 is MutationAbsentAck -> {
                     when (recordDurableAckReceipt(entry, attempt, ack)) {
                         DurableAckReceiptOutcome.ACKED -> Unit
                         DurableAckReceiptOutcome.PARKED -> continue
-                        DurableAckReceiptOutcome.HALTED -> return null
                     }
                 }
             }
@@ -2056,7 +2056,25 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     return DurablePreparationOutcome.PARKED
                 }
             }
-        val effects = evaluateEffects(key, entry) ?: return DurablePreparationOutcome.BLOCKED
+        val effects =
+            when (val evaluated = evaluateEffectsOrFailure(key, entry)) {
+                null -> return DurablePreparationOutcome.BLOCKED
+                is EffectsEvaluation.Threw -> {
+                    // A throwing stales function is terminal exactly like a throwing projector:
+                    // the intent parks durably instead of silently blocking this key's FIFO.
+                    parkDurablePreAck(
+                        identity = key.identity(),
+                        entry = entry,
+                        kind = MutationFailureKind.PROJECTION,
+                        detail = DRAIN_FAILURE_DETAIL_STALES_THROW,
+                        message =
+                            evaluated.failure.message
+                                ?: "Mutation stales function failed without a message.",
+                    )
+                    return DurablePreparationOutcome.PARKED
+                }
+                is EffectsEvaluation.Effects -> evaluated.effects
+            }
         val preparedAt = wallClock.nowEpochMillis()
         val attempt =
             buildDurableAttempt(
@@ -2792,18 +2810,12 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         entry: JournalEntry<V>,
         rejection: AliasAdmission.Rejected,
     ): DurableAckReceiptOutcome {
-        return if (
-            rejection.detail == ALIAS_FAILURE_DETAIL_RETRY_TARGET_MISMATCH ||
-            rejection.detail == ALIAS_FAILURE_DETAIL_RETARGET ||
-            rejection.detail == ALIAS_FAILURE_DETAIL_CYCLE
-        ) {
-            parkDurableAckProtocolFailure(identity, entry, rejection)
-            DurableAckReceiptOutcome.PARKED
-        } else {
-            // A cross-namespace rejection deliberately halts without parking.
-            recordDurableProtocolFailure(entry, rejection)
-            DurableAckReceiptOutcome.HALTED
-        }
+        // Every alias-admission rejection is non-retryable by definition: retrying cannot change
+        // the server's answer. Parking keeps the rejection terminal and pre-ack-commit — no ack
+        // row is written, the durable phase never becomes ACKED, and the accepted generation is
+        // never re-pushed — instead of looping INFLIGHT->READY under backoff forever.
+        parkDurableAckProtocolFailure(identity, entry, rejection)
+        return DurableAckReceiptOutcome.PARKED
     }
 
     /** One PROTOCOL failure and the completed INFLIGHT attempt park atomically. */
@@ -2850,55 +2862,6 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                 }
             publishDurablePark(identity, entry, commit)
         }
-    }
-
-    private suspend fun recordDurableProtocolFailure(
-        entry: JournalEntry<V>,
-        rejection: AliasAdmission.Rejected,
-    ) {
-        val durable = requireNotNull(durableJournal)
-        val previous = requireNotNull(durableExecutions[entry.mutationId])
-        val occurredAt = wallClock.nowEpochMillis()
-        val normalized =
-            sanitizedMutationFailure(
-                kind = MutationFailureKind.PROTOCOL,
-                detail = rejection.detail,
-                message = rejection.message,
-                occurredAtEpochMillis = occurredAt,
-            )
-        val ready =
-            previous.copyExecution(
-                phase = StoredExecutionPhase.READY,
-                attempt = previous.attempt + 1,
-                lastAttemptAt = occurredAt,
-            )
-        durable.storage.transaction { transaction ->
-            transaction.appendFailure(
-                clientId,
-                entry.durableClientSequence,
-                previous.currentGeneration,
-                normalized.kind,
-                normalized.detail,
-                normalized.message,
-                occurredAt,
-            )
-            transaction.advanceExecution(ready)
-        }
-        drainFailures += normalized
-        durableExecutions[entry.mutationId] = ready
-        phases[entry.mutationId] = MutationExecutionPhase.READY
-        completedAttempts[entry.mutationId] = ready.attempt
-        val attempt = requireNotNull(durableAttempts[entry.mutationId])
-        eventBus.tryEmit(
-            MutationFailed(
-                mutationId = entry.mutationId,
-                identity = attempt.toEventIdentity(),
-                occurredAtEpochMillis = occurredAt,
-                generation = ready.currentGeneration,
-                state = MutationPendingState.PENDING,
-                failure = normalized,
-            ),
-        )
     }
 
     private suspend fun recordDurableAck(
@@ -3012,7 +2975,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         }
     }
 
-    /** Silently probes a hydration-blocked ACKED value without duplicating CODEC evidence. */
+    /** Probes a hydration-blocked ACKED value without duplicating CODEC evidence. */
     private fun probeDurableAckCodec(entry: JournalEntry<V>): Boolean {
         val ack = requireNotNull(durableAcks[entry.mutationId])
         if (ack.authoritativePresence == MutationPresenceState.ABSENT) return true
@@ -3026,6 +2989,35 @@ internal class MutationEngine<K : StoreKey, V : Any>(
             if (failure is CancellationException) throw failure
             false
         }
+    }
+
+    /**
+     * Publishes the recurring advisory signal for a post-ack codec wedge, once per blocked drain
+     * pass. The execution stays ACKED — retaining an old decoder remains a consumer obligation —
+     * and no generation is re-pushed; the durable CODEC evidence row stays queryable through
+     * drain-failure inspection.
+     */
+    private fun emitAdoptionBlockedSignal(mutationId: String) {
+        val attempt = requireNotNull(durableAttempts[mutationId])
+        val occurredAt = wallClock.nowEpochMillis()
+        eventBus.tryEmit(
+            MutationFailed(
+                mutationId = mutationId,
+                identity = attempt.toEventIdentity(),
+                occurredAtEpochMillis = occurredAt,
+                generation = requireNotNull(durableExecutions[mutationId]).currentGeneration,
+                state = MutationPendingState.ADOPTING,
+                failure =
+                    sanitizedMutationFailure(
+                        kind = MutationFailureKind.CODEC,
+                        detail = HYDRATION_FAILURE_DETAIL_VALUE_ACKED,
+                        message =
+                            "Acknowledged value bytes are not decodable by any retained codec " +
+                                "version; adoption is held without a re-push.",
+                        occurredAtEpochMillis = occurredAt,
+                    ),
+            ),
+        )
     }
 
     private suspend fun resumeDurableAck(
@@ -4091,26 +4083,28 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     }
 
     /**
-     * Captures the intent's normalized invalidation-effect snapshot before its first push. A
-     * throwing `stales` function is contained exactly like a throwing projector — ephemeral
-     * poison, no transport — and halts this key's pass.
+     * Captures the intent's normalized invalidation-effect snapshot before its first push on the
+     * codec-less in-memory path. A throwing `stales` function is contained exactly like a
+     * throwing projector — ephemeral poison, no transport — and halts this key's pass; the
+     * durable preparation path parks the intent instead.
      */
     private fun captureEffects(
         key: K,
         entry: JournalEntry<V>,
     ): Boolean {
-        val effects = evaluateEffects(key, entry) ?: return false
+        val evaluated = evaluateEffectsOrFailure(key, entry)
+        val effects = (evaluated as? EffectsEvaluation.Effects)?.effects ?: return false
         effectSnapshots[entry.mutationId] = effects
         return true
     }
 
-    private fun evaluateEffects(
+    private fun evaluateEffectsOrFailure(
         key: K,
         entry: JournalEntry<V>,
-    ): List<MutationEffectRecord>? {
+    ): EffectsEvaluation? {
         val registration = registry.registrations[entry.mutatorId] ?: return null
         return try {
-            normalizedMutationEffects(registration.stales(key, entry.args))
+            EffectsEvaluation.Effects(normalizedMutationEffects(registration.stales(key, entry.args)))
         } catch (failure: Throwable) {
             poisonSink.tryEmit(
                 PoisonedIntent(
@@ -4119,7 +4113,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     failure = failure,
                 ),
             )
-            null
+            EffectsEvaluation.Threw(failure)
         }
     }
 
@@ -4189,6 +4183,17 @@ private class ProjectionOutcome<V : Any>(
     val failure: Throwable?,
 )
 
+/** The outcome of one normalized effect-snapshot evaluation; `null` means no registration. */
+private sealed interface EffectsEvaluation {
+    class Effects(
+        val effects: List<MutationEffectRecord>,
+    ) : EffectsEvaluation
+
+    class Threw(
+        val failure: Throwable,
+    ) : EffectsEvaluation
+}
+
 private enum class DurablePreparationOutcome {
     PREPARED,
     BLOCKED,
@@ -4219,7 +4224,6 @@ private enum class DurableConflictReceiptOutcome {
 private enum class DurableAckReceiptOutcome {
     ACKED,
     PARKED,
-    HALTED,
 }
 
 private sealed interface DurableAckReceiptDecision {

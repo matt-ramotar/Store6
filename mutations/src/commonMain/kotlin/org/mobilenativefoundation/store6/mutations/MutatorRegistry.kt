@@ -121,7 +121,9 @@ public class MutatorRegistryBuilder<K : StoreKey, V : Any> internal constructor(
      *
      * [stales] is the pure declarative invalidation function: equal inputs must produce
      * structurally equal [StaleSet]s. Its result is copied, normalized, deduplicated, and sorted
-     * into immutable effect records before the intent's first push.
+     * into immutable effect records before the intent's first push. A thrown failure is
+     * contained exactly like a [project] failure: reported through `MutationStore.poisoned`,
+     * and — on a durable journal — parked with a normalized `PROJECTION` failure.
      *
      * [version] is the explicit args codec/schema version persisted with each intent; it must be
      * positive. [codec] must be pure and deterministic for that version.
