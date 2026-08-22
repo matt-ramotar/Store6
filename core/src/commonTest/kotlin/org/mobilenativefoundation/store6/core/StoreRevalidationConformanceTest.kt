@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalStoreApi::class)
+
 package org.mobilenativefoundation.store6.core
 
 import app.cash.turbine.test
