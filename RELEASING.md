@@ -1,28 +1,60 @@
 Releasing
 ========
 
-1. Change the version in top level `gradle.properties` to a non-SNAPSHOT version.
-2. Update the `cocoapods` version in `build.gradle.kts` in `:store`.
-3. Modify `create_swift_package.yml` workflow.
-    * https://github.com/MobileNativeFoundation/Store/blob/e526400cdf51aa2f78b6b7e9e87f4a6845e6dcea/.github/workflows/create_swift_package.yml
-4. Update the `CHANGELOG.md` for the impending release.
-5. Update the `README.md` with the new version.
-6. `git commit -sam "Prepare for release X.Y.Z."` (where X.Y.Z is the new version)
-7. `git tag -a X.Y.X -m "Version X.Y.Z"` (where X.Y.Z is the new version)
-    * Run `git tag` to verify it.
-8. `git push && git push --tags`
-    * This should be pushed to your fork.
-9. Create a PR with this commit and merge it.
-10. Update the top level `build.gradle` to the next SNAPSHOT version.
-11. Modify `create_swift_package.yml` workflow to only run manually.
-    * https://github.com/MobileNativeFoundation/Store/blob/de9ed1764408eeaafe5e58fe602205c875a8b0b0/.github/workflows/create_swift_package.yml
-12. `git commit -am "Prepare next development version."`
-13. Create a PR with this commit and merge it.
-14. Login to Sonatype to promote the artifacts https://central.sonatype.org/pages/releasing-the-deployment.html
-    * This part is automated. If it fails in CI, follow the steps below.
-    * Click on Staging Repositories under Build Promotion
-    * Select all the Repositories that contain the content you want to release
-    * Click on Close and refresh until the Release button is active
-    * Click Release and submit
-15. Update the sample module's `build.gradle` to point to the newly released version. (It may take ~2 hours for artifact to be available after release)
- 
+Store 6 releases follow the cadence defined in [STABILITY.md](./STABILITY.md): monthly
+alphas starting at `6.0.0-alpha01`, governed by "cut scope, never cadence". ABI dumps are
+committed at every released tag, so any release's surface is diffable from the repository
+without resolving artifacts.
+
+The single source of the version is `VERSION_NAME` in [`gradle.properties`](./gradle.properties).
+Publication is automated in CI; nothing is uploaded from a local machine.
+
+## Preparing a release
+
+1. Set `VERSION_NAME` in `gradle.properties` to the release version (for example
+   `6.0.0-alpha01`), replacing the `-SNAPSHOT` suffix.
+2. Keep `.github/workflows/store6.yml` in sync: its `klib-publication-check` job publishes
+   all modules to Maven Local and then verifies the resulting artifacts against a version
+   string hardcoded in the "Verify common and target publications" step. Update that string
+   to match the new `VERSION_NAME` in the same change, or the job fails.
+3. If the public Kotlin/Java surface changed, refresh the committed
+   binary-compatibility-validator dumps under `<module>/api/` (JVM, Android, and klib
+   dumps, for example `core/api/jvm/core.api` and `core/api/core.klib.api`) by running the
+   module's `apiDump` task. Every module's `apiCheck` runs as part of `./gradlew build`,
+   so an unintended ABI change fails before merge. These dumps are committed at every
+   released tag (STABILITY.md §7).
+4. If the Swift-facing surface changed, regenerate the committed Swift dumps with
+   `./gradlew refreshSwiftDumps` and review the diff under `core/api/swift/` and
+   `mutations/api/swift/`. `./gradlew checkSwiftDumps` re-verifies them and runs on every
+   pull request in the `swift-dumps` job of `.github/workflows/store6.yml`.
+5. Update `CHANGELOG.md`.
+6. Open a pull request. If it touches documentation sources listed in
+   `.github/docs-sync-sources.txt`, add the `docs-sync-ack` label; the `docs-sync-guard`
+   job in `.github/workflows/store6.yml` blocks the merge without it.
+7. Merge, then tag the release commit and push the tag to
+   `MobileNativeFoundation/Store`:
+   * `git tag -a vX.Y.Z -m "Version X.Y.Z"`
+   * `git push <upstream> vX.Y.Z`
+
+## Publication
+
+Pushing a tag matching `v*` (or triggering the workflow manually via `workflow_dispatch`)
+starts the `publish` job in [`.github/workflows/ci.yml`](./.github/workflows/ci.yml),
+which:
+
+1. Waits for the full `build-and-test` job to pass.
+2. Reads `VERSION_NAME` from `gradle.properties`.
+3. Publishes to Maven Central through the Central Portal using the Vanniktech Maven
+   Publish plugin wired by the tooling convention plugins: `publishToMavenCentral` when
+   the version ends in `-SNAPSHOT`, `publishAndReleaseToMavenCentral` (publish plus
+   release) otherwise. Credentials come from the workflow secrets.
+
+Artifacts become available once the Central Portal finishes validating and publishing the
+deployment.
+
+## After the release
+
+1. Set `VERSION_NAME` in `gradle.properties` to the next development version and update
+   the hardcoded verification version in `store6.yml`'s `klib-publication-check` to match,
+   as in step 2 above.
+2. State the next alpha's target month in the release notes (STABILITY.md §5).

@@ -18,6 +18,7 @@ import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest as coroutineRunTest
+import kotlinx.coroutines.withTimeoutOrNull
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.testing.TestStoreMeta
 import kotlin.test.Test
@@ -301,6 +302,52 @@ internal class RoomTransactionalSourceOfTruthTest {
 
                 cancelAndIgnoreRemainingEvents()
             }
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun crossDatabaseNestedWrite_failsFastInsteadOfInvertingStripeOrder(): TestResult = runTest {
+        val databaseA = createTestDatabase()
+        val databaseB = createTestDatabase()
+        try {
+            val adapterA = sourceOfTruth(databaseA)
+            val adapterB = sourceOfTruth(databaseB)
+
+            val failure =
+                assertFailsWith<IllegalStateException> {
+                    withTimeoutOrNull(10.seconds) {
+                        adapterA.withTransaction {
+                            adapterB.write(keyA, "nested")
+                        }
+                    }
+                }
+            assertTrue(
+                failure.message.orEmpty().contains("Cannot nest database admission"),
+                "the inner write must fail fast on cross-database nesting, got: ${failure.message}",
+            )
+            assertNull(
+                databaseB.kitRowDao().row(keyA.namespace.value, keyA.canonicalId()).first(),
+            )
+        } finally {
+            databaseA.close()
+            databaseB.close()
+        }
+    }
+
+    @Test
+    fun sameDatabaseNestedWrite_throughDifferentAdapterInstance_stillJoinsOuterTransaction(): TestResult = runTest {
+        val database = createTestDatabase()
+        try {
+            val outer = sourceOfTruth(database)
+            val inner = sourceOfTruth(database)
+            val dao = database.kitRowDao()
+
+            outer.withTransaction {
+                inner.write(keyA, "joined")
+            }
+            assertEquals("joined", dao.row(keyA.namespace.value, keyA.canonicalId()).first()?.payload)
         } finally {
             database.close()
         }

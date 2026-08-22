@@ -2068,15 +2068,19 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
     /** Signals resident demand only while the previously advanced watermark still covers it. */
     internal suspend fun invalidateResident() {
+        var invalidated = false
         maintenanceCoordinator.withCommit(keyId.namespace) {
             writeLock.withLock {
                 if (bookkeeper.status(key)?.durablyStale == true) {
                     applyEvent(KeyEvent.Invalidate)
+                    invalidated = true
                 }
             }
         }
-        telemetry?.onInvalidated(key)
-        events.tryEmit(KeyEvents.Invalidated(key))
+        if (invalidated) {
+            telemetry?.onInvalidated(key)
+            events.tryEmit(KeyEvents.Invalidated(key))
+        }
     }
 
     /** Deletes persistence first, then performs the irreversible state/bookkeeping tail. */
@@ -4712,12 +4716,25 @@ internal class KeyEngine<K : StoreKey, V : Any>(
 
                 FetchOutcome.ObsoleteRevalidation -> Unit
 
-                is FetchOutcome.Failed ->
+                is FetchOutcome.Failed -> {
+                    // A write that committed while this fetch was in flight outranks the fetch's
+                    // failure for policies that tolerate residence: serve the newer committed
+                    // value instead of the pre-await snapshot or an exception.
+                    val snapshot = residenceSnapshot()
+                    val resident = snapshot.envelope
+                    if (
+                        resident != null &&
+                        residenceAdvancedFrom(ticket, snapshot) &&
+                        staleServingTolerated(freshness)
+                    ) {
+                        return serve(resident.value, resident.origin)
+                    }
                     if (freshness == Freshness.StaleIfError && envelope != null) {
                         return serve(envelope.value, envelope.origin)
                     } else {
                         throw outcome.exception
                     }
+                }
 
                 FetchOutcome.Superseded -> throw supersededException()
                 is FetchOutcome.Deleted -> throw serverDeletedException()

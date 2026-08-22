@@ -5,8 +5,11 @@
 
 package org.mobilenativefoundation.store6.mutations
 
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest as coroutineRunTest
 import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreException
@@ -80,20 +83,51 @@ class MutationAckOrchestrationTest {
                 valueCodecVersion = 1,
                 valueCodec = reopenedCodec,
             )
+        val events = collectEvents(reopened)
         reopened.drain(key)
+        runCurrent()
 
         val blocked = storage.ackState(mutationId)
         assertEquals(StoredPhase.ACKED, blocked.execution.phase)
         assertTrue(blocked.failures.any { it.kind == MutationFailureKind.CODEC })
         assertEquals(pushCount, backend.receivedPushes.size)
         assertTrue(reopened.deadLetters().isEmpty())
+        // The wedge is visible: one advisory signal per blocked pass carries the durable CODEC
+        // evidence detail while the execution truthfully reports ADOPTING.
+        val blockedSignal = assertIs<MutationFailed>(events.single())
+        assertEquals(mutationId, blockedSignal.mutationId)
+        assertEquals(MutationFailureKind.CODEC, blockedSignal.failure.kind)
+        assertEquals(MutationPendingState.ADOPTING, blockedSignal.state)
+        assertEquals(1, blockedSignal.generation)
+        assertEquals(
+            blocked.failures.last { it.kind == MutationFailureKind.CODEC }.detail,
+            blockedSignal.failure.detail,
+        )
 
         reopenedCodec.supportedVersions += 99
         reopened.drain(key)
+        runCurrent()
 
         assertEquals(StoredPhase.RETIRED, storage.ackState(mutationId).execution.phase)
         assertEquals(pushCount, backend.receivedPushes.size)
         assertTrue(reopened.deadLetters().isEmpty())
+        // Recovery emits no further codec wedge signal.
+        assertEquals(
+            1,
+            events.count { event ->
+                event is MutationFailed && event.failure.kind == MutationFailureKind.CODEC
+            },
+        )
+    }
+
+    private fun TestScope.collectEvents(
+        engine: MutationEngine<MutationsTestKey, String>,
+    ): MutableList<MutationEvent> {
+        val observed = mutableListOf<MutationEvent>()
+        backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            engine.eventBus.events.collect { event -> observed += event }
+        }
+        return observed
     }
 
     @Test

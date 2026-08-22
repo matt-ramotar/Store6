@@ -196,6 +196,53 @@ class RoomBookkeeperTest {
         }
     }
 
+    @Test
+    fun status_runtimeStorageFailure_returnsNull(): TestResult = runTest {
+        val database = createTestDatabase()
+        try {
+            val bookkeeper =
+                RoomBookkeeper(
+                    database,
+                    ThrowingOnRecordDao(IllegalStateException("reader connection unavailable")),
+                )
+
+            assertNull(bookkeeper.status(TestKey(namespace = "soft-fail", id = "key")))
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun status_virtualMachineError_propagates(): TestResult = runTest {
+        val database = createTestDatabase()
+        try {
+            val bookkeeper = RoomBookkeeper(database, ThrowingOnRecordDao(SyntheticVmError()))
+
+            assertFailsWith<SyntheticVmError> {
+                bookkeeper.status(TestKey(namespace = "vm-error", id = "key"))
+            }
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun recordSuccess_virtualMachineError_propagates(): TestResult = runTest {
+        val database = createTestDatabase()
+        try {
+            val bookkeeper = RoomBookkeeper(database, ThrowingOnRecordDao(SyntheticVmError()))
+
+            assertFailsWith<SyntheticVmError> {
+                bookkeeper.recordSuccess(
+                    TestKey(namespace = "vm-error-success", id = "key"),
+                    TestStoreMeta(1L, "e1"),
+                )
+            }
+        } finally {
+            database.close()
+        }
+    }
+
     private class TestKey(
         namespace: String,
         private val id: String,
@@ -203,6 +250,40 @@ class RoomBookkeeperTest {
         override val namespace: StoreNamespace = StoreNamespace(namespace)
 
         override fun canonicalId(): String = id
+    }
+
+    private class SyntheticVmError : Error()
+
+    private class ThrowingOnRecordDao(
+        private val thrown: Throwable,
+    ) : Store6BookkeeperDao {
+        override suspend fun record(
+            namespace: String,
+            canonicalId: String,
+        ): Store6BookkeepingEntity? = throw thrown
+
+        override suspend fun upsertRecord(record: Store6BookkeepingEntity) {
+            error("Unexpected upsertRecord")
+        }
+
+        override suspend fun deleteRecord(
+            namespace: String,
+            canonicalId: String,
+        ) {
+            error("Unexpected deleteRecord")
+        }
+
+        override suspend fun deleteNamespaceRecords(namespace: String) {
+            error("Unexpected deleteNamespaceRecords")
+        }
+
+        override suspend fun deleteAllRecords() {
+            error("Unexpected deleteAllRecords")
+        }
+
+        override suspend fun watermark(scope: String): Long? = null
+
+        override suspend fun upsertWatermark(watermark: Store6WatermarkEntity) = Unit
     }
 
     private class CancelCallerOnRecordDao(

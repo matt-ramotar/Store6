@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:ktor>
+// Library unique name: <Store6:ktor>
 final enum class org.mobilenativefoundation.store6.ktor/KtorNotFoundPolicy : kotlin/Enum<org.mobilenativefoundation.store6.ktor/KtorNotFoundPolicy> { // org.mobilenativefoundation.store6.ktor/KtorNotFoundPolicy|null[0]
     enum entry Delete // org.mobilenativefoundation.store6.ktor/KtorNotFoundPolicy.Delete|null[0]
     enum entry Error // org.mobilenativefoundation.store6.ktor/KtorNotFoundPolicy.Error|null[0]

@@ -49,7 +49,10 @@ public fun <K : StoreKey, V : Any> Store<K, V>.collectAsState(
  * Collects a flow of store results as compose [State] beginning at [initial] (default
  * [StoreResults.loading]), holding it with [storeResultMutationPolicy] so structurally equal
  * consecutive [StoreResult.Data] frames skip recomposition while lifecycle results always land.
- * Collection restarts when the flow instance changes and is scoped to the composition.
+ * Collection restarts when the flow instance changes and is scoped to the composition. Calling
+ * `store.stream(key)` inline at the call site allocates a new flow every recomposition and restarts
+ * collection from [initial]; prefer the [Store]-receiver overloads, which restart only on real key
+ * or freshness changes.
  */
 @ExperimentalStoreApi
 @Composable

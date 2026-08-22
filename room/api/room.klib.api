@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:room>
+// Library unique name: <Store6:room>
 abstract interface org.mobilenativefoundation.store6.room/Store6BookkeeperDao { // org.mobilenativefoundation.store6.room/Store6BookkeeperDao|null[0]
     abstract suspend fun deleteAllRecords() // org.mobilenativefoundation.store6.room/Store6BookkeeperDao.deleteAllRecords|deleteAllRecords(){}[0]
     abstract suspend fun deleteNamespaceRecords(kotlin/String) // org.mobilenativefoundation.store6.room/Store6BookkeeperDao.deleteNamespaceRecords|deleteNamespaceRecords(kotlin.String){}[0]

@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:devtools>
+// Library unique name: <Store6:devtools>
 final enum class org.mobilenativefoundation.store6.devtools/DevtoolsKeyState : kotlin/Enum<org.mobilenativefoundation.store6.devtools/DevtoolsKeyState> { // org.mobilenativefoundation.store6.devtools/DevtoolsKeyState|null[0]
     enum entry CLEARED // org.mobilenativefoundation.store6.devtools/DevtoolsKeyState.CLEARED|null[0]
     enum entry ERROR // org.mobilenativefoundation.store6.devtools/DevtoolsKeyState.ERROR|null[0]

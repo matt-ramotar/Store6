@@ -728,7 +728,7 @@ jobs:
 
       - name: Publish Store6 core to Maven local without signing
         run: >
-          ./gradlew :core:publishToMavenLocal :testing:publishToMavenLocal :sqldelight:publishToMavenLocal :compose:publishToMavenLocal :room:publishToMavenLocal :devtools:publishToMavenLocal :devtools-inspector:publishToMavenLocal :mutations:publishToMavenLocal :mutations-testing:publishToMavenLocal :mutations-sqldelight:publishToMavenLocal :mutations-drain:publishToMavenLocal :mutations-drain-meeseeks:publishToMavenLocal :mutations-conflicts:publishToMavenLocal :paging-androidx:publishToMavenLocal :graphql:publishToMavenLocal :realtime:publishToMavenLocal :file:publishToMavenLocal :ktor:publishToMavenLocal :opentelemetry:publishToMavenLocal
+          ./gradlew :core:publishToMavenLocal :testing:publishToMavenLocal :sqldelight:publishToMavenLocal :compose:publishToMavenLocal :room:publishToMavenLocal :devtools:publishToMavenLocal :devtools-inspector:publishToMavenLocal :mutations:publishToMavenLocal :mutations-testing:publishToMavenLocal :mutations-sqldelight:publishToMavenLocal :mutations-drain:publishToMavenLocal :mutations-drain-meeseeks:publishToMavenLocal :mutations-conflicts:publishToMavenLocal :paging-androidx:publishToMavenLocal :graphql:publishToMavenLocal :realtime:publishToMavenLocal :file:publishToMavenLocal :ktor:publishToMavenLocal :opentelemetry:publishToMavenLocal :bom:publishToMavenLocal
           -Pkotlin.native.enableKlibsCrossCompilation=true
           -Pkotlin.apple.xcodeCompatibility.nowarn=true
           --stacktrace
@@ -740,7 +740,7 @@ jobs:
           version="6.0.0-SNAPSHOT"
           repository="${HOME}/.m2/repository/org/mobilenativefoundation/store"
 
-          modules=(core testing sqldelight compose room devtools devtools-inspector mutations mutations-testing mutations-sqldelight mutations-drain mutations-drain-meeseeks mutations-conflicts paging-androidx graphql realtime file ktor opentelemetry)
+          modules=(core testing sqldelight compose room devtools devtools-inspector mutations mutations-testing mutations-sqldelight mutations-drain mutations-drain-meeseeks mutations-conflicts paging-androidx graphql realtime file ktor opentelemetry bom)
           suffixes=(
             ""
             -android
@@ -761,6 +761,11 @@ jobs:
           for module in "${modules[@]}"; do
             for suffix in "${suffixes[@]}"; do
               case "${module}:${suffix}" in
+                bom:-*)
+                  # bom is a java-platform: it publishes only the parent POM, no
+                  # target-suffix artifacts.
+                  continue
+                  ;;
                 paging-androidx:-iosx64)
                   # paging-androidx ships the paging-common-3.5.1 target subset; androidx.paging
                   # publishes no Intel artifacts since 3.4.0-rc01.
@@ -791,7 +796,11 @@ jobs:
               artifact_dir="${repository}/${artifact_id}/${version}"
               case "${suffix}" in
                 ""|-jvm)
-                  extension="jar"
+                  if [[ "${module}" == "bom" ]]; then
+                    extension="pom"
+                  else
+                    extension="jar"
+                  fi
                   ;;
                 -android)
                   extension="aar"

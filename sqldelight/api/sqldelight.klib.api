@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:sqldelight>
+// Library unique name: <Store6:sqldelight>
 final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.sqldelight/SqlDelightSourceOfTruth : org.mobilenativefoundation.store6.core.seam/TransactionalSourceOfTruth<#A, #B> { // org.mobilenativefoundation.store6.sqldelight/SqlDelightSourceOfTruth|null[0]
     constructor <init>(app.cash.sqldelight.db/SqlDriver, app.cash.sqldelight/Transacter, kotlin/Function1<#A, app.cash.sqldelight/Query<#B>>, kotlin/Function2<#A, #B, kotlin/Unit>, kotlin/Function1<#A, kotlin/Unit>, kotlin/Function1<org.mobilenativefoundation.store6.core/StoreNamespace, kotlin/Unit>, kotlin/Function0<kotlin/Unit>, org.mobilenativefoundation.store6.core.seam/WallClock? = ..., kotlin.coroutines/CoroutineContext = ...) // org.mobilenativefoundation.store6.sqldelight/SqlDelightSourceOfTruth.<init>|<init>(app.cash.sqldelight.db.SqlDriver;app.cash.sqldelight.Transacter;kotlin.Function1<1:0,app.cash.sqldelight.Query<1:1>>;kotlin.Function2<1:0,1:1,kotlin.Unit>;kotlin.Function1<1:0,kotlin.Unit>;kotlin.Function1<org.mobilenativefoundation.store6.core.StoreNamespace,kotlin.Unit>;kotlin.Function0<kotlin.Unit>;org.mobilenativefoundation.store6.core.seam.WallClock?;kotlin.coroutines.CoroutineContext){}[0]
 

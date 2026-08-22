@@ -1958,7 +1958,7 @@ public enum Skie {
 
     }
 
-    public typealias Store5__core = Store6Kotlin.Skie.Core
+    public typealias Store6__core = Store6Kotlin.Skie.Core
 
 }
 

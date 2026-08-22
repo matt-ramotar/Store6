@@ -1,0 +1,39 @@
+plugins {
+    `java-platform`
+    id("com.vanniktech.maven.publish.base")
+}
+
+// Publication coordinates come from gradle properties (GROUP, POM_ARTIFACT_ID,
+// VERSION_NAME), matching every other store6 module. Project constraints are spelled
+// out as coordinates for the same reason: the library modules leave project.group /
+// project.version at their Gradle defaults and only the publisher maps them onto the
+// property values, so a project("") constraint here would publish the wrong version.
+
+dependencies {
+    constraints {
+        val version = providers.gradleProperty("VERSION_NAME").get()
+        val group = providers.gradleProperty("GROUP").get()
+
+        api("$group:core:$version")
+        api("$group:testing:$version")
+        api("$group:sqldelight:$version")
+        api("$group:room:$version")
+        api("$group:compose:$version")
+        api("$group:graphql:$version")
+        api("$group:realtime:$version")
+        api("$group:mutations:$version")
+        api("$group:mutations-testing:$version")
+        api("$group:mutations-sqldelight:$version")
+    }
+}
+
+configure<com.vanniktech.maven.publish.MavenPublishBaseExtension> {
+    configure(com.vanniktech.maven.publish.JavaPlatform())
+    publishToMavenCentral(automaticRelease = true)
+
+    if (providers.gradleProperty("signingInMemoryKey").isPresent) {
+        signAllPublications()
+    }
+
+    pomFromGradleProperties()
+}

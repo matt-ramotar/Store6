@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:paging-androidx>
+// Library unique name: <Store6:paging-androidx>
 abstract class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any, #C: kotlin/Any, #D: kotlin/Any> org.mobilenativefoundation.store6.paging/StoreRemoteMediator : androidx.paging/RemoteMediator<#C, #D> { // org.mobilenativefoundation.store6.paging/StoreRemoteMediator|null[0]
     constructor <init>(org.mobilenativefoundation.store6.core/Store<#A, #B>) // org.mobilenativefoundation.store6.paging/StoreRemoteMediator.<init>|<init>(org.mobilenativefoundation.store6.core.Store<1:0,1:1>){}[0]
 

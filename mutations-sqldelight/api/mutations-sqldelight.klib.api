@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:mutations-sqldelight>
+// Library unique name: <Store6:mutations-sqldelight>
 final class org.mobilenativefoundation.store6.mutations.sqldelight/SqlDelightMutationJournalStorage : org.mobilenativefoundation.store6.mutations.storage/MutationJournalStorage { // org.mobilenativefoundation.store6.mutations.sqldelight/SqlDelightMutationJournalStorage|null[0]
     constructor <init>(app.cash.sqldelight.db/SqlDriver, app.cash.sqldelight/Transacter) // org.mobilenativefoundation.store6.mutations.sqldelight/SqlDelightMutationJournalStorage.<init>|<init>(app.cash.sqldelight.db.SqlDriver;app.cash.sqldelight.Transacter){}[0]
 

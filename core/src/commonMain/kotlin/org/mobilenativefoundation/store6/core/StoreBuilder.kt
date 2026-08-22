@@ -126,7 +126,9 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
      * The engine reads [SourceOfTruth.reader], writes successfully fetched values through
      * [SourceOfTruth.write], and treats [SourceOfTruth.delete] as destructive persistence removal.
      * When the stored selection is consumed by the engine, an absent block installs the internal
-     * in-memory default. Custom implementations should be validated with the source-of-truth
+     * in-memory default, which keeps one cell per distinct key written for the store's lifetime and
+     * is not bounded by [maxIdleKeys]; install a persistent implementation when key cardinality can
+     * grow without limit. Custom implementations should be validated with the source-of-truth
      * contract kit.
      *
      * @param sot the source of truth used by the store
@@ -153,7 +155,12 @@ public class StoreBuilder<K : StoreKey, V : Any> internal constructor() {
         this.overlay = overlay
     }
 
-    /** Installs the durable freshness bookkeeping implementation used by this store. */
+    /**
+     * Installs the durable freshness bookkeeping implementation used by this store.
+     *
+     * The default keeps one record per distinct key touched for the store's lifetime; install a
+     * persistent implementation when key cardinality can grow without limit.
+     */
     @ExperimentalStoreApi
     public fun bookkeeper(bookkeeper: Bookkeeper) {
         this.bookkeeper = bookkeeper

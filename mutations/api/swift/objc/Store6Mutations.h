@@ -2876,6 +2876,11 @@ __attribute__((swift_name("CoreKeyStatus")))
 @property (readonly) id<Store6MutationsCoreStoreMeta> _Nullable meta __attribute__((swift_name("meta")));
 @end
 
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
 __attribute__((swift_name("CoreFetcherResult")))
 @protocol Store6MutationsCoreFetcherResult
 @required
