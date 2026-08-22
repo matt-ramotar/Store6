@@ -32,10 +32,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * age-unknown/stale.
  *
  * [recordSuccess], [recordFailure], and [forget] absorb storage failures; [status] returns null for
- * unavailable storage or invalid sidecar data. Cooperative caller cancellation always propagates.
- * A Room-internal cancellation from unavailable or closed storage is classified using the active
- * caller context and treated as the corresponding storage failure. Maintenance methods propagate
- * storage failures and remain transaction-atomic.
+ * unavailable storage or invalid sidecar data. Cooperative caller cancellation and virtual-machine
+ * failures (kotlin.Error) always propagate. A Room-internal cancellation from unavailable or closed
+ * storage is classified using the active caller context and treated as the corresponding storage
+ * failure. Maintenance methods propagate storage failures and remain transaction-atomic.
  */
 @ExperimentalStoreApi
 public class RoomBookkeeper(
@@ -145,7 +145,9 @@ public class RoomBookkeeper(
         } catch (_: CancellationException) {
             currentCoroutineContext().ensureActive()
             null
-        } catch (_: Throwable) {
+        } catch (_: RuntimeException) {
+            // androidx.sqlite driver and Room pool failures extend RuntimeException; kotlin.Error
+            // propagates so virtual-machine failures are never reported as stale-unknown.
             null
         }
     }
@@ -230,8 +232,9 @@ public class RoomBookkeeper(
             block()
         } catch (_: CancellationException) {
             currentCoroutineContext().ensureActive()
-        } catch (_: Throwable) {
-            // The Bookkeeper contract makes operational writes infallible.
+        } catch (_: RuntimeException) {
+            // The Bookkeeper contract makes operational writes infallible for storage failures;
+            // androidx.sqlite failures extend RuntimeException, while kotlin.Error propagates.
         }
     }
 
