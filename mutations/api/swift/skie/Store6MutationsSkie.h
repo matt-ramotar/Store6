@@ -3350,6 +3350,11 @@ __attribute__((swift_name("CoreFetchPlanSkip")))
 - (NSString *)description __attribute__((swift_name("description()")));
 @end
 
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
 __attribute__((swift_name("CoreFetcherResult")))
 @protocol SMSCoreFetcherResult
 @required

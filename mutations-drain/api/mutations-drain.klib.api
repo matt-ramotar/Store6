@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:mutations-drain>
+// Library unique name: <Store6:mutations-drain>
 abstract interface org.mobilenativefoundation.store6.mutations.drain/DrainScheduler { // org.mobilenativefoundation.store6.mutations.drain/DrainScheduler|null[0]
     abstract fun attach(org.mobilenativefoundation.store6.mutations.drain/MutationDrainCoordinator) // org.mobilenativefoundation.store6.mutations.drain/DrainScheduler.attach|attach(org.mobilenativefoundation.store6.mutations.drain.MutationDrainCoordinator){}[0]
     abstract fun cancel(kotlin/String) // org.mobilenativefoundation.store6.mutations.drain/DrainScheduler.cancel|cancel(kotlin.String){}[0]

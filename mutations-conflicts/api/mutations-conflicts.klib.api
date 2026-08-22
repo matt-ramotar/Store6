@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:mutations-conflicts>
+// Library unique name: <Store6:mutations-conflicts>
 final enum class org.mobilenativefoundation.store6.mutations.conflicts/MutationConflictBias : kotlin/Enum<org.mobilenativefoundation.store6.mutations.conflicts/MutationConflictBias> { // org.mobilenativefoundation.store6.mutations.conflicts/MutationConflictBias|null[0]
     enum entry MINE // org.mobilenativefoundation.store6.mutations.conflicts/MutationConflictBias.MINE|null[0]
     enum entry THEIRS // org.mobilenativefoundation.store6.mutations.conflicts/MutationConflictBias.THEIRS|null[0]
