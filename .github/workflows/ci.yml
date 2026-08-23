@@ -105,6 +105,23 @@ jobs:
         run: |
           echo "VERSION_NAME=$(grep -w 'VERSION_NAME' gradle.properties | cut -d'=' -f2)" >> $GITHUB_ENV
 
+      - name: Bind version to release ref
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            if [[ "v${VERSION_NAME}" != "${GITHUB_REF_NAME}" ]]; then
+              echo "Tag ${GITHUB_REF_NAME} does not match VERSION_NAME ${VERSION_NAME}" >&2
+              exit 1
+            fi
+            if [[ "${VERSION_NAME}" == *-SNAPSHOT ]]; then
+              echo "Refusing to release a -SNAPSHOT version from a tag" >&2
+              exit 1
+            fi
+          elif [[ "${VERSION_NAME}" != *-SNAPSHOT ]]; then
+            echo "workflow_dispatch publishes snapshots only; VERSION_NAME is ${VERSION_NAME}" >&2
+            exit 1
+          fi
+
       - name: Publish to Maven Central (Central Portal)
         env:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.SONATYPE_USERNAME }}
@@ -112,8 +129,16 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
         run: |
+          set -euo pipefail
+          # The published set is the alpha01 artifact line: the ten BOM-constrained
+          # modules (bom/build.gradle.kts) plus the BOM itself. Keep this list in sync
+          # with the BOM constraints and STABILITY.md's release column; an artifact
+          # joins it in the release train that first ships it.
+          modules=(core testing sqldelight room compose graphql realtime mutations mutations-testing mutations-sqldelight bom)
+          tasks=()
           if [[ "${VERSION_NAME}" == *-SNAPSHOT ]]; then
-            ./gradlew publishToMavenCentral
+            for module in "${modules[@]}"; do tasks+=(":${module}:publishToMavenCentral"); done
           else
-            ./gradlew publishAndReleaseToMavenCentral
+            for module in "${modules[@]}"; do tasks+=(":${module}:publishAndReleaseToMavenCentral"); done
           fi
+          ./gradlew "${tasks[@]}"

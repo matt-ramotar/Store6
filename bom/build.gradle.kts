@@ -8,6 +8,8 @@ plugins {
 // out as coordinates for the same reason: the library modules leave project.group /
 // project.version at their Gradle defaults and only the publisher maps them onto the
 // property values, so a project("") constraint here would publish the wrong version.
+// VERSION_NAME lives only in the root gradle.properties, so the constraint versions
+// below and every module's publication coordinates resolve the same single value.
 
 dependencies {
     constraints {

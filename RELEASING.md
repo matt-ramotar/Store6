@@ -12,7 +12,9 @@ Publication is automated in CI; nothing is uploaded from a local machine.
 ## Preparing a release
 
 1. Set `VERSION_NAME` in `gradle.properties` to the release version (for example
-   `6.0.0-alpha01`), replacing the `-SNAPSHOT` suffix.
+   `6.0.0-alpha01`), replacing the `-SNAPSHOT` suffix. The root file is the only place
+   `VERSION_NAME` exists; module `gradle.properties` files must not reintroduce it, or
+   they shadow the root value for that module's publication coordinates.
 2. Keep `.github/workflows/store6.yml` in sync: its `klib-publication-check` job publishes
    all modules to Maven Local and then verifies the resulting artifacts against a version
    string hardcoded in the "Verify common and target publications" step. Update that string
@@ -44,13 +46,24 @@ which:
 
 1. Waits for the full `build-and-test` job to pass.
 2. Reads `VERSION_NAME` from `gradle.properties`.
-3. Publishes to Maven Central through the Central Portal using the Vanniktech Maven
-   Publish plugin wired by the tooling convention plugins: `publishToMavenCentral` when
-   the version ends in `-SNAPSHOT`, `publishAndReleaseToMavenCentral` (publish plus
-   release) otherwise. Credentials come from the workflow secrets.
+3. Binds the version to the ref: a tag build fails unless the tag is exactly
+   `v${VERSION_NAME}` and the version is not a `-SNAPSHOT`; a `workflow_dispatch` build
+   fails unless the version is a `-SNAPSHOT` (manual dispatch is the snapshot lane).
+   Tag only the merged release commit, so the published SHA is the one the release
+   pull request validated.
+4. Publishes the shipping artifacts to Maven Central through the Central Portal using
+   the Vanniktech Maven Publish plugin wired by the tooling convention plugins:
+   `publishToMavenCentral` when the version ends in `-SNAPSHOT`,
+   `publishAndReleaseToMavenCentral` (publish plus release) otherwise. The job
+   enumerates the published modules explicitly: the ten BOM-constrained artifacts plus
+   the BOM itself. Deferred modules stay unpublished until their train; when an
+   artifact joins a release, add it to the publish list in `ci.yml`, the BOM
+   constraints in `bom/build.gradle.kts`, and STABILITY.md's release column in the
+   same change. Credentials come from the workflow secrets.
 
 Artifacts become available once the Central Portal finishes validating and publishing the
-deployment.
+deployment. The `v*` tag push also runs the full Store6 matrix
+(`.github/workflows/store6.yml`) at the tagged SHA.
 
 ## After the release
 

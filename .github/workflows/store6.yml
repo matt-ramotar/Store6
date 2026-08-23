@@ -3,6 +3,7 @@ name: Store6
 on:
   push:
     branches: [ main, store6 ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main, store6 ]
     types: [ opened, synchronize, reopened, labeled, unlabeled ]
