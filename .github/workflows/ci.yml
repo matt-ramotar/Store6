@@ -52,8 +52,8 @@ jobs:
       - name: Grant execute permission for Gradlew
         run: chmod +x gradlew
 
-      - name: Build and Test
-        run: ./gradlew clean build --stacktrace
+      - name: Build and Test with Coverage
+        run: ./gradlew clean build koverXmlReport --stacktrace
 
       - name: Census — default jvmTest must execute exactly the non-Lincheck suites
         shell: bash
@@ -74,6 +74,21 @@ jobs:
             **/build/reports/tests/**
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Upload Store6 Coverage to Codecov
+        # Both the upstream repo and the matt-ramotar/Store6 development fork carry a
+        # CODECOV_TOKEN secret. Fork-of-fork PRs cannot read secrets, so uploads are
+        # enforced only for same-repo PRs and pushes. Flag `store6` keeps this family
+        # separate from upstream main's v5 `unittests` flag in the shared Codecov project.
+        if: ${{ (github.repository == 'MobileNativeFoundation/Store' || github.repository == 'matt-ramotar/Store6') && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') }}
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage/build/reports/kover/report.xml
+          flags: store6
+          name: store6-coverage
+          fail_ci_if_error: true
+          verbose: true
 
   publish:
     if: |
