@@ -41,7 +41,8 @@ import kotlin.coroutines.CoroutineContext
  * operation.
  *
  * [recordSuccess], [recordFailure], and [forget] update the process-local mirror first and absorb
- * non-cancellation failures from their persistence call. While persistence is failing, process-local
+ * storage failures from their persistence call; cooperative cancellation and virtual-machine
+ * failures (`kotlin.Error`) always propagate. While persistence is failing, process-local
  * answers stay correct. A later instance resumes from the last written record for each key, which
  * may be older than the mirror reported, or absent. The maintenance operations persist first
  * and update the mirror only after persistence succeeds, so a persistence failure leaves canonical
@@ -123,8 +124,10 @@ public class FileBookkeeper internal constructor(
                 }
             } catch (failure: CancellationException) {
                 throw failure
-            } catch (_: Throwable) {
-                // The process-local mirror remains authoritative while persistence is unavailable.
+            } catch (failure: Throwable) {
+                // kotlin.Error propagates unmasked; for storage failures the process-local
+                // mirror remains authoritative while persistence is unavailable.
+                if (failure is Error) throw failure
             }
         }
     }
@@ -155,8 +158,10 @@ public class FileBookkeeper internal constructor(
                 }
             } catch (failure: CancellationException) {
                 throw failure
-            } catch (_: Throwable) {
-                // The process-local mirror remains authoritative while persistence is unavailable.
+            } catch (failure: Throwable) {
+                // kotlin.Error propagates unmasked; for storage failures the process-local
+                // mirror remains authoritative while persistence is unavailable.
+                if (failure is Error) throw failure
             }
         }
     }
@@ -188,8 +193,10 @@ public class FileBookkeeper internal constructor(
                 }
             } catch (failure: CancellationException) {
                 throw failure
-            } catch (_: Throwable) {
-                // The process-local mirror remains authoritative while persistence is unavailable.
+            } catch (failure: Throwable) {
+                // kotlin.Error propagates unmasked; for storage failures the process-local
+                // mirror remains authoritative while persistence is unavailable.
+                if (failure is Error) throw failure
             }
         }
     }

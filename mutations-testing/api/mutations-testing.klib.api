@@ -6,7 +6,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:mutations-testing>
+// Library unique name: <Store6:mutations-testing>
 final enum class org.mobilenativefoundation.store6.mutations.testing/JournalStorageKillPoint : kotlin/Enum<org.mobilenativefoundation.store6.mutations.testing/JournalStorageKillPoint> { // org.mobilenativefoundation.store6.mutations.testing/JournalStorageKillPoint|null[0]
     enum entry AFTER_PRUNE_COMMIT // org.mobilenativefoundation.store6.mutations.testing/JournalStorageKillPoint.AFTER_PRUNE_COMMIT|null[0]
     enum entry AFTER_RETIREMENT_FINALIZATION_COMMIT // org.mobilenativefoundation.store6.mutations.testing/JournalStorageKillPoint.AFTER_RETIREMENT_FINALIZATION_COMMIT|null[0]

@@ -29,8 +29,9 @@ import kotlin.coroutines.cancellation.CancellationException
  *
  * [recordSuccess], [recordFailure], and [forget] absorb non-cancellation storage failures.
  * [status] treats a non-cancellation storage failure as unavailable status and returns null, so
- * age is unknown and the caller treats the key as stale. Cancellation always propagates.
- * Maintenance operations rethrow storage failures so their transactions remain exception-atomic.
+ * age is unknown and the caller treats the key as stale. Cancellation and virtual-machine failures
+ * (kotlin.Error) always propagate. Maintenance operations rethrow storage failures so their
+ * transactions remain exception-atomic.
  */
 @ExperimentalStoreApi
 @OptIn(DelicateStoreApi::class)
@@ -72,7 +73,10 @@ public class SqlDelightBookkeeper(
             }
         } catch (exception: CancellationException) {
             throw exception
-        } catch (_: Throwable) {
+        } catch (failure: Throwable) {
+            // Drivers throw platform-specific families (java.sql.SQLException on the JVM) with no
+            // common supertype in the SQLDelight runtime; kotlin.Error still propagates unmasked.
+            if (failure is Error) throw failure
             null
         }
     }
@@ -123,7 +127,8 @@ public class SqlDelightBookkeeper(
         try {
             block()
         } catch (exception: Throwable) {
-            if (exception is CancellationException) throw exception
+            // Storage failures stay absorbed; cancellation and kotlin.Error propagate.
+            if (exception is CancellationException || exception is Error) throw exception
         }
     }
 }

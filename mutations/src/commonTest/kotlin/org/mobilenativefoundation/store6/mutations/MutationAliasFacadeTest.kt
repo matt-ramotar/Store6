@@ -720,11 +720,21 @@ class MutationAliasFacadeTest {
                     },
             )
         }
-        val harness = aliasHarness(mutations.registry, backend)
+        val storage = InMemoryMutationJournalStorage()
+        val journal =
+            StorageBackedMutationJournal<String>(
+                storage = storage,
+                registrations = mutations.registry.registrations,
+                hydrateOnFirstUse = true,
+            )
+        val harness = aliasHarness(mutations.registry, backend, journal = journal)
         val users = harness.users
 
         try {
-            // Cross-namespace rejection: normalized PROTOCOL failure, intent halts, no adoption.
+            // Cross-namespace rejection: normalized PROTOCOL failure parked terminally. The
+            // server accepted the push but retrying cannot change its foreign-namespace
+            // answer, so the intent dead-letters instead of looping under backoff; the
+            // rejection stays pre-ack-commit and no ack row is ever recorded.
             val crossKey = MutationsTestKey("temp-x")
             val crossIntent = users.mutate(crossKey, mutations.rename, "never-adopted")
             users.drain(crossKey)
@@ -732,19 +742,46 @@ class MutationAliasFacadeTest {
             val failure = harness.engine.drainFailuresForInspection().single()
             assertEquals(MutationFailureKind.PROTOCOL, failure.kind)
             assertEquals(ALIAS_FAILURE_DETAIL_CROSS_NAMESPACE, failure.detail)
-            assertEquals(
-                listOf(crossIntent),
-                users.pending(crossKey).map(PendingIntent::mutationId),
-            )
+            assertEquals(emptyList(), users.pending(crossKey))
             assertEquals(
                 crossKey.identity(),
                 harness.engine.terminalIdentityOf(crossKey.identity()),
             )
+            val snapshot = journal.readDurableSnapshot()
+            val crossRow = snapshot.intents.single { row -> row.mutationId == crossIntent }
+            val execution =
+                snapshot.executions.single { row ->
+                    row.clientId == crossRow.clientId &&
+                        row.clientSequence == crossRow.clientSequence
+                }
+            assertEquals(
+                org.mobilenativefoundation.store6.mutations.storage.MutationExecutionPhase.PARKED,
+                execution.phase,
+            )
+            assertTrue(execution.lastAttemptAt != null)
+            assertEquals(1, execution.attempt)
+            assertTrue(
+                snapshot.acks.none { row ->
+                    row.clientId == crossRow.clientId &&
+                        row.clientSequence == crossRow.clientSequence
+                },
+            )
+            val deadLetter =
+                harness.engine.deadLetters().single { row -> row.mutationId == crossIntent }
+            assertEquals(1, deadLetter.attempts)
+            assertEquals(MutationFailureKind.PROTOCOL, deadLetter.failure.kind)
+            assertEquals(ALIAS_FAILURE_DETAIL_CROSS_NAMESPACE, deadLetter.failure.detail)
             val neverAdopted =
                 assertFailsWith<StoreException> {
                     users.get(crossKey, Freshness.LocalOnly)
                 }
             assertIs<StoreError.Missing>(neverAdopted.error)
+
+            // Exactly-once: a later drain never re-pushes the accepted generation.
+            val pushCount = backend.receivedPushes.size
+            assertEquals(1, pushCount)
+            users.drain(crossKey)
+            assertEquals(pushCount, backend.receivedPushes.size)
 
             // No canonical-id collision across namespaces: aliasing (mutations, temp-1) leaves
             // the full pair (foreign, temp-1) unrouted — durable identity is the exact pair.

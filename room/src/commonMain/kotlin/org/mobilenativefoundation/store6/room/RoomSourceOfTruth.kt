@@ -29,6 +29,15 @@ private const val DATABASE_ADMISSION_STRIPE_COUNT: Int = 64
 private const val CHILD_TRANSACTION_MUTATION_MESSAGE: String =
     "Room transaction mutations must remain sequential in the owning coroutine"
 
+private fun crossDatabaseNestingMessage(
+    heldDatabase: RoomDatabase,
+    requestedDatabase: RoomDatabase,
+): String =
+    "Cannot nest database admission for $requestedDatabase while admission is held for " +
+        "$heldDatabase: opposite-order writes across different Room databases can invert stripe " +
+        "acquisition order and hang every writer on both databases. Nest mutations within one " +
+        "database, or enforce one consistent database ordering across all coroutines."
+
 /** Bounded process-wide coordination. Hash collisions only over-serialize unrelated databases. */
 private object RoomDatabaseAdmissionCoordinator {
     private val stripes: List<Mutex> =
@@ -43,10 +52,13 @@ private object RoomDatabaseAdmissionCoordinator {
 /**
  * A coroutine-local frame for one held coordinator stripe.
  *
- * The frame deliberately stores no database. [ownerJob] lets a launched child fail before waiting
- * on its parent's stripe, while [parent] lets one coroutine nest operations on other stripes.
+ * [database] identifies which adapter holds the stripe so admission for a second database fails
+ * fast instead of risking inverted stripe acquisition. [ownerJob] lets a launched child fail
+ * before waiting on its parent's stripe, while [parent] lets one coroutine nest operations on
+ * other stripes.
  */
 private class RoomDatabaseAdmissionFrame(
+    val database: RoomDatabase,
     val stripeIndex: Int,
     var ownerJob: Job?,
     val token: Any,
@@ -199,9 +211,13 @@ private class RoomEchoTransactionFrame(
  * Room writer. A bounded global hash stripe coordinates distinct adapter instances without
  * retaining databases. A coroutine-context frame makes same-Job, same-database nesting reentrant;
  * a launched child that tries to mutate on an inherited stripe fails immediately instead of
- * deadlocking its structured parent. Transaction blocks must therefore keep Room mutations
- * sequential in their owning coroutine. Queued top-level mutations wait without retaining a Room
- * writer.
+ * deadlocking its structured parent. Entering admission for one database while the coroutine
+ * already holds admission for a different database throws [IllegalStateException] immediately:
+ * opposite-order cross-database nesting can invert stripe acquisition and hang every writer on
+ * both databases, so nested writes across different Room databases fail loudly by design,
+ * mirroring the sqldelight adapter. Transaction blocks must therefore keep Room mutations
+ * sequential in their owning coroutine and within one database. Queued top-level mutations wait
+ * without retaining a Room writer.
  *
  * When [withTransaction] wraps nested writes, nested mutations enlist in the outer transaction
  * and remain invisible to readers until the outer transaction commits. A rollback publishes no
@@ -523,17 +539,22 @@ public class RoomSourceOfTruth<K : StoreKey, V : Any>(
         val ownerJob = context[Job]
         val stripeIndex = RoomDatabaseAdmissionCoordinator.stripeIndex(database)
         val inherited = context[RoomDatabaseAdmissionFrame]
-        val held = inherited.findStripe(stripeIndex)
-        if (held != null) {
+        inherited.findHeldDatabase(database)?.let { held ->
             check(held.ownerJob === ownerJob) {
                 CHILD_TRANSACTION_MUTATION_MESSAGE
             }
             return block(held.token)
         }
+        if (inherited != null) {
+            throw IllegalStateException(
+                crossDatabaseNestingMessage(inherited.database, database),
+            )
+        }
 
         return RoomDatabaseAdmissionCoordinator.stripe(stripeIndex).withLock {
             val frame =
                 RoomDatabaseAdmissionFrame(
+                    database = database,
                     stripeIndex = stripeIndex,
                     ownerJob = currentCoroutineContext()[Job],
                     token = Any(),
@@ -545,12 +566,12 @@ public class RoomSourceOfTruth<K : StoreKey, V : Any>(
         }
     }
 
-    private fun RoomDatabaseAdmissionFrame?.findStripe(
-        stripeIndex: Int,
+    private fun RoomDatabaseAdmissionFrame?.findHeldDatabase(
+        requested: RoomDatabase,
     ): RoomDatabaseAdmissionFrame? {
         var candidate = this
         while (candidate != null) {
-            if (candidate.stripeIndex == stripeIndex) {
+            if (candidate.database === requested) {
                 return candidate
             }
             candidate = candidate.parent

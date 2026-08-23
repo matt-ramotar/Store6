@@ -49,7 +49,11 @@ Group coordinates are unchanged: `org.mobilenativefoundation.store`. Packages ar
 | `sqldelight` | Experimental adapter (`@ExperimentalStoreApi`). Graduates to stable at 6.0.0, having run the contract kit throughout the alpha line. | alpha01, may slip one alpha |
 | `room` | Experimental adapter, same graduation. | alpha01, may slip one alpha |
 | `compose` | Experimental adapter, same graduation. | alpha01, may slip one alpha |
+| `graphql` | Experimental (`@ExperimentalStoreApi`). Fetcher integration for GraphQL operations. | alpha01 |
+| `realtime` | Experimental (`@ExperimentalStoreApi`). Server-message bindings onto stores. | alpha01 |
 | `mutations` | **Experimental, separate artifact — every public symbol is `@ExperimentalStoreApi`.** See [§8](#mutations). | alpha01 |
+| `mutations-sqldelight` | Experimental mutations-family artifact (`@ExperimentalStoreApi`). SQLDelight-backed durable journal storage. | alpha01 |
+| `mutations-testing` | Experimental mutations-family artifact (`@ExperimentalStoreApi`). Contract kits for journal storage and mutator purity, plus deterministic crash-test storage. | alpha01 |
 | `bom` | Version alignment only; no API surface of its own. | alpha01 |
 | `devtools` | Experimental (`@ExperimentalStoreApi`). | alpha02 (target) |
 | `devtools-inspector` | Experimental (`@ExperimentalStoreApi`). | alpha02 (target) |

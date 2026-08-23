@@ -151,6 +151,43 @@ class FileBookkeeperSmokeTest {
         }
 
     @Test
+    fun recordSuccess_propagatesInjectedVmFailure() =
+        runTest {
+            withFreshDirectory { directory ->
+                val bookkeeper =
+                    FileBookkeeper(
+                        directory = directory,
+                        ioContext = Dispatchers.Default,
+                        beforeDiskWriteTestGate = { throw AssertionError("injected VM failure") },
+                    )
+                val key = BookkeeperTestKey("vm-failure")
+                val meta = BookkeeperTestMeta(writtenAtEpochMillis = 10L, etag = "local")
+
+                assertFailsWith<AssertionError> {
+                    bookkeeper.recordSuccess(key, meta)
+                }
+            }
+        }
+
+    @Test
+    fun recordFailure_propagatesInjectedVmFailure() =
+        runTest {
+            withFreshDirectory { directory ->
+                val bookkeeper =
+                    FileBookkeeper(
+                        directory = directory,
+                        ioContext = Dispatchers.Default,
+                        beforeDiskWriteTestGate = { throw AssertionError("injected VM failure") },
+                    )
+                val key = BookkeeperTestKey("vm-failure")
+
+                assertFailsWith<AssertionError> {
+                    bookkeeper.recordFailure(key, atEpochMillis = 42L)
+                }
+            }
+        }
+
+    @Test
     fun markStale_propagatesInjectedWriteFailureWithoutUpdatingMirror() =
         runTest {
             withFreshDirectory { directory ->

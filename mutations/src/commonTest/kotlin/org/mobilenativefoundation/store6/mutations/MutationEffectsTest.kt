@@ -10,9 +10,11 @@ import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest as coroutineRunTest
 import org.mobilenativefoundation.store6.core.StoreNamespace
+import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJournalStorage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 class MutationEffectsTest {
@@ -79,7 +81,7 @@ class MutationEffectsTest {
     }
 
     @Test
-    fun throwingStalesFunction_poisonsAndStopsBeforeTransport() = runTest {
+    fun throwingStalesFunction_poisonsAndParksDurablyBeforeTransport() = runTest {
         val stalesFailure = IllegalStateException("stales failed")
         lateinit var effectful: MutatorRef<MutationsTestKey, String, String>
         val registry =
@@ -93,20 +95,57 @@ class MutationEffectsTest {
                     ) { _, value -> MutationPresence.Present(value) }
             }
         val backend = FakeBackend()
-        val engine = MutationEngine(registry, backend, baseReader = { "base" })
+        val storage = InMemoryMutationJournalStorage()
+        val journal =
+            StorageBackedMutationJournal<String>(
+                storage = storage,
+                registrations = registry.registrations,
+                clientId = "client-0",
+                hydrateOnFirstUse = true,
+            )
+        val engine =
+            MutationEngine(
+                registry = registry,
+                server = backend,
+                journal = journal,
+                valueCodecVersion = 1,
+                valueCodec = FixtureStringArgsCodec,
+                baseReader = { "base" },
+                clientId = "client-0",
+            )
         val key = MutationsTestKey("throwing-stales")
         val mutationId = engine.mutate(key, effectful, "pending")
 
         engine.drain(key)
 
         assertEquals(emptyList(), backend.pushedValues)
+        assertEquals(emptyList(), engine.pending(key))
+        assertTrue(engine.pendingWrites().isEmpty())
+        val deadLetter = engine.deadLetters().single()
+        assertEquals(mutationId, deadLetter.mutationId)
+        assertEquals(MutationFailureKind.PROJECTION, deadLetter.failure.kind)
+        assertEquals(DRAIN_FAILURE_DETAIL_STALES_THROW, deadLetter.failure.detail)
+        val stored = storage.transaction { transaction -> transaction.failures("client-0") }
+        val failureRow =
+            stored.single { row -> row.detail == DRAIN_FAILURE_DETAIL_STALES_THROW }
+        assertEquals(MutationFailureKind.PROJECTION, failureRow.kind)
+        val execution =
+            storage.transaction { transaction ->
+                transaction.executions("client-0").single()
+            }
         assertEquals(
-            listOf(mutationId),
-            engine.pending(key).map(PendingIntent::mutationId),
+            org.mobilenativefoundation.store6.mutations.storage.MutationExecutionPhase.PARKED,
+            execution.phase,
         )
+        assertEquals(failureRow.failureId, execution.activeFailureId)
+        // The exact throwable stays an in-process report; it never crosses restart.
         val poisoned = engine.poisoned.first()
         assertEquals(mutationId, poisoned.mutationId)
         assertSame(stalesFailure, poisoned.failure)
+        // The park is terminal: a later drain neither pushes nor revives the intent.
+        engine.drain(key)
+        assertEquals(emptyList(), backend.pushedValues)
+        assertEquals(1, engine.deadLetters().size)
     }
 
     @Test

@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:realtime>
+// Library unique name: <Store6:realtime>
 sealed interface <#A: out org.mobilenativefoundation.store6.core/StoreKey, #B: out kotlin/Any> org.mobilenativefoundation.store6.realtime/RealtimeMessage { // org.mobilenativefoundation.store6.realtime/RealtimeMessage|null[0]
     final class <#A1: out org.mobilenativefoundation.store6.core/StoreKey, #B1: out kotlin/Any> Upsert : org.mobilenativefoundation.store6.realtime/RealtimeMessage<#A1, #B1> { // org.mobilenativefoundation.store6.realtime/RealtimeMessage.Upsert|null[0]
         constructor <init>(#A1, #B1, kotlin/String?) // org.mobilenativefoundation.store6.realtime/RealtimeMessage.Upsert.<init>|<init>(1:0;1:1;kotlin.String?){}[0]

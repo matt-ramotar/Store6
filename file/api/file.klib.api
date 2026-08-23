@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:file>
+// Library unique name: <Store6:file>
 final enum class org.mobilenativefoundation.store6.file/FileCorruptionPolicy : kotlin/Enum<org.mobilenativefoundation.store6.file/FileCorruptionPolicy> { // org.mobilenativefoundation.store6.file/FileCorruptionPolicy|null[0]
     enum entry PROPAGATE // org.mobilenativefoundation.store6.file/FileCorruptionPolicy.PROPAGATE|null[0]
     enum entry QUARANTINE // org.mobilenativefoundation.store6.file/FileCorruptionPolicy.QUARANTINE|null[0]

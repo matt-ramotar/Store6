@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:mutations-drain-meeseeks>
+// Library unique name: <Store6:mutations-drain-meeseeks>
 final class org.mobilenativefoundation.store6.mutations.drain.meeseeks/MeeseeksDrainScheduler : org.mobilenativefoundation.store6.mutations.drain/DrainScheduler { // org.mobilenativefoundation.store6.mutations.drain.meeseeks/MeeseeksDrainScheduler|null[0]
     constructor <init>(kotlin/Function0<dev.mattramotar.meeseeks.runtime/BGTaskManager>) // org.mobilenativefoundation.store6.mutations.drain.meeseeks/MeeseeksDrainScheduler.<init>|<init>(kotlin.Function0<dev.mattramotar.meeseeks.runtime.BGTaskManager>){}[0]
 

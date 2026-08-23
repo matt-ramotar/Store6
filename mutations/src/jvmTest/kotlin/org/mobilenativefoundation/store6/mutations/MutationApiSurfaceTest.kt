@@ -66,8 +66,8 @@ class MutationApiSurfaceTest {
                     (byte.toInt() and 0xff).toString(radix = 16).padStart(length = 2, padChar = '0')
                 }
         assertTrue(
-            dumpSha256 == "a8a8ba1b9afb42dde7bb9e6fcd291581164c40ab68dba30521fb5605a5a6a1cd",
-            "Committed KLib dump differs from the 28cbd6b2 baseline: $dumpSha256",
+            dumpSha256 == "da41e93f200ca0dc66c7e7890a80ff4cfd8617f073e7bc89a00ab0c4fa38c286",
+            "Committed KLib dump differs from the da72d908 T0.3 baseline: $dumpSha256",
         )
     }
 }

@@ -79,7 +79,9 @@ public sealed interface RealtimeMessage<out K : StoreKey, out V : Any> {
      * A destructive removal, identical to `Store.clear(key)`.
      *
      * On return the resident value is gone. Active streams observe the absent-value transition
-     * and then refetched data.
+     * and then refetched data. While the removal is in flight, an active collector may receive
+     * one queued duplicate data frame; under a fast refetch that frame may carry the refetched
+     * value and interleave with the loading transition.
      */
     @ExperimentalStoreApi
     public class Deleted<out K : StoreKey>(

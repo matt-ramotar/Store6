@@ -6,7 +6,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:testing>
+// Library unique name: <Store6:testing>
 abstract class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit { // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit|null[0]
     constructor <init>() // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.<init>|<init>(){}[0]
 

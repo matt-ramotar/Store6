@@ -2917,7 +2917,7 @@ public enum Skie {
 
     }
 
-    public typealias Store5__mutations = Store6MutationsSkie.Skie.Mutations
+    public typealias Store6__mutations = Store6MutationsSkie.Skie.Mutations
 
     public enum Core {
 
@@ -2943,7 +2943,7 @@ public enum Skie {
 
     }
 
-    public typealias Store5__core = Store6MutationsSkie.Skie.Core
+    public typealias Store6__core = Store6MutationsSkie.Skie.Core
 
 }
 

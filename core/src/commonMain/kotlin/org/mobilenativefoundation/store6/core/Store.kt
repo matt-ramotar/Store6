@@ -116,6 +116,10 @@ public interface Store<K : StoreKey, out V : Any> {
      * On return, the resident value is gone: active streams observe the absent-value transition
      * ([StoreResult.Loading]) and then refetched data, and an in-flight fetch that started
      * before the clear can no longer commit — its waiters observe [StoreError.Missing].
+     * While the call is in flight, an active collector may receive one queued duplicate
+     * [StoreResult.Data] frame; under a fast refetch that frame may carry the refetched value
+     * and interleave with the [StoreResult.Loading] transition. A stream started after clear
+     * returns never replays pre-clear data.
      *
      * Removal includes the configured source-of-truth row and its freshness bookkeeping for
      * [key].

@@ -607,6 +607,11 @@ __attribute__((swift_name("Fetcher")))
 - (void)fetchKey:(id<Store6CoreStoreKey>)key etag:(NSString * _Nullable)etag completionHandler:(void (^)(id<Store6CoreFetcherResult> _Nullable, NSError * _Nullable))completionHandler __attribute__((swift_name("fetch(key:etag:completionHandler:)")));
 @end
 
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
 __attribute__((swift_name("FetcherResult")))
 @protocol Store6CoreFetcherResult
 @required

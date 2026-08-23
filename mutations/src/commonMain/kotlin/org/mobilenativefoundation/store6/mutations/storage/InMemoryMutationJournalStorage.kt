@@ -1273,25 +1273,24 @@ private fun ByteArray?.contentEqualsNullable(other: ByteArray?): Boolean =
     }
 
 private fun String.truncateUtf8(maxBytes: Int): String {
-    if (encodeToByteArray().size <= maxBytes) return this
-    val result = StringBuilder()
+    var usedBytes = 0
     var index = 0
     while (index < length) {
-        val current = this[index]
-        val width =
-            if (
-                current in '\uD800'..'\uDBFF' &&
+        val character = this[index]
+        val isSurrogatePair =
+            character in '\uD800'..'\uDBFF' &&
                 index + 1 < length &&
                 this[index + 1] in '\uDC00'..'\uDFFF'
-            ) {
-                2
-            } else {
-                1
+        val codePointBytes =
+            when {
+                isSurrogatePair -> 4
+                character.code < 0x80 -> 1
+                character.code < 0x800 -> 2
+                else -> 3
             }
-        val next = substring(index, index + width)
-        if ((result.toString() + next).encodeToByteArray().size > maxBytes) break
-        result.append(next)
-        index += width
+        if (usedBytes + codePointBytes > maxBytes) break
+        usedBytes += codePointBytes
+        index += if (isSurrogatePair) 2 else 1
     }
-    return result.toString()
+    return substring(0, index)
 }

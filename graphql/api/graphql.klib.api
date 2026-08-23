@@ -5,7 +5,7 @@
 // - Show manifest properties: true
 // - Show declarations: true
 
-// Library unique name: <Store5:graphql>
+// Library unique name: <Store6:graphql>
 abstract fun interface <#A: kotlin/Any> org.mobilenativefoundation.store6.graphql/GraphQlExecutor { // org.mobilenativefoundation.store6.graphql/GraphQlExecutor|null[0]
     abstract suspend fun execute(org.mobilenativefoundation.store6.graphql/GraphQlRequest): org.mobilenativefoundation.store6.graphql/GraphQlExecutorResult<#A> // org.mobilenativefoundation.store6.graphql/GraphQlExecutor.execute|execute(org.mobilenativefoundation.store6.graphql.GraphQlRequest){}[0]
 }
