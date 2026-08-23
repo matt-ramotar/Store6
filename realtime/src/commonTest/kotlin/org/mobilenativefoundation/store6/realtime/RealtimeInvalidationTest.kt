@@ -19,6 +19,7 @@ import org.mobilenativefoundation.store6.testing.FakeStoreInteraction
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.fail
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -135,7 +136,9 @@ class RealtimeInvalidationTest {
                                 )
                             }
                         is StoreResult.Loading -> Unit
-                        else -> {}
+                        // RecordingFetcher always succeeds and the in-memory SoT cannot fail,
+                        // so any other result kind is a real defect, not scheduler noise.
+                        else -> fail("unexpected result kind: $frame")
                     }
                 }
                 assertEquals(2, fetcher.fetches)

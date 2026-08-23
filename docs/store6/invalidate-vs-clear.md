@@ -64,8 +64,10 @@ fun observeUser(
 ## What clear does
 
 `clear(key)` destructively removes the value. On return the resident value is gone: active streams
-observe the absent-value transition (a `Loading` frame) and then refetched data. Removal includes
-the configured source-of-truth row and its freshness bookkeeping.
+observe the absent-value transition (a `Loading` frame) and then refetched data. While the call is
+in flight, an active collector may receive one queued duplicate data frame; under a fast refetch
+that frame may carry the refetched value and interleave with the `Loading` transition. Removal
+includes the configured source-of-truth row and its freshness bookkeeping.
 
 Two properties matter here:
 
