@@ -25,6 +25,7 @@ buildscript {
         classpath(libs.kotlin.gradle.plugin)
         classpath(libs.kotlin.serialization.plugin)
         classpath(libs.dokka.gradle.plugin)
+        classpath(libs.kover.gradle.plugin)
         classpath(libs.ktlint.gradle.plugin)
         classpath(libs.jacoco.gradle.plugin)
         classpath(libs.maven.publish.plugin)

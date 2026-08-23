@@ -6,6 +6,7 @@ import com.android.build.api.dsl.LibraryExtension
 import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.KotlinMultiplatform
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
+import kotlinx.kover.gradle.plugin.dsl.KoverProjectExtension
 import kotlinx.validation.ApiValidationExtension
 import kotlinx.validation.ExperimentalBCVApi
 import org.gradle.api.JavaVersion
@@ -34,6 +35,21 @@ internal fun Project.configureStore6Module() {
         apply("com.vanniktech.maven.publish")
         apply("org.jetbrains.dokka")
         apply("org.jetbrains.kotlinx.binary-compatibility-validator")
+        apply("org.jetbrains.kotlinx.kover")
+    }
+
+    // Kover's on-the-fly agent must not attach to the scheduled full mutations JVM
+    // suite: Lincheck performs its own bytecode transformation (agent-conflict risk)
+    // and that hosted lane already runs ~3h. Only store6-full-jvm.yml passes
+    // -Pstore6.fullJvmSuite; every other lane keeps coverage instrumentation.
+    if (providers.gradleProperty("store6.fullJvmSuite").isPresent) {
+        extensions.configure<KoverProjectExtension> {
+            currentProject {
+                instrumentation {
+                    disabledForTestTasks.add("jvmTest")
+                }
+            }
+        }
     }
 
     extensions.configure<ApiValidationExtension> {

@@ -6,6 +6,14 @@ coverage:
 comment:
   layout: diff, files
 
+# Uploads from this tree carry flag `store6` (the store6 library family,
+# aggregated by :coverage). Upstream main's v5 lane uploads flag `unittests`.
+# Carryforward keeps each flag's last-known coverage when a commit uploads
+# only the other flag.
+flag_management:
+  default_rules:
+    carryforward: true
+
 ignore:
   - "**/fake"
   - "**/commonTest"
@@ -13,3 +21,11 @@ ignore:
   - "**/iOSTest"
   - "**/jsTest"
   - "**/jvmTest"
+  - "quickstart/**"
+  - "mutations-quickstart/**"
+  - "benchmarks/**"
+  - "extension-probe/**"
+  - "swift-dumps/**"
+  - "compose-demo/**"
+  - "devtools-demo/**"
+  - "**/sample/**"
