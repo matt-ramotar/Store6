@@ -1,66 +1,43 @@
-<img src=".github/images/hero-light.svg" width="100%"/>
+<img src=".github/images/hero-light.svg" alt="Store" width="100%"/>
 
-# Store5
+# Store
 
-[![codecov](https://codecov.io/gh/MobileNativeFoundation/Store/branch/main/graph/badge.svg?token=0UCmG3QHPf)](https://codecov.io/gh/MobileNativeFoundation/Store)
+[![codecov](https://codecov.io/gh/matt-ramotar/Store6/branch/store6/graph/badge.svg?token=OUZ4TB2VXW)](https://codecov.io/gh/matt-ramotar/Store6)
 
-## Store 6
+Store is a Kotlin Multiplatform library for reading and writing data that lives in more than one
+place: a network, a local database, and memory. You describe a key and a fetcher. Store handles
+single-flighting, staleness, invalidation, and bounded memory, and it covers each default behavior
+with a conformance test you can read.
 
-Store 6 is the next major line, published under `store6-*` coordinates alongside Store 5 for the
-whole 6.x major. It is a Kotlin Multiplatform library for reading and writing data that lives in
-more than one place: a network, a local database, and memory. You describe a key and a fetcher, and
-Store handles single-flighting concurrent demand, staleness, invalidation, and bounded memory, with
-every zero-config behavior named and covered by a conformance test you can read.
+Store 5 is the current release line. Store 6, the next major, is in development in this repository
+and will ship under separate `store6-*` coordinates, so Store 5 keeps publishing through the 6.x
+major. Nothing 6.x is published yet: the first release will be `6.0.0-alpha01`, with
+`store6-mutations` experimental. [STABILITY.md](STABILITY.md) sets out the API tiers, deprecation
+cycle, and release cadence; [ROADMAP.md](ROADMAP.md) is the public roadmap.
 
-**Status: in development, targeting 6.0.0-alpha01.** Nothing is published yet.
+## Documentation
 
-Two things about the first alpha, stated up front rather than discovered later:
+Guides and API reference: [store.mobilenativefoundation.org](https://store.mobilenativefoundation.org)
 
-- **Mutations ship experimental.** `store6-mutations` is a separate artifact and every public symbol
-  is `@ExperimentalStoreApi`. The tier is on the artifact, never annotation-gated inside a stable
-  one.
-- **Mutations ship the two-step durable ack posture.** The non-transactional acknowledgement path
-  adopts the server echo first and retires the journal row last, so a crash inside that window
-  leaves a replayable pending intent rather than losing the write. The consequence is that the same
-  push can be re-sent after such a crash, so design those endpoints to be idempotent. Making the ack
-  path atomic is beta01 work, not alpha01 work.
+Until the alpha ships, the Store 6 quickstart lives in-repo at
+[docs/store6/quickstart.md](docs/store6/quickstart.md).
 
-The full policy — API tiers, the deprecation cycle, the cadence commitment, and how you can verify
-all of it from a released tag — is in [STABILITY.md](./STABILITY.md). The public roadmap is at
-[ROADMAP.md](./ROADMAP.md), and the quickstart is at
-[docs/store6/quickstart.md](./docs/store6/quickstart.md).
+## Getting Help
 
----
+Ask in the [#store](https://kotlinlang.slack.com/archives/C06007Z01HU) channel on the Kotlin Slack.
 
-#### Documentation
+## Contributing
 
-Comprehensive guides, tutorials, and API reference: [store.mobilenativefoundation.org](https://store.mobilenativefoundation.org).
+We welcome contributions; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-#### Getting Started
-
-1. Start with the [Quickstart](https://store.mobilenativefoundation.org/docs/quickstart) to build your first Store.
-2. Dive into [Store Foundations](https://store.mobilenativefoundation.org/docs/concepts) to learn how Store works.
-3. Check out [Handling CRUD](https://store.mobilenativefoundation.org/docs/use-cases/store5/setting-up-store-for-crud-operations) for an advanced guide on supporting create, read, update, and delete operations.
-
-#### Getting Help
-
-Join our community in the [#store](https://kotlinlang.slack.com/archives/C06007Z01HU) channel on the official Kotlin Slack.
-
-#### Getting Involved
-
-Store has a vibrant community of contributors. We welcome contributions of all kinds. Please see our [Contributing Guidelines](CONTRIBUTING.md) for more information on how to get involved.
-
-#### Backed By
+## Backed By
 
 <div style="display: flex; align-items: center; gap: 20px;">
-    <img src=".github/images/mobile-native-foundation.png" width="200"/>
-    <img src=".github/images/kotlin-foundation.png" width="200"/>
+    <img src=".github/images/mobile-native-foundation.png" alt="Mobile Native Foundation" width="200"/>
+    <img src=".github/images/kotlin-foundation.png" alt="Kotlin Foundation" width="200"/>
 </div>
 
-#### License
+## License
 
-```text
-Copyright (c) 2024 Mobile Native Foundation.
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-```
+Copyright (c) 2024 Mobile Native Foundation. Licensed under the Apache License, Version 2.0; see
+[LICENSE](LICENSE).
