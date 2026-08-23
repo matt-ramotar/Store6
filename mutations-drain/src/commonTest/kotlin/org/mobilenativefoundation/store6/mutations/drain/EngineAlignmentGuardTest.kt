@@ -40,7 +40,13 @@ class EngineAlignmentGuardTest {
         try {
             waitUntilCurrent { events.any { it is DrainPassCompleted } }
             store.mutate(DrainTestKey("alignment"), fixture.appendRef, "+aligned")
-            waitUntilCurrent { store.pendingWrites().singleOrNull()?.attempt == 1 }
+            // The engine advances attempt counters on Dispatchers.Default while scheduler
+            // events reach the collector only on the test dispatcher, so every wait must
+            // pin the event counts its assertions read, not just the attempt counter.
+            waitUntilCurrent {
+                store.pendingWrites().singleOrNull()?.attempt == 1 &&
+                    events.scheduledDelays().size == 1
+            }
 
             var attempt = store.pendingWrites().single().attempt
             assertEquals(1, attempt)
@@ -53,7 +59,11 @@ class EngineAlignmentGuardTest {
 
                 fixture.nowMillis += delay.inWholeMilliseconds
                 testScheduler.advanceTimeBy(delay)
-                waitUntilCurrent { store.pendingWrites().singleOrNull()?.attempt == attempt + 1 }
+                waitUntilCurrent {
+                    store.pendingWrites().singleOrNull()?.attempt == attempt + 1 &&
+                        events.activationStarts() == startsBefore + 1 &&
+                        events.scheduledDelays().size == schedulesBefore + 1
+                }
 
                 val nextAttempt = store.pendingWrites().single().attempt
                 assertEquals(attempt + 1, nextAttempt)
@@ -70,7 +80,11 @@ class EngineAlignmentGuardTest {
 
             fixture.nowMillis += finalDelay.inWholeMilliseconds
             testScheduler.advanceTimeBy(finalDelay)
-            waitUntilCurrent { store.pendingWrites().isEmpty() }
+            waitUntilCurrent {
+                store.pendingWrites().isEmpty() &&
+                    events.activationStarts() == startsBeforeClear + 1 &&
+                    events.activationCancellations() == cancellationsBeforeClear + 1
+            }
 
             assertEquals(startsBeforeClear + 1, events.activationStarts())
             assertEquals(cancellationsBeforeClear + 1, events.activationCancellations())
