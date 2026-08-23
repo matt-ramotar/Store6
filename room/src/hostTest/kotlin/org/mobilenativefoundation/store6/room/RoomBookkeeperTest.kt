@@ -243,6 +243,41 @@ class RoomBookkeeperTest {
         }
     }
 
+    @Test
+    fun status_plainExceptionStorageFailure_returnsNull(): TestResult = runTest {
+        val database = createTestDatabase()
+        try {
+            val bookkeeper =
+                RoomBookkeeper(
+                    database,
+                    ThrowingOnRecordDao(Exception("non-runtime driver failure")),
+                )
+
+            assertNull(bookkeeper.status(TestKey(namespace = "non-runtime-fail", id = "key")))
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun recordSuccess_plainExceptionStorageFailure_absorbed(): TestResult = runTest {
+        val database = createTestDatabase()
+        try {
+            val bookkeeper =
+                RoomBookkeeper(
+                    database,
+                    ThrowingOnRecordDao(Exception("non-runtime driver failure")),
+                )
+
+            bookkeeper.recordSuccess(
+                TestKey(namespace = "non-runtime-fail-success", id = "key"),
+                TestStoreMeta(1L, "e1"),
+            )
+        } finally {
+            database.close()
+        }
+    }
+
     private class TestKey(
         namespace: String,
         private val id: String,

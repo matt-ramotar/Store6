@@ -145,9 +145,11 @@ public class RoomBookkeeper(
         } catch (_: CancellationException) {
             currentCoroutineContext().ensureActive()
             null
-        } catch (_: RuntimeException) {
-            // androidx.sqlite driver and Room pool failures extend RuntimeException; kotlin.Error
-            // propagates so virtual-machine failures are never reported as stale-unknown.
+        } catch (failure: Throwable) {
+            // Storage failures stay absorbed — a custom SQLiteDriver may surface exceptions
+            // outside RuntimeException; kotlin.Error propagates so virtual-machine failures
+            // are never reported as stale-unknown.
+            if (failure is Error) throw failure
             null
         }
     }
@@ -232,9 +234,11 @@ public class RoomBookkeeper(
             block()
         } catch (_: CancellationException) {
             currentCoroutineContext().ensureActive()
-        } catch (_: RuntimeException) {
+        } catch (failure: Throwable) {
             // The Bookkeeper contract makes operational writes infallible for storage failures;
-            // androidx.sqlite failures extend RuntimeException, while kotlin.Error propagates.
+            // a custom SQLiteDriver may surface exceptions outside RuntimeException, while
+            // kotlin.Error propagates.
+            if (failure is Error) throw failure
         }
     }
 
