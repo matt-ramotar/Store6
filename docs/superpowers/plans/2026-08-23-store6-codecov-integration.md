@@ -605,3 +605,46 @@ The plan's "Background facts" were derived from the fork's `main` branch (`5a8c9
 - **.codecov.yml ignores** use the unprefixed paths (`quickstart/**`, `benchmarks/**`, …).
 - **Codecov default branch (new HITL step):** the Codecov API showed the repo tracking `branch: main`; with development on `store6`, Matt should set Default Branch = `store6` in Codecov → Settings → General for the dashboard to reflect the baseline.
 - **Flake sighting during round-1 verification (registered, out of scope):** `RealtimeInvalidationTest.deleted_emitsLoadingThenRefetch[jvm]` failed once with a value-shaped ComparisonFailure under the newly-attached Kover agent, passed on re-execution; likely agent-as-unmasker of the fenced-clear race the test documents. Follow-up task filed. Round 2 (on `store6`) ran the same suite green.
+
+---
+
+## Follow-on pass (2026-08-24, appended — never inserted): components, PR statuses, badge
+
+Two of this plan's "Out of scope / follow-ups" bullets were subsequently requested as goal
+scope ("Codecov for PRs … including PRs, components, badges") and are now executed on top of
+the merged `store6` tree (`9d68f4db`, PR #74). Verified live state before the pass: Codecov
+repo `activated: true`, default branch `store6`, flag `store6` at 87.39% over 150 files,
+`CODECOV_TOKEN` present, Codecov GitHub App installed (it commented on PR #74).
+
+- **Components (new).** One component per published artifact, mirroring the 19 `kover(...)`
+  dependencies in `coverage/build.gradle.kts` one-for-one. Verified against the real file list:
+  under Codecov's matcher every non-ignored source file lands in exactly one component and
+  none is left unassigned.
+  - *Anchoring check:* the validator compiles `core/**` to `(?s:core/.*)\Z` — end-anchored
+    only. Codecov's `shared/utils/match.py` applies these with `pattern.match(s)`, which
+    anchors at the start, so sibling prefixes stay separate. This is load-bearing: under
+    search semantics `mutations/**` would silently absorb 41 files from `mutations-conflicts`,
+    `mutations-drain`, `mutations-sqldelight`, and `mutations-testing`, and `compose/**` would
+    absorb `devtools-inspector`'s `.../devtools/compose/` files. Do not "simplify" these globs.
+  - Components carry **no statuses** (`default_rules.statuses: []`): 19 extra required checks
+    per PR would drown the signal. They exist to break the single `store6` number down per
+    artifact in the PR comment and to filter the Codecov UI.
+- **PR statuses (supersedes the "thresholds/status gates" bullet, partially).** `project`
+  (target auto, threshold 1%) and `patch` (target 80%) are now declared but **both
+  `informational: true`** — they report on every PR and never block. Rationale: Kover
+  instruments JVM bytecode only, so a PR adding Apple/Linux/JS/wasm source shows near-zero
+  patch coverage for a reason its author cannot fix. The ratchet decision the original bullet
+  deferred is still deferred; flipping either to `informational: false` remains deliberate and
+  separate.
+- **`github_checks.annotations: false`** for the same JVM-only reason — annotating every added
+  native line as uncovered is true of the report and useless as review signal.
+- **Badge (supersedes the "README coverage badge" bullet).** `README.md:5` pointed at
+  `MobileNativeFoundation/Store` branch `main` with the upstream token — wrong repo and wrong
+  branch for this tree, and it rendered upstream's number. Now the fork's own badge on branch
+  `store6`, verified live at 87% (HTTP 200), linking to the fork's Codecov tree view. The
+  "upstream merge noise" concern that deferred this is void on a branch where v5 is excised.
+- **Comment layout** widened from `diff, files` to `header, diff, components, flags, files`
+  with `require_changes: false`, so the per-artifact breakdown actually reaches the PR.
+
+Deliberately still out of scope: codecov-action v5 upgrade; non-JVM coverage; coverage in the
+`store6.yml` lanes; blocking status gates.

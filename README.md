@@ -2,7 +2,7 @@
 
 # Store6
 
-[![codecov](https://codecov.io/gh/MobileNativeFoundation/Store/branch/main/graph/badge.svg?token=0UCmG3QHPf)](https://codecov.io/gh/MobileNativeFoundation/Store)
+[![codecov](https://codecov.io/gh/matt-ramotar/Store6/branch/store6/graph/badge.svg?token=OUZ4TB2VXW)](https://app.codecov.io/gh/matt-ramotar/Store6/tree/store6)
 
 ## Store 6
 
