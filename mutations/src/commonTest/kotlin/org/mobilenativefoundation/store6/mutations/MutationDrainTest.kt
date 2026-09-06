@@ -13,6 +13,8 @@ import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest as coroutineRunTest
 import org.mobilenativefoundation.store6.core.StoreNamespace
+import org.mobilenativefoundation.store6.core.seam.FreshnessEvidence
+import org.mobilenativefoundation.store6.core.seam.SourceAdoption
 import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
 import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJournalStorage
 import org.mobilenativefoundation.store6.mutations.storage.MutationEffectDisposition
@@ -556,6 +558,16 @@ private class ScriptedDrainPhaseHandle : StoreWriteHandle<MutationsTestKey, Stri
     val remainingMarkStaleFailures = mutableMapOf<KeyIdentity, Int>()
     val applyAttempts = mutableListOf<KeyIdentity>()
     val markStaleAttempts = mutableListOf<KeyIdentity>()
+
+    override suspend fun applyAcknowledgement(
+        key: MutationsTestKey,
+        value: String,
+        etag: String?,
+        freshnessEvidence: FreshnessEvidence?,
+        adoption: SourceAdoption?,
+    ) {
+        apply(key, value)
+    }
 
     override suspend fun apply(
         key: MutationsTestKey,

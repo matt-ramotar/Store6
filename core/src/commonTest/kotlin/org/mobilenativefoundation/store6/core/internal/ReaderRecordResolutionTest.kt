@@ -1,5 +1,6 @@
 package org.mobilenativefoundation.store6.core.internal
 
+import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.Origin
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -7,6 +8,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 
+@OptIn(ExperimentalStoreApi::class)
 class ReaderRecordResolutionTest {
     @Test
     fun sameGenerationAndRevisionRow_resolvesTheLiveEqualResidence() {

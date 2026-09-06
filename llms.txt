@@ -2,11 +2,12 @@
 
 > Store 6 is a Kotlin Multiplatform library for reading and writing data that lives in more than one
 > place: a network, a local database, and memory. You describe a key and a fetcher; Store handles
-> single-flighting concurrent demand, staleness, invalidation, and bounded memory. Every zero-config
-> behavior is named and covered by a conformance test. Published as `core`, `testing`, `mutations`,
-> and the other Store 6 artifacts in the group `org.mobilenativefoundation.store`, side by side with
+> single-flighting concurrent demand, staleness, invalidation, and bounded idle-engine residency.
+> The default in-memory source of truth and bookkeeper retain per-key records without that bound. Every zero-config
+> behavior is named and covered by a conformance test. The coordinates for `core`, `testing`, `mutations`,
+> and the other Store 6 artifacts use the group `org.mobilenativefoundation.store`, side by side with
 > Store 5 for the whole 6.x major.
-> Status: in development, targeting 6.0.0-alpha01. Nothing is published yet.
+> Status: in development, targeting 6.0.0-alpha01. The alpha artifacts are not yet available from Maven Central.
 
 ## Start
 

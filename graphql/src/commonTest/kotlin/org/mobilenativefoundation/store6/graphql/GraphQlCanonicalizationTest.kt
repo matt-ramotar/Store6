@@ -6,6 +6,7 @@ import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotEquals
 
 class GraphQlCanonicalizationTest {
@@ -263,6 +264,211 @@ class GraphQlCanonicalizationTest {
     fun values_intAndFloatAreDistinct() {
         assertNotEquals<GraphQlValue>(GraphQlValue.IntValue(1), GraphQlValue.FloatValue(1.0))
         assertEquals<GraphQlValue>(GraphQlValue.IntValue(1), GraphQlValue.IntValue(1))
+    }
+
+    @Test
+    fun values_signedZeroIsStoredAsPositiveZero() {
+        assertEquals(0.0.toBits(), GraphQlValue.FloatValue(0.0).value.toBits())
+        assertEquals(0.0.toBits(), GraphQlValue.FloatValue(-0.0).value.toBits())
+    }
+
+    @Test
+    fun values_signedZeroHasEqualHashCodes() {
+        val positive = GraphQlValue.FloatValue(0.0)
+        val negative = GraphQlValue.FloatValue(-0.0)
+
+        assertEquals(positive, negative)
+        assertEquals(negative, positive)
+        assertEquals(positive.hashCode(), negative.hashCode())
+    }
+
+    @Test
+    fun variables_signedZeroHasEqualHashCodes() {
+        val positive = graphQlVariables { put("value", 0.0) }
+        val negative = graphQlVariables { put("value", -0.0) }
+
+        assertEquals(positive, negative)
+        assertEquals(positive.hashCode(), negative.hashCode())
+    }
+
+    @Test
+    fun operationKeys_signedZeroHasEqualHashCodes() {
+        val positive = GraphQlOperationKey("Q", graphQlVariables { put("value", 0.0) })
+        val negative = GraphQlOperationKey("Q", graphQlVariables { put("value", -0.0) })
+
+        assertEquals(positive, negative)
+        assertEquals(positive.hashCode(), negative.hashCode())
+    }
+
+    @Test
+    fun canonicalId_signedZeroHasOneFloatIdentity() {
+        val positive = GraphQlOperationKey("Q", graphQlVariables { put("value", 0.0) })
+        val negative = GraphQlOperationKey("Q", graphQlVariables { put("value", -0.0) })
+
+        assertEquals("Q({\"value\":0.0})", positive.canonicalId())
+        assertEquals(positive.canonicalId(), negative.canonicalId())
+    }
+
+    @Test
+    fun values_signedZeroDeduplicatesInHashSetsThroughOperationKeys() {
+        val positive: GraphQlValue = GraphQlValue.FloatValue(0.0)
+        val negative: GraphQlValue = GraphQlValue.FloatValue(-0.0)
+        val positiveVariables = GraphQlVariables(mapOf("value" to positive))
+        val negativeVariables = GraphQlVariables(mapOf("value" to negative))
+        val positiveKey = GraphQlOperationKey("Q", positiveVariables)
+        val negativeKey = GraphQlOperationKey("Q", negativeVariables)
+
+        assertEquals(hashSetOf(positive), hashSetOf(negative))
+        assertEquals(1, hashSetOf(positive, negative).size)
+        assertEquals(hashSetOf(positiveVariables), hashSetOf(negativeVariables))
+        assertEquals(1, hashSetOf(positiveVariables, negativeVariables).size)
+        assertEquals(hashSetOf(positiveKey), hashSetOf(negativeKey))
+        assertEquals(1, hashSetOf(positiveKey, negativeKey).size)
+    }
+
+    @Test
+    fun values_nanIsRejectedAtConstructionAndByBuilders() {
+        assertNonfiniteRejected(Double.NaN)
+    }
+
+    @Test
+    fun values_positiveInfinityIsRejectedAtConstructionAndByBuilders() {
+        assertNonfiniteRejected(Double.POSITIVE_INFINITY)
+    }
+
+    @Test
+    fun values_negativeInfinityIsRejectedAtConstructionAndByBuilders() {
+        assertNonfiniteRejected(Double.NEGATIVE_INFINITY)
+    }
+
+    @Test
+    fun values_intAndWholeFloatRemainDistinctThroughOperationKeyHashSets() {
+        for (number in listOf(0L, 1L, -1L, 1_000_000L)) {
+            val integer: GraphQlValue = GraphQlValue.IntValue(number)
+            val float: GraphQlValue = GraphQlValue.FloatValue(number.toDouble())
+            val integerVariables = GraphQlVariables(mapOf("value" to integer))
+            val floatVariables = GraphQlVariables(mapOf("value" to float))
+            val integerKey = GraphQlOperationKey("Q", integerVariables)
+            val floatKey = GraphQlOperationKey("Q", floatVariables)
+
+            assertNotEquals(integer, float)
+            assertEquals(2, hashSetOf(integer, float).size)
+            assertNotEquals(integerVariables, floatVariables)
+            assertEquals(2, hashSetOf(integerVariables, floatVariables).size)
+            assertNotEquals(integerKey, floatKey)
+            assertEquals(2, hashSetOf(integerKey, floatKey).size)
+        }
+    }
+
+    @Test
+    fun canonicalId_intAndWholeFloatRemainDistinct() {
+        for (number in listOf(0L, 1L, -1L, 1_000_000L)) {
+            val integer = GraphQlOperationKey("Q", graphQlVariables { put("value", number) })
+            val float = GraphQlOperationKey("Q", graphQlVariables { put("value", number.toDouble()) })
+
+            assertEquals("Q({\"value\":$number})", integer.canonicalId())
+            assertEquals("Q({\"value\":$number.0})", float.canonicalId())
+            assertNotEquals(integer.canonicalId(), float.canonicalId())
+        }
+    }
+
+    @Test
+    fun values_finiteFloatsRetainTheirValueAndStructuralIdentity() {
+        for (number in listOf(Double.MIN_VALUE, -Double.MIN_VALUE, Double.MAX_VALUE, -Double.MAX_VALUE, 1.5, -1.5)) {
+            val first: GraphQlValue = GraphQlValue.FloatValue(number)
+            val second = GraphQlValue.FloatValue(number)
+            val firstVariables = GraphQlVariables(mapOf("value" to first))
+            val secondVariables = GraphQlVariables(mapOf("value" to second))
+            val firstKey = GraphQlOperationKey("Q", firstVariables)
+            val secondKey = GraphQlOperationKey("Q", secondVariables)
+
+            assertEquals(number.toBits(), second.value.toBits())
+            assertEquals(first, second)
+            assertEquals(first.hashCode(), second.hashCode())
+            assertEquals(1, hashSetOf(first, second).size)
+            assertEquals(firstVariables, secondVariables)
+            assertEquals(firstVariables.hashCode(), secondVariables.hashCode())
+            assertEquals(1, hashSetOf(firstVariables, secondVariables).size)
+            assertEquals(firstKey, secondKey)
+            assertEquals(firstKey.hashCode(), secondKey.hashCode())
+            assertEquals(firstKey.canonicalId(), secondKey.canonicalId())
+            assertEquals(1, hashSetOf(firstKey, secondKey).size)
+        }
+    }
+
+    @Test
+    fun canonicalId_scalarAndContainerTypesRemainDistinct() {
+        val values =
+            listOf(
+                GraphQlValue.IntValue(0),
+                GraphQlValue.FloatValue(0.0),
+                GraphQlValue.StringValue("0"),
+                GraphQlValue.StringValue("0.0"),
+                GraphQlValue.BooleanValue(false),
+                GraphQlValue.BooleanValue(true),
+                GraphQlValue.NullValue,
+                GraphQlValue.ListValue(emptyList()),
+                GraphQlValue.ObjectValue(emptyMap()),
+            )
+        val variables = values.map { GraphQlVariables(mapOf("value" to it)) }
+        val keys = variables.map { GraphQlOperationKey("Q", it) }
+
+        assertEquals(values.size, values.toHashSet().size)
+        assertEquals(values.size, variables.toHashSet().size)
+        assertEquals(values.size, keys.toHashSet().size)
+        assertEquals(values.size, keys.map { it.canonicalId() }.toHashSet().size)
+        assertNotEquals(GraphQlOperationKey("Q").canonicalId(), keys[6].canonicalId())
+    }
+
+    @Test
+    fun canonicalId_nestedSignedZeroPreservesObjectAndListSemantics() {
+        val positive =
+            graphQlVariables {
+                putObject("filter") {
+                    put("flag", true)
+                    putList("values") {
+                        add(0.0)
+                        addObject { put("zero", 0.0) }
+                        addNull()
+                    }
+                }
+            }
+        val negative =
+            graphQlVariables {
+                putObject("filter") {
+                    putList("values") {
+                        add(-0.0)
+                        addObject { put("zero", -0.0) }
+                        addNull()
+                    }
+                    put("flag", true)
+                }
+            }
+        val positiveKey = GraphQlOperationKey("Q", positive)
+        val negativeKey = GraphQlOperationKey("Q", negative)
+
+        assertEquals(positive, negative)
+        assertEquals(positive.hashCode(), negative.hashCode())
+        assertEquals(1, hashSetOf(positive, negative).size)
+        assertEquals(positiveKey, negativeKey)
+        assertEquals(positiveKey.hashCode(), negativeKey.hashCode())
+        assertEquals(1, hashSetOf(positiveKey, negativeKey).size)
+        assertEquals(positiveKey.canonicalId(), negativeKey.canonicalId())
+        assertEquals(
+            "Q({\"filter\":{\"flag\":true,\"values\":[0.0,{\"zero\":0.0},null]}})",
+            positiveKey.canonicalId(),
+        )
+    }
+
+    private fun assertNonfiniteRejected(number: Double) {
+        assertFailsWith<IllegalArgumentException> { GraphQlValue.FloatValue(number) }
+        assertFailsWith<IllegalArgumentException> { graphQlVariables { put("value", number) } }
+        assertFailsWith<IllegalArgumentException> {
+            graphQlVariables { putObject("filter") { put("value", number) } }
+        }
+        assertFailsWith<IllegalArgumentException> {
+            graphQlVariables { putList("values") { add(number) } }
+        }
     }
 
     @Test

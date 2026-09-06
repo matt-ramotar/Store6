@@ -5,8 +5,10 @@ package org.mobilenativefoundation.store6.room
 import kotlinx.coroutines.flow.map
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import org.mobilenativefoundation.store6.testing.MutationFaultPoint
 import org.mobilenativefoundation.store6.testing.SourceOfTruthContractKit
 import kotlin.test.AfterTest
+import kotlin.test.Test
 
 internal class RoomSourceOfTruthContractTest :
     SourceOfTruthContractKit<RoomKitKey, String>() {
@@ -40,6 +42,27 @@ internal class RoomSourceOfTruthContractTest :
     override val keyOtherNamespace: RoomKitKey = RoomKitKey(StoreNamespace("teams"), "a")
 
     override fun value(index: Int): String = "value-$index"
+
+    @Test
+    fun cancelledCallerOutcome() = mutations_cancelledCaller_obeyOutcome()
+
+    @Test
+    fun mutationRollback() = mutations_throwBeforeCommit_preserveRowsAndNotifications({ roomContractSourceFaultFixture() })
+
+    @Test
+    fun mutationCallerCancellation() = mutations_externalCancellationAtCommit_obeyOutcome(
+        { roomContractSourceFaultFixture() },
+        setOf(MutationFaultPoint.BeforeCommit),
+    )
+
+    @Test
+    fun transactionRollback() = transactions_throw_preserveRowsAndNotifications()
+
+    @Test
+    fun transactionCallerCancellation() = transactions_externalCancellationAtCommit_obeyOutcome(
+        { roomContractSourceFaultFixture(transactionBoundary = true) },
+        setOf(MutationFaultPoint.BeforeCommit),
+    )
 
     @AfterTest
     fun closeDatabases() {

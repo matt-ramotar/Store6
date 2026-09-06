@@ -6,6 +6,7 @@ import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import org.mobilenativefoundation.store6.testing.SourceOfTruthContractKit
+import kotlin.test.Test
 
 /**
  * Certifies the mutations-owned default [MutationSourceOfTruth] against the read-only
@@ -19,8 +20,8 @@ import org.mobilenativefoundation.store6.testing.SourceOfTruthContractKit
  * `deleteIsVisibleToLateReader`, `keysAreIsolated`, `twoConcurrentReadersBothSeeWrite`,
  * `deleteNamespaceDeletesOnlyMatchingNamespace`, `deleteNamespaceEmitsNullToActiveMatchingReader`,
  * `deleteAllDeletesEveryNamespaceAndEmitsNull`, and `readerStaysLiveAcrossNamespaceDelete`.
- * This subclass adds nothing and overrides nothing beyond the fixtures, so the kit alone owns the
- * assertions. The dedicated two-namespace key type exists because the shared `MutationsTestKey`
+ * An explicit wrapper invokes the cancelled-caller outcome check. The kit owns the assertions.
+ * The dedicated two-namespace key type exists because the shared `MutationsTestKey`
  * fixture pins one namespace and the kit requires a cross-namespace key.
  */
 @OptIn(ExperimentalStoreApi::class, DelicateStoreApi::class)
@@ -43,4 +44,7 @@ class MutationSourceOfTruthContractTest :
     override val keyOtherNamespace = ContractKey("mutations-sot-kit-other", "a")
 
     override fun value(index: Int): String = "value-$index"
+
+    @Test
+    fun cancelledCallerOutcome() = mutations_cancelledCaller_obeyOutcome()
 }

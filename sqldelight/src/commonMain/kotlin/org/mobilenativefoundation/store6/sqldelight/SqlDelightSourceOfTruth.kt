@@ -102,7 +102,7 @@ public class SqlDelightSourceOfTruth<K : StoreKey, V : Any>(
         key: K,
         value: V,
     ) {
-        driverAccess.withAccess {
+        driverAccess.withMutationAccess {
             transacter.transaction {
                 publishAfterCommit(MutationScope.Key(KeyIdentity(key)))
                 writeRow(key, value)
@@ -112,7 +112,7 @@ public class SqlDelightSourceOfTruth<K : StoreKey, V : Any>(
     }
 
     override suspend fun delete(key: K) {
-        driverAccess.withAccess {
+        driverAccess.withMutationAccess {
             transacter.transaction {
                 publishAfterCommit(MutationScope.Key(KeyIdentity(key)))
                 deleteRow(key)
@@ -122,7 +122,7 @@ public class SqlDelightSourceOfTruth<K : StoreKey, V : Any>(
     }
 
     override suspend fun deleteNamespace(namespace: StoreNamespace) {
-        driverAccess.withAccess {
+        driverAccess.withMutationAccess {
             transacter.transaction {
                 publishAfterCommit(MutationScope.Namespace(namespace.value))
                 deleteNamespaceRows(namespace)
@@ -132,7 +132,7 @@ public class SqlDelightSourceOfTruth<K : StoreKey, V : Any>(
     }
 
     override suspend fun deleteAll() {
-        driverAccess.withAccess {
+        driverAccess.withMutationAccess {
             transacter.transaction {
                 publishAfterCommit(MutationScope.All)
                 deleteAllRows()
@@ -142,7 +142,7 @@ public class SqlDelightSourceOfTruth<K : StoreKey, V : Any>(
     }
 
     override suspend fun <R> withTransaction(block: suspend () -> R): R =
-        driverAccess.withAccess {
+        driverAccess.withMutationAccess {
             val context = currentCoroutineContext()
             transacter.transactionWithResult { runNonSuspending(context, block) }
         }

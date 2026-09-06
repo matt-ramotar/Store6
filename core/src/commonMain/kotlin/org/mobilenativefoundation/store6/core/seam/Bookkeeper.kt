@@ -53,7 +53,9 @@ public interface Bookkeeper {
 
     /**
      * Returns canonical status for [key], including watermark-only staleness, or null when neither a
-     * record nor a covering watermark exists.
+     * record nor a covering watermark exists. Storage failures may throw; cooperative cancellation
+     * propagates unchanged. Failure does not establish fresh or absent metadata. Store exposes
+     * ordinary failures through its Persistence error channel and retries active observations.
      */
     public suspend fun status(key: StoreKey): KeyStatus?
 

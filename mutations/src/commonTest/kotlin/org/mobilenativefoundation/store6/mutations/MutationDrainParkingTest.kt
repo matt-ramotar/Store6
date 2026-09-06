@@ -40,6 +40,125 @@ import kotlin.time.Duration.Companion.seconds
 /** The complete pre-ack parking inventory. */
 class MutationDrainParkingTest {
     @Test
+    fun liveProjectedValueEncodeFailure_parksAndDrainsEligibleWork() = runTest {
+        assertLiveValueCodecParking(withSelector = false, reopenBeforeDrain = false)
+    }
+
+    @Test
+    fun restartedProjectedValueEncodeFailure_parksAndDrainsEligibleWork() = runTest {
+        assertLiveValueCodecParking(withSelector = false, reopenBeforeDrain = true)
+    }
+
+    @Test
+    fun liveSelectorCopyFailure_parksAndDrainsEligibleWork() = runTest {
+        assertLiveValueCodecParking(withSelector = true, reopenBeforeDrain = false)
+    }
+
+    @Test
+    fun restartedSelectorCopyFailure_parksAndDrainsEligibleWork() = runTest {
+        assertLiveValueCodecParking(withSelector = true, reopenBeforeDrain = true)
+    }
+
+    @Test
+    fun liveValueCodecCancellation_preservesUnpreparedAndPropagates() = runTest {
+        for (withSelector in listOf(false, true)) {
+            val storage = InMemoryMutationJournalStorage()
+            val mutations = ParkingMutations()
+            val backend = FakeBackend()
+            val cancelled = CancellationException("cancelled value encoding")
+            val codec = object : MutationCodec<String> {
+                override fun encode(value: String): ByteArray {
+                    if (value == "base+mine") throw cancelled
+                    return value.encodeToByteArray()
+                }
+
+                override fun decode(version: Int, bytes: ByteArray): String = bytes.decodeToString()
+            }
+            val engine =
+                openParkingEngine(
+                    storage,
+                    mutations,
+                    backend,
+                    valueCodec = codec,
+                    conflicts =
+                        if (withSelector) {
+                            MutationConflictRegistration(precondition = { it.capturedMeta }, merge = null)
+                        } else {
+                            null
+                        },
+                )
+            val key = MutationsTestKey("cancelled-value-codec")
+            val mutationId = engine.mutate(key, mutations.append, "+mine")
+
+            assertSame(cancelled, assertFailsWith<CancellationException> { engine.drain() })
+
+            val state = storedState(storage, mutationId)
+            assertEquals(StoredPhase.UNPREPARED, state.execution.phase)
+            assertEquals(0, state.execution.currentGeneration)
+            assertEquals(0, state.execution.attempt)
+            assertNull(state.execution.lastAttemptAt)
+            assertNull(state.attempt)
+            assertNull(state.activeFailure)
+            assertTrue(engine.deadLetters().isEmpty())
+            assertTrue(backend.receivedPushes.isEmpty())
+        }
+    }
+
+    @Test
+    fun preparationStorageFailure_isNotReportedAsCodecFailure() = runTest {
+        val backing = InMemoryMutationJournalStorage()
+        val storage = FailPointJournalStorage(backing)
+        val mutations = ParkingMutations()
+        val backend = FakeBackend()
+        val engine = openParkingEngine(storage, mutations, backend)
+        val key = MutationsTestKey("preparation-storage")
+        val mutationId = engine.mutate(key, mutations.append, "+mine")
+        storage.armFailTransaction { before, after ->
+            before.phase == StoredPhase.UNPREPARED && after.phase == StoredPhase.READY
+        }
+
+        assertFailsWith<FailPointTransactionException> { engine.drain() }
+
+        val state = storedState(backing, mutationId)
+        assertEquals(StoredPhase.UNPREPARED, state.execution.phase)
+        assertNull(state.attempt)
+        assertNull(state.activeFailure)
+        assertTrue(engine.deadLetters().isEmpty())
+        assertTrue(backend.receivedPushes.isEmpty())
+    }
+
+    @Test
+    fun codecParkingStorageFailure_propagatesWithoutPublishingDeadLetter() = runTest {
+        val backing = InMemoryMutationJournalStorage()
+        val storage = FailPointJournalStorage(backing)
+        val mutations = ParkingMutations()
+        val backend = FakeBackend()
+        val codec = object : MutationCodec<String> {
+            override fun encode(value: String): ByteArray {
+                check(value != "base+mine") { "projected value is not encodable" }
+                return value.encodeToByteArray()
+            }
+
+            override fun decode(version: Int, bytes: ByteArray): String = bytes.decodeToString()
+        }
+        val engine = openParkingEngine(storage, mutations, backend, valueCodec = codec)
+        val key = MutationsTestKey("parking-storage")
+        val mutationId = engine.mutate(key, mutations.append, "+mine")
+        storage.armFailTransaction { before, after ->
+            before.phase == StoredPhase.UNPREPARED && after.phase == StoredPhase.PARKED
+        }
+
+        assertFailsWith<FailPointTransactionException> { engine.drain() }
+
+        val state = storedState(backing, mutationId)
+        assertEquals(StoredPhase.UNPREPARED, state.execution.phase)
+        assertNull(state.attempt)
+        assertNull(state.activeFailure)
+        assertTrue(engine.deadLetters().isEmpty())
+        assertTrue(backend.receivedPushes.isEmpty())
+    }
+
+    @Test
     fun unresolvedPreAckIdentityParksWithoutBlockingOtherIdentities() = runTest {
         val storage = InMemoryMutationJournalStorage()
         val mutations = ParkingMutations()
@@ -605,6 +724,77 @@ class MutationDrainParkingTest {
 
 private const val PARKING_CLIENT_ID: String = "client-0"
 
+private suspend fun assertLiveValueCodecParking(
+    withSelector: Boolean,
+    reopenBeforeDrain: Boolean,
+) {
+    val storage = InMemoryMutationJournalStorage()
+    val mutations = ParkingMutations()
+    val backend = FakeBackend()
+    val key = MutationsTestKey("live-codec")
+    val other = MutationsTestKey("live-codec", StoreNamespace("other"))
+    val codec = object : MutationCodec<String> {
+        override fun encode(value: String): ByteArray {
+            check(value != "base+bad") { "projected value is not encodable" }
+            return value.encodeToByteArray()
+        }
+
+        override fun decode(version: Int, bytes: ByteArray): String = bytes.decodeToString()
+    }
+    var selectorCalls = 0
+    val conflicts =
+        if (withSelector) {
+            MutationConflictRegistration<MutationsTestKey, String>(
+                precondition = { candidate ->
+                    selectorCalls += 1
+                    candidate.capturedMeta
+                },
+                merge = { _, _, _ -> MutationConflictResolution.ServerWins },
+            )
+        } else {
+            null
+        }
+    fun open(): MutationEngine<MutationsTestKey, String> =
+        openParkingEngine(
+            storage,
+            mutations,
+            backend,
+            resolver = MutationKeyResolver { identity ->
+                MutationsTestKey(identity.canonicalId, StoreNamespace(identity.namespace))
+            },
+            valueCodec = codec,
+            conflicts = conflicts,
+        )
+    val accepted = open()
+    val bad = accepted.mutate(key, mutations.append, "+bad")
+    val suffix = accepted.mutate(key, mutations.append, "+suffix")
+    val independent = accepted.mutate(other, mutations.append, "+other")
+    val engine = if (reopenBeforeDrain) open() else accepted
+
+    engine.drain()
+
+    assertEquals(listOf("base+suffix", "base+other"), backend.pushedValues)
+    assertEquals(listOf("mutations", "other"), backend.receivedPushes.map { it.identity.namespace })
+    assertEquals(emptyList(), engine.pendingWrites())
+    val dead = engine.deadLetters().single()
+    assertEquals(bad, dead.mutationId)
+    assertEquals(MutationFailureKind.CODEC, dead.failure.kind)
+    assertEquals(0, dead.attempts)
+    val state = storedState(storage, bad)
+    assertEquals(StoredPhase.PARKED, state.execution.phase)
+    assertEquals(0, state.execution.currentGeneration)
+    assertEquals(0, state.execution.attempt)
+    assertNull(state.execution.lastAttemptAt)
+    assertNull(state.attempt)
+    assertEquals(MutationFailureKind.CODEC, assertNotNull(state.activeFailure).kind)
+    assertEquals(StoredPhase.RETIRED, storedState(storage, suffix).execution.phase)
+    assertEquals(StoredPhase.RETIRED, storedState(storage, independent).execution.phase)
+    assertEquals(if (withSelector) 2 else 0, selectorCalls)
+    val reopened = open()
+    assertEquals(bad, reopened.deadLetters().single().mutationId)
+    assertEquals(emptyList(), reopened.pendingWrites())
+}
+
 private class ParkingMutations(
     projectionFailure: Throwable? = null,
     staleKeys: Set<MutationsTestKey> = emptySet(),
@@ -728,6 +918,7 @@ private fun openParkingEngine(
     valueCodec: MutationCodec<String> = StrictVersionOneStringCodec(),
     wallClock: WallClock = TestWallClock(),
     handle: StoreWriteHandle<MutationsTestKey, String> = ParkingNoopHandle,
+    conflicts: MutationConflictRegistration<MutationsTestKey, String>? = null,
 ): MutationEngine<MutationsTestKey, String> {
     val journal =
         StorageBackedMutationJournal<String>(
@@ -743,6 +934,7 @@ private fun openParkingEngine(
         keyResolver = resolver,
         valueCodecVersion = 1,
         valueCodec = valueCodec,
+        conflicts = conflicts,
         baseReader = baseReader,
         wallClock = wallClock,
         clientId = PARKING_CLIENT_ID,

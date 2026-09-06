@@ -238,6 +238,9 @@ public final class org/mobilenativefoundation/store6/core/seam/FreshnessContext 
 	public final fun getStatus ()Lorg/mobilenativefoundation/store6/core/seam/KeyStatus;
 }
 
+public final class org/mobilenativefoundation/store6/core/seam/FreshnessEvidence {
+}
+
 public abstract interface class org/mobilenativefoundation/store6/core/seam/FreshnessValidator {
 	public abstract fun plan (Lorg/mobilenativefoundation/store6/core/seam/FreshnessContext;)Lorg/mobilenativefoundation/store6/core/seam/FetchPlan;
 }
@@ -270,7 +273,16 @@ public final class org/mobilenativefoundation/store6/core/seam/KeyStatus {
 
 public abstract interface class org/mobilenativefoundation/store6/core/seam/Overlay {
 	public abstract fun apply (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;)Ljava/lang/Object;
+	public abstract fun apply (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;Lorg/mobilenativefoundation/store6/core/seam/SourceAdoption;)Ljava/lang/Object;
 	public abstract fun getChanges ()Lkotlinx/coroutines/flow/Flow;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/Overlay$DefaultImpls {
+	public static fun apply (Lorg/mobilenativefoundation/store6/core/seam/Overlay;Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;Lorg/mobilenativefoundation/store6/core/seam/SourceAdoption;)Ljava/lang/Object;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/SourceAdoption {
+	public fun <init> ()V
 }
 
 public abstract interface class org/mobilenativefoundation/store6/core/seam/SourceOfTruth {
@@ -330,8 +342,16 @@ public final class org/mobilenativefoundation/store6/core/seam/StoreTelemetry$De
 
 public abstract interface class org/mobilenativefoundation/store6/core/seam/StoreWriteHandle {
 	public abstract fun apply (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun applyAcknowledgement (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;Ljava/lang/String;Lorg/mobilenativefoundation/store6/core/seam/FreshnessEvidence;Lorg/mobilenativefoundation/store6/core/seam/SourceAdoption;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public abstract fun captureFreshness (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun confirmFresh (Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/String;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 	public abstract fun markStale (Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+}
+
+public final class org/mobilenativefoundation/store6/core/seam/StoreWriteHandle$DefaultImpls {
+	public static fun applyAcknowledgement (Lorg/mobilenativefoundation/store6/core/seam/StoreWriteHandle;Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;Ljava/lang/String;Lorg/mobilenativefoundation/store6/core/seam/FreshnessEvidence;Lorg/mobilenativefoundation/store6/core/seam/SourceAdoption;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
+	public static synthetic fun applyAcknowledgement$default (Lorg/mobilenativefoundation/store6/core/seam/StoreWriteHandle;Lorg/mobilenativefoundation/store6/core/StoreKey;Ljava/lang/Object;Ljava/lang/String;Lorg/mobilenativefoundation/store6/core/seam/FreshnessEvidence;Lorg/mobilenativefoundation/store6/core/seam/SourceAdoption;Lkotlin/coroutines/Continuation;ILjava/lang/Object;)Ljava/lang/Object;
+	public static fun captureFreshness (Lorg/mobilenativefoundation/store6/core/seam/StoreWriteHandle;Lorg/mobilenativefoundation/store6/core/StoreKey;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
 }
 
 public abstract interface class org/mobilenativefoundation/store6/core/seam/TransactionalSourceOfTruth : org/mobilenativefoundation/store6/core/seam/SourceOfTruth {

@@ -7,17 +7,138 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import org.mobilenativefoundation.store6.core.internal.InMemoryBookkeeper
+import org.mobilenativefoundation.store6.core.internal.InMemorySourceOfTruth
 import org.mobilenativefoundation.store6.core.internal.RealStore
+import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.KeyStatus
+import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
+@OptIn(ExperimentalStoreApi::class, DelicateStoreApi::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class StoreCloseLifecycleTest {
+    @Test
+    fun close_cancelsSeededLocalOnlyGetWhileStatusRemainsSuspended() = runTest {
+        val key = TestKey("close-status")
+        val statusEntered = CompletableDeferred<Unit>()
+        val statusGate = CompletableDeferred<Unit>()
+        val statusExited = CompletableDeferred<Unit>()
+        var suspendStatus = false
+        val durable = InMemoryBookkeeper()
+        val bookkeeping = object : Bookkeeper by durable {
+            override suspend fun status(key: StoreKey): KeyStatus? {
+                if (suspendStatus) {
+                    statusEntered.complete(Unit)
+                    try {
+                        statusGate.await()
+                    } finally {
+                        statusExited.complete(Unit)
+                    }
+                }
+                return durable.status(key)
+            }
+        }
+        val persistence = InMemorySourceOfTruth<TestKey, String>()
+        persistence.write(key, "seeded")
+        val store = store<TestKey, String> {
+            fetcher { error("LocalOnly must not fetch") }
+            persistence(persistence)
+            bookkeeper(bookkeeping)
+        }
+        assertEquals("seeded", store.get(key, Freshness.LocalOnly))
+        suspendStatus = true
+        val request = async(start = CoroutineStart.UNDISPATCHED) {
+            val result = runCatching { store.get(key, Freshness.LocalOnly) }
+            assertTrue(currentCoroutineContext().isActive, "Store close must preserve the caller job")
+            result
+        }
+        try {
+            statusEntered.await()
+            store.close()
+            runCurrent()
+            assertFalse(statusGate.isCompleted)
+            assertTrue(statusExited.isCompleted, "The suspended status call must be cancelled")
+            assertTrue(request.isCompleted, "Get must settle without opening the status gate")
+            val failure = assertIs<CancellationException>(request.await().exceptionOrNull())
+            assertEquals("Store is closed.", failure.message)
+        } finally {
+            statusGate.complete(Unit)
+            request.cancelAndJoin()
+            store.close()
+        }
+    }
+
+    @Test
+    fun close_cancelsInitialHydrationAndQueuedHydrationWithoutOpeningReaderGate() = runTest {
+        val key = TestKey("close-hydration")
+        val readerEntered = CompletableDeferred<Unit>()
+        val readerGate = CompletableDeferred<Unit>()
+        val readerExited = CompletableDeferred<Unit>()
+        val durable = InMemorySourceOfTruth<TestKey, String>()
+        durable.write(key, "seeded")
+        var readerCalls = 0
+        val persistence = object : SourceOfTruth<TestKey, String> by durable {
+            override fun reader(key: TestKey) = flow {
+                readerCalls += 1
+                readerEntered.complete(Unit)
+                try {
+                    readerGate.await()
+                    emitAll(durable.reader(key))
+                } finally {
+                    readerExited.complete(Unit)
+                }
+            }
+        }
+        val store = store<TestKey, String> {
+            fetcher { error("LocalOnly must not fetch") }
+            persistence(persistence)
+        }
+        val first = async(start = CoroutineStart.UNDISPATCHED) {
+            val result = runCatching { store.get(key, Freshness.LocalOnly) }
+            assertTrue(currentCoroutineContext().isActive)
+            result
+        }
+        readerEntered.await()
+        val queued = async(start = CoroutineStart.UNDISPATCHED) {
+            val result = runCatching { store.get(key, Freshness.LocalOnly) }
+            assertTrue(currentCoroutineContext().isActive)
+            result
+        }
+        try {
+            assertEquals(1, readerCalls)
+            store.close()
+            runCurrent()
+            assertFalse(readerGate.isCompleted)
+            assertTrue(readerExited.isCompleted, "First hydration must release its reader")
+            assertTrue(first.isCompleted, "First hydration must settle on close")
+            assertTrue(queued.isCompleted, "Queued hydration must leave lock admission on close")
+            for (request in listOf(first, queued)) {
+                val failure = assertIs<CancellationException>(request.await().exceptionOrNull())
+                assertEquals("Store is closed.", failure.message)
+            }
+            assertEquals(1, readerCalls)
+        } finally {
+            readerGate.complete(Unit)
+            first.cancelAndJoin()
+            queued.cancelAndJoin()
+            store.close()
+        }
+    }
+
     @Test
     fun close_cancelsCollectorsAndFetches_releasesRegistry_leakChecked() =
         runTest(timeout = 60.seconds) {

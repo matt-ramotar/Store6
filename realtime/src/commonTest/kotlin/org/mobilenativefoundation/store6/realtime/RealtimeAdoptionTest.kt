@@ -98,7 +98,7 @@ class RealtimeAdoptionTest {
     }
 
     @Test
-    fun upsert_applyThenConfirmFresh_ordering() = runTest {
+    fun upsert_capturesFreshnessBeforeCombinedAdoption() = runTest {
         val store = store<RealtimeTestKey, String> { fetcher { "fetched" } }
         val handle = RecordingWriteHandle()
         val binding = RealtimeBinding(store, handle)
@@ -106,7 +106,7 @@ class RealtimeAdoptionTest {
 
         try {
             binding.apply(RealtimeMessage.Upsert(key, "pushed", etag = "ack-etag"))
-            assertEquals(listOf("apply", "confirmFresh"), handle.events)
+            assertEquals(listOf("captureFreshness", "applyAcknowledgement"), handle.events)
         } finally {
             store.close()
         }

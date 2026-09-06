@@ -7,6 +7,31 @@ seam is a **freeze candidate, not frozen** — see [STABILITY.md](../STABILITY.m
 
 ## Install
 
+This artifact is deferred from alpha01. The coordinates below are for a local publication
+from this source tree; alpha01 does not publish them to Maven Central.
+
+Use JDK 17 and configure an Android SDK containing platform 36 through `sdk.dir` in
+`local.properties` or `ANDROID_HOME`. The commands below enable Native KLIB cross-compilation;
+publication of those files does not establish Native execution. Apple execution and linking
+require macOS with Xcode.
+
+From the repository root, publish the module and its Store6 dependencies locally:
+
+```bash
+./gradlew :core:publishToMavenLocal :file:publishToMavenLocal -Pkotlin.native.enableKlibsCrossCompilation=true
+```
+
+Use the version in `gradle.properties` (currently `6.0.0-SNAPSHOT`) and add the local repository
+to the consuming build's dependency repositories:
+
+```kotlin
+repositories {
+    mavenLocal()
+    mavenCentral()
+    google()
+}
+```
+
 Use the same Store6 version for `core` and `file`:
 
 ```kotlin
@@ -94,6 +119,14 @@ the actual length. Empty strings are valid. On disk they use the `"0"` sentinel 
 collapse onto a parent directory. Windows `MAX_PATH` (260 characters) can still be exceeded by a
 deep `directory` plus two encoded components. Choose a shallow root on Windows. This adapter does
 not detect that overflow.
+
+Malformed UTF-16 components are not rejected before UTF-8 encoding. Distinct strings containing
+unpaired surrogates can therefore map to the same on-disk name. Use well-formed Unicode keys;
+rejection and a Kotlin runtime collision regression remain required before this artifact ships.
+
+**Cold bookkeeping recovery.** Typed status-failure and recovery behavior with real filesystem
+faults has not been verified. The in-memory fault-kit diagnostics do not establish that boundary.
+This verification remains required before distribution.
 
 **Absent paths.** A path that does not exist is absence, never an error and never corruption.
 

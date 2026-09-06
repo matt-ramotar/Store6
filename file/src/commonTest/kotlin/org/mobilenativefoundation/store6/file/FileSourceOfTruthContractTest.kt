@@ -7,6 +7,7 @@ import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import org.mobilenativefoundation.store6.testing.SourceOfTruthContractKit
 import kotlin.test.AfterTest
+import kotlin.test.Test
 
 internal class FileSourceOfTruthContractTest :
     SourceOfTruthContractKit<FileKitKey, String>() {
@@ -25,6 +26,9 @@ internal class FileSourceOfTruthContractTest :
     override val keyOtherNamespace: FileKitKey = FileKitKey(StoreNamespace("teams"), "a")
 
     override fun value(index: Int): String = "value-$index"
+
+    @Test
+    fun cancelledCallerOutcome() = mutations_cancelledCaller_obeyOutcome()
 
     @AfterTest
     fun cleanupDirectories() {

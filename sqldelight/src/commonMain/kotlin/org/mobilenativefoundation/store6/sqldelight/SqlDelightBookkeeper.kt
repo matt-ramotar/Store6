@@ -28,9 +28,10 @@ import kotlin.coroutines.cancellation.CancellationException
  * sequence as one store-local order.
  *
  * [recordSuccess], [recordFailure], and [forget] absorb non-cancellation storage failures.
- * [status] treats a non-cancellation storage failure as unavailable status and returns null, so
- * age is unknown and the caller treats the key as stale. Cancellation and virtual-machine failures
- * (kotlin.Error) always propagate. Maintenance operations rethrow storage failures so their
+ * [status] propagates storage failures so callers can distinguish unavailable metadata from a
+ * missing record. Explicitly thrown cancellation and virtual-machine failures (kotlin.Error)
+ * propagate. After cancellable admission, mutations settle their transaction before returning
+ * even if the caller is cancelled. Maintenance operations rethrow storage failures so their
  * transactions remain exception-atomic.
  */
 @ExperimentalStoreApi
@@ -46,7 +47,7 @@ public class SqlDelightBookkeeper(
         val ns = key.namespace
         val canonicalId = key.canonicalId()
         absorbing {
-            driverAccess.withAccess {
+            driverAccess.withMutationAccess {
                 transacter.transaction { sidecar.recordSuccess(ns.value, canonicalId, meta) }
             }
         }
@@ -56,7 +57,7 @@ public class SqlDelightBookkeeper(
         val ns = key.namespace
         val canonicalId = key.canonicalId()
         absorbing {
-            driverAccess.withAccess {
+            driverAccess.withMutationAccess {
                 transacter.transaction {
                     sidecar.recordFailure(ns.value, canonicalId, atEpochMillis)
                 }
@@ -67,17 +68,8 @@ public class SqlDelightBookkeeper(
     public override suspend fun status(key: StoreKey): KeyStatus? {
         val ns = key.namespace
         val canonicalId = key.canonicalId()
-        return try {
-            driverAccess.withAccess {
-                transacter.transactionWithResult { sidecar.readStatus(ns.value, canonicalId) }
-            }
-        } catch (exception: CancellationException) {
-            throw exception
-        } catch (failure: Throwable) {
-            // Drivers throw platform-specific families (java.sql.SQLException on the JVM) with no
-            // common supertype in the SQLDelight runtime; kotlin.Error still propagates unmasked.
-            if (failure is Error) throw failure
-            null
+        return driverAccess.withAccess {
+            transacter.transactionWithResult { sidecar.readStatus(ns.value, canonicalId) }
         }
     }
 
@@ -85,7 +77,7 @@ public class SqlDelightBookkeeper(
         val ns = key.namespace
         val canonicalId = key.canonicalId()
         absorbing {
-            driverAccess.withAccess {
+            driverAccess.withMutationAccess {
                 transacter.transaction { sidecar.forget(ns.value, canonicalId) }
             }
         }
@@ -94,31 +86,31 @@ public class SqlDelightBookkeeper(
     public override suspend fun markStale(key: StoreKey) {
         val ns = key.namespace
         val canonicalId = key.canonicalId()
-        driverAccess.withAccess {
+        driverAccess.withMutationAccess {
             transacter.transaction { sidecar.markStale(ns.value, canonicalId) }
         }
     }
 
     public override suspend fun advanceStaleWatermark(namespace: StoreNamespace) {
-        driverAccess.withAccess {
+        driverAccess.withMutationAccess {
             transacter.transaction { sidecar.advanceNamespaceWatermark(namespace.value) }
         }
     }
 
     public override suspend fun advanceGlobalStaleWatermark() {
-        driverAccess.withAccess {
+        driverAccess.withMutationAccess {
             transacter.transaction { sidecar.advanceGlobalWatermark() }
         }
     }
 
     public override suspend fun forgetNamespace(namespace: StoreNamespace) {
-        driverAccess.withAccess {
+        driverAccess.withMutationAccess {
             transacter.transaction { sidecar.forgetNamespace(namespace.value) }
         }
     }
 
     public override suspend fun forgetAll() {
-        driverAccess.withAccess {
+        driverAccess.withMutationAccess {
             transacter.transaction { sidecar.forgetAll() }
         }
     }

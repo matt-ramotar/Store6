@@ -45,11 +45,15 @@ under principle 1. The confidence range above is real: treat Q1 2027 as the hone
 | `mutations` | The write path: journal, drain, rebase, conflict stack, restart replay. Experimental artifact, in the floor rather than the may-slip list. |
 | `graphql`, `realtime` | Experimental integration artifacts: GraphQL fetcher integration and server-message bindings onto stores. |
 | `mutations-sqldelight`, `mutations-testing` | Experimental companions to `mutations`: SQLDelight-backed journal storage and the journal and mutator contract kits. |
+| `sqldelight`, `room`, `compose` | Experimental persistence and UI adapters in the alpha shipping roster. |
+| `bom` | Version alignment for the ten shipping libraries. |
 | STABILITY.md + this roadmap | The published policy: tiers, deprecation cycle, cadence commitment. |
 | Quickstart + Important Defaults | The mental model before the API reference. |
 
-**May slip one alpha:** the SQLDelight, Room, and Compose adapters, the devtools MVP, and the
-remaining documentation pages. Anything that slips gets its target alpha named in the release notes.
+**Deferred from alpha01:** the devtools MVP and remaining documentation pages. Paging, Swift, file,
+Ktor, telemetry, scheduler, and conflict-policy extensions remain outside the alpha01 artifact
+roster. Passing a build does not add an artifact to that roster; the publication allowlist, BOM,
+and [stability table](STABILITY.md) must agree before it ships.
 
 ### Mutations beta train + 6.0.0-beta01 (Q1–Q2 2027)
 

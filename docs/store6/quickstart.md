@@ -1,16 +1,17 @@
 # Quickstart
 
-> Store 6 is in development and **nothing is published yet**. This page is the shape of the API as
-> it stands on `main`; the install coordinates land with 6.0.0-alpha01.
+> Store 6 is in development; **alpha artifacts are not yet available from Maven Central**. This page describes the API as
+> it stands on `store6`; the install coordinates land with 6.0.0-alpha01.
 
 Store needs two things from you: a **key** that identifies what you want, and a **fetcher** that
-knows how to go get it. Everything else — sharing one in-flight request across concurrent callers,
-serving what is already resident, tracking staleness, bounding memory — is what Store does with
-those two things.
+knows how to fetch it. Store shares in-flight requests, serves resident values, and tracks
+staleness. `maxIdleKeys` bounds idle engine residency. The default in-memory source of truth and
+bookkeeper retain entries for distinct keys for the Store's lifetime; configure persistent
+implementations when key cardinality can grow without limit.
 
 Here is the whole idea in five lines.
 
-<!-- display: store block verbatim from quickstart/src/main/kotlin/org/mobilenativefoundation/store6/quickstart/Main.kt:49-51, dedent 8 (parity-checked); the stream and get lines are display forms, shapes from Main.kt:53-62, NOT parity-checked -->
+<!-- display: store block verbatim from quickstart/src/main/kotlin/org/mobilenativefoundation/store6/quickstart/Main.kt:50-52, dedent 8 (parity-checked); the stream and get lines are display forms, shapes from Main.kt:55-65, NOT parity-checked -->
 
 ```kotlin
 val users = store<UserKey, User> {
@@ -85,7 +86,7 @@ own guide: [Keys and Namespaces](key-design.md).
 
 And `main`:
 
-<!-- verbatim: quickstart/src/main/kotlin/org/mobilenativefoundation/store6/quickstart/Main.kt:47-63, dedent 0 (parity-checked) -->
+<!-- verbatim: quickstart/src/main/kotlin/org/mobilenativefoundation/store6/quickstart/Main.kt:47-67, dedent 0, omit docs:snippet marker comments (parity-checked) -->
 
 ```kotlin
 public fun main(): Unit =
@@ -118,7 +119,8 @@ no fifth case waiting to surprise you:
   attribution honesty is a contract, not a debugging aid.
 - **`Revalidated`** — the server said nothing changed. You get one of these with the resident value's
   age, rather than a redundant `Data` frame.
-- **`Error`** — the fetch failed. If a stale value was resident, you will have been served it first.
+- **`Error`** — a fetch or persistence operation failed. Whether a resident value is served before
+  the error depends on the read policy and the available freshness evidence.
 
 One detail worth naming so it does not read as magic: **`take(2)` is what ends this program.**
 `stream` is an unbounded flow that stays live for as long as you collect it. The example takes the
@@ -132,13 +134,15 @@ uses resident and fetched data.
 ## Write path (experimental)
 
 > **Experimental.** `mutations` is a separate artifact and every public symbol is
-> `@ExperimentalStoreApi`. It ships **with** 6.0.0-alpha01 — nothing here is published yet.
+> `@ExperimentalStoreApi`. It is in the 6.0.0-alpha01 roster; the artifact is not yet available from Maven Central.
 >
 > **The spelling below is the current API surface.** The module is still experimental — shapes
 > can change in any release — but the snippet below matches the implementation.
 
-Optimistic writes go through a journal, so they survive being offline and survive process death.
-You get a mutation store instead of a plain one, and it is a `Store` — everything above still works.
+Optimistic writes go through a journal and can be queued while offline. The default journal is
+in memory; process-death recovery requires durable journal storage, such as
+[`mutations-sqldelight`](../../mutations-sqldelight/). A mutation store implements
+`Store`, so the read operations above still work.
 
 <!-- Source anchors: MutationStore.kt (mutationStore factory), MutatorRegistry.kt (sugars),
 MutationsWalkingSkeletonTest.kt (the end-to-end tracer). -->
@@ -166,11 +170,11 @@ The flow, end to end:
 1. **Offline enqueue.** `mutate` appends one intent and returns a mutation id. Nothing is pushed.
 2. **Optimistic visibility.** `stream(key)` emits `Data(value = optimistic, origin = OVERLAY)`.
 3. **Reconnect and acknowledge.** `drain(key)` pushes the pending intents and adopts each ack. For OS-scheduled background draining, see [`mutations-drain`](../../mutations-drain/README.md).
-4. **Confirmed.** By the acknowledgement contract, the server's echo becomes the committed value,
-   attributed `SOT` or `MEMORY`, and the optimistic frame is retired rather than replayed. A stream
-   opened after the acknowledgement sees the echo. Convergence for a collector that was *already*
-   active across the acknowledgement is the subject of open engine work and is not yet a behavior
-   this page will promise. No redundant fetch happens anywhere in this sequence.
+4. **Confirmed.** The server's echo becomes the committed value. An active collector that observes
+   proven source adoption stops applying the acknowledged optimistic head; queued later writes
+   remain projected over the echo. The journal retains recovery data until retirement. Adoption
+   does not fetch the echo again, but later invalidations or lost freshness evidence after restart,
+   eviction, or a canonical-key change can still cause the read policy to refresh.
 
 Two properties that are design decisions rather than accidents:
 
@@ -183,11 +187,12 @@ Two properties that are design decisions rather than accidents:
   for the full consumer guidance, and
   note that `get` is unprojected: overlays apply only to `stream`.
 
-The alpha ships a two-step durable acknowledgement path, which means a crash in the acknowledgement
-window leaves a replayable pending intent rather than losing your write, at the cost of the same
-push possibly being re-sent. That tradeoff is stated in full in
+The alpha records `ACKED` durably before adopting the server echo, then retires the journal row
+after adoption and effects. Recovery from durable `ACKED` resumes those steps without another
+push. A crash before the acknowledgement receipt is durable can cause the same idempotency key
+to be sent again. This process-death recovery requires durable journal storage. See
 [the stability policy](../../STABILITY.md#mutations).
 
 ---
 
-*Last verified: 2026-08-10 · `main` @ `a6a156e9`, pre-6.0.0-alpha01*
+The runnable examples live in this checkout's `quickstart` and `mutations-quickstart` modules.

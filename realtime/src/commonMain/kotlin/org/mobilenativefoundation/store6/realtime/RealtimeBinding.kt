@@ -17,11 +17,10 @@ import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
  * inbound connection, reconnect, and backoff. [consume] is one scheduler-agnostic pass: it
  * applies messages in arrival order until the flow completes or a Store operation fails.
  *
- * [apply] is serialized per binding so an adopting [RealtimeMessage.Upsert] never interleaves its
- * `apply` / `confirmFresh` pair with another caller. Cancellation of that pair can leave the
- * value committed without bookkeeping success, the same non-atomic window as the mutations
- * acknowledgement path. A fetch already in flight is not cancelled; a fetch commit that runs
- * after `StoreWriteHandle.apply` is later source-of-truth authority.
+ * [apply] is serialized per binding. An adopting [RealtimeMessage.Upsert] captures freshness
+ * evidence and commits its value and metadata under one Store commit fence. A later invalidation
+ * survives adoption. A fetch already in flight is not cancelled; a fetch commit that runs after
+ * adoption is later source-of-truth authority.
  *
  * Failures from the bound Store propagate unchanged: [StoreException] for persistence and
  * bookkeeping failures, and `IllegalStateException` with the message `Store is closed.` after
@@ -72,8 +71,8 @@ public class RealtimeBinding<K : StoreKey, V : Any> internal constructor(
     private suspend fun adoptOrInvalidate(message: RealtimeMessage.Upsert<K, V>) {
         val writeHandle = handle
         if (writeHandle != null) {
-            writeHandle.apply(message.key, message.value)
-            writeHandle.confirmFresh(message.key, message.etag)
+            val freshnessEvidence = writeHandle.captureFreshness(message.key)
+            writeHandle.applyAcknowledgement(message.key, message.value, message.etag, freshnessEvidence)
         } else {
             store.invalidate(message.key)
         }

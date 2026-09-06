@@ -97,7 +97,7 @@ class RoomBookkeeperTest {
             assertFailsWith<Throwable> {
                 bookkeeper.markStale(key)
             }
-            assertNull(bookkeeper.status(key))
+            assertFailsWith<Throwable> { bookkeeper.status(key) }
         } finally {
             database.close()
         }
@@ -197,7 +197,7 @@ class RoomBookkeeperTest {
     }
 
     @Test
-    fun status_runtimeStorageFailure_returnsNull(): TestResult = runTest {
+    fun status_runtimeStorageFailure_propagates(): TestResult = runTest {
         val database = createTestDatabase()
         try {
             val bookkeeper =
@@ -206,7 +206,10 @@ class RoomBookkeeperTest {
                     ThrowingOnRecordDao(IllegalStateException("reader connection unavailable")),
                 )
 
-            assertNull(bookkeeper.status(TestKey(namespace = "soft-fail", id = "key")))
+            val failure = assertFailsWith<IllegalStateException> {
+                bookkeeper.status(TestKey(namespace = "soft-fail", id = "key"))
+            }
+            assertEquals("reader connection unavailable", failure.message)
         } finally {
             database.close()
         }
@@ -244,7 +247,7 @@ class RoomBookkeeperTest {
     }
 
     @Test
-    fun status_plainExceptionStorageFailure_returnsNull(): TestResult = runTest {
+    fun status_plainExceptionStorageFailure_propagates(): TestResult = runTest {
         val database = createTestDatabase()
         try {
             val bookkeeper =
@@ -253,7 +256,53 @@ class RoomBookkeeperTest {
                     ThrowingOnRecordDao(Exception("non-runtime driver failure")),
                 )
 
-            assertNull(bookkeeper.status(TestKey(namespace = "non-runtime-fail", id = "key")))
+            val failure = assertFailsWith<Exception> {
+                bookkeeper.status(TestKey(namespace = "non-runtime-fail", id = "key"))
+            }
+            assertEquals("non-runtime driver failure", failure.message)
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun status_failureAndRecovery_preserveDurableStaleness(): TestResult = runTest {
+        val database = createTestDatabase()
+        try {
+            val delegate = database.store6BookkeeperDao()
+            var readFailure: Throwable? = null
+            val dao = object : Store6BookkeeperDao by delegate {
+                override suspend fun record(namespace: String, canonicalId: String): Store6BookkeepingEntity? {
+                    readFailure?.let { throw it }
+                    return delegate.record(namespace, canonicalId)
+                }
+            }
+            val bookkeeper = RoomBookkeeper(database, dao)
+            val key = TestKey(namespace = "recovery", id = "key")
+            bookkeeper.recordSuccess(key, TestStoreMeta(1L, "e1"))
+            bookkeeper.markStale(key)
+            readFailure = IllegalStateException("temporarily unavailable")
+            assertFailsWith<IllegalStateException> { bookkeeper.status(key) }
+            readFailure = null
+            val recovered = assertNotNull(bookkeeper.status(key))
+            assertTrue(recovered.durablyStale)
+            assertEquals("e1", recovered.meta?.etag)
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun status_internalCancellation_isFailureWithoutCancellingCaller(): TestResult = runTest {
+        val database = createTestDatabase()
+        try {
+            val cause = CancellationException("reader connection cancelled internally")
+            val bookkeeper = RoomBookkeeper(database, ThrowingOnRecordDao(cause))
+            val failure = assertFailsWith<IllegalStateException> {
+                bookkeeper.status(TestKey(namespace = "internal-cancellation", id = "key"))
+            }
+            assertTrue(failure.cause is CancellationException)
+            assertTrue(currentCoroutineContext().job.isActive)
         } finally {
             database.close()
         }

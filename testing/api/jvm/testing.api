@@ -2,11 +2,38 @@ public abstract class org/mobilenativefoundation/store6/testing/BookkeeperContra
 	public fun <init> ()V
 	public abstract fun createBookkeeper ()Lorg/mobilenativefoundation/store6/core/seam/Bookkeeper;
 	public final fun failureOnlyRecord_isNotDurablyStale ()V
+	public final fun forgetAll_removesRecordsAndPreservesWatermarks ()V
+	public final fun forgetNamespace_removesOnlyMatchingRecordsAndPreservesWatermarks ()V
+	public final fun forget_removesRecordAndPreservesWatermarks ()V
+	public final fun globalWatermark_coversNeverSeenKeys ()V
 	public final fun identityDerivation_differentCanonicalId_isolated ()V
 	public final fun identityDerivation_equalCanonicalPair_sharesRecords ()V
+	public final fun laterSuccess_clearsOnlyEarlierStalenessForItsKey ()V
+	public final fun maintenance_externalCancellationAtCommit_obeysOutcome (Lkotlin/jvm/functions/Function0;Ljava/util/Set;)V
+	public static synthetic fun maintenance_externalCancellationAtCommit_obeysOutcome$default (Lorg/mobilenativefoundation/store6/testing/BookkeeperContractKit;Lkotlin/jvm/functions/Function0;Ljava/util/Set;ILjava/lang/Object;)V
+	public final fun maintenance_throwBeforeCommit_preservesStatus (Lkotlin/jvm/functions/Function0;)V
+	public final fun marksAndSuccesses_shareOneMonotoneSequence ()V
 	public final fun namespaceWatermark_thenLaterSuccess_clearsDurableStaleness ()V
 	public final fun recordSuccess_clearsFailureCountAndTimestamp ()V
+	public final fun status_externalCancellation_propagatesAndRecovers (Lkotlin/jvm/functions/Function0;)V
+	public final fun status_storageFailure_propagatesAndRecovers (Lkotlin/jvm/functions/Function0;)V
 	public final fun watermarkOnlyKey_reportsDurablyStale ()V
+}
+
+public final class org/mobilenativefoundation/store6/testing/BookkeeperFaultFixture {
+	public fun <init> (Lorg/mobilenativefoundation/store6/core/seam/Bookkeeper;Lorg/mobilenativefoundation/store6/testing/MutationFaultInjector;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Lorg/mobilenativefoundation/store6/core/seam/Bookkeeper;Lorg/mobilenativefoundation/store6/testing/MutationFaultInjector;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getBookkeeper ()Lorg/mobilenativefoundation/store6/core/seam/Bookkeeper;
+	public final fun getClose ()Lkotlin/jvm/functions/Function0;
+	public final fun getFaults ()Lorg/mobilenativefoundation/store6/testing/MutationFaultInjector;
+}
+
+public final class org/mobilenativefoundation/store6/testing/BookkeeperStatusFaultFixture {
+	public fun <init> (Lorg/mobilenativefoundation/store6/core/seam/Bookkeeper;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Lorg/mobilenativefoundation/store6/core/seam/Bookkeeper;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getBookkeeper ()Lorg/mobilenativefoundation/store6/core/seam/Bookkeeper;
+	public final fun getClose ()Lkotlin/jvm/functions/Function0;
+	public final fun getOnNextStatusRead ()Lkotlin/jvm/functions/Function1;
 }
 
 public final class org/mobilenativefoundation/store6/testing/FakeBookkeeper : org/mobilenativefoundation/store6/core/seam/Bookkeeper {
@@ -128,6 +155,20 @@ public final class org/mobilenativefoundation/store6/testing/FakeStoreInteractio
 	public final fun getKey ()Lorg/mobilenativefoundation/store6/core/StoreKey;
 }
 
+public final class org/mobilenativefoundation/store6/testing/MutationFaultInjector {
+	public fun <init> ()V
+	public final fun arm (Lorg/mobilenativefoundation/store6/testing/MutationFaultPoint;Lkotlin/jvm/functions/Function0;)V
+	public final fun reach (Lorg/mobilenativefoundation/store6/testing/MutationFaultPoint;)V
+}
+
+public final class org/mobilenativefoundation/store6/testing/MutationFaultPoint : java/lang/Enum {
+	public static final field AfterCommit Lorg/mobilenativefoundation/store6/testing/MutationFaultPoint;
+	public static final field BeforeCommit Lorg/mobilenativefoundation/store6/testing/MutationFaultPoint;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lorg/mobilenativefoundation/store6/testing/MutationFaultPoint;
+	public static fun values ()[Lorg/mobilenativefoundation/store6/testing/MutationFaultPoint;
+}
+
 public abstract class org/mobilenativefoundation/store6/testing/SourceOfTruthContractKit {
 	public fun <init> ()V
 	public abstract fun createSourceOfTruth ()Lorg/mobilenativefoundation/store6/core/seam/SourceOfTruth;
@@ -141,15 +182,30 @@ public abstract class org/mobilenativefoundation/store6/testing/SourceOfTruthCon
 	public abstract fun getKeyB ()Lorg/mobilenativefoundation/store6/core/StoreKey;
 	public abstract fun getKeyOtherNamespace ()Lorg/mobilenativefoundation/store6/core/StoreKey;
 	public final fun keysAreIsolated ()V
+	public final fun mutations_cancelledCaller_obeyOutcome ()V
+	public final fun mutations_externalCancellationAtCommit_obeyOutcome (Lkotlin/jvm/functions/Function0;Ljava/util/Set;)V
+	public static synthetic fun mutations_externalCancellationAtCommit_obeyOutcome$default (Lorg/mobilenativefoundation/store6/testing/SourceOfTruthContractKit;Lkotlin/jvm/functions/Function0;Ljava/util/Set;ILjava/lang/Object;)V
+	public final fun mutations_throwBeforeCommit_preserveRowsAndNotifications (Lkotlin/jvm/functions/Function0;)V
 	public final fun readerFirstEmissionIsCurrentValue ()V
 	public final fun readerFirstEmissionIsNullWhenAbsent ()V
 	public final fun readerNeverCompletesNormally ()V
 	public final fun readerStaysLiveAcrossDelete ()V
 	public final fun readerStaysLiveAcrossNamespaceDelete ()V
 	public final fun readerStaysLiveAcrossThreeDeleteCycles ()V
+	public final fun transactions_externalCancellationAtCommit_obeyOutcome (Lkotlin/jvm/functions/Function0;Ljava/util/Set;)V
+	public static synthetic fun transactions_externalCancellationAtCommit_obeyOutcome$default (Lorg/mobilenativefoundation/store6/testing/SourceOfTruthContractKit;Lkotlin/jvm/functions/Function0;Ljava/util/Set;ILjava/lang/Object;)V
+	public final fun transactions_throw_preserveRowsAndNotifications ()V
 	public final fun twoConcurrentReadersBothSeeWrite ()V
 	public abstract fun value (I)Ljava/lang/Object;
 	public final fun writeIsVisibleToLateReader ()V
+}
+
+public final class org/mobilenativefoundation/store6/testing/SourceOfTruthFaultFixture {
+	public fun <init> (Lorg/mobilenativefoundation/store6/core/seam/SourceOfTruth;Lorg/mobilenativefoundation/store6/testing/MutationFaultInjector;Lkotlin/jvm/functions/Function0;)V
+	public synthetic fun <init> (Lorg/mobilenativefoundation/store6/core/seam/SourceOfTruth;Lorg/mobilenativefoundation/store6/testing/MutationFaultInjector;Lkotlin/jvm/functions/Function0;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getClose ()Lkotlin/jvm/functions/Function0;
+	public final fun getFaults ()Lorg/mobilenativefoundation/store6/testing/MutationFaultInjector;
+	public final fun getSourceOfTruth ()Lorg/mobilenativefoundation/store6/core/seam/SourceOfTruth;
 }
 
 public final class org/mobilenativefoundation/store6/testing/TestStoreMeta : org/mobilenativefoundation/store6/core/StoreMeta {

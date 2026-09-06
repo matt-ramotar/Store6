@@ -1,9 +1,12 @@
 package org.mobilenativefoundation.store6.core.internal
 
+import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreMeta
+import org.mobilenativefoundation.store6.core.seam.SourceAdoption
 
 /** An immutable resident value paired with the provenance needed for honest emissions. */
+@OptIn(ExperimentalStoreApi::class)
 internal data class ValueEnvelope<V : Any>(
     val value: V,
     val origin: Origin,
@@ -21,4 +24,5 @@ internal data class ValueEnvelope<V : Any>(
 
     /** Ticket whose no-row 304 direct-send path exclusively owns this exact envelope identity. */
     val directRevalidationOwner: FetchTicket? = null,
+    val sourceAdoption: SourceAdoption? = null,
 )

@@ -1,73 +1,93 @@
 Releasing
 ========
 
-Store 6 releases follow the cadence defined in [STABILITY.md](./STABILITY.md): monthly
-alphas starting at `6.0.0-alpha01`, governed by "cut scope, never cadence". ABI dumps are
-committed at every released tag, so any release's surface is diffable from the repository
-without resolving artifacts.
-
-The single source of the version is `VERSION_NAME` in [`gradle.properties`](./gradle.properties).
-Publication is automated in CI; nothing is uploaded from a local machine.
+Store 6 follows the release policy in [STABILITY.md](./STABILITY.md). `VERSION_NAME` in
+[`gradle.properties`](./gradle.properties) is the single version source. The publication
+manifest, BOM, and STABILITY release column must describe the same shipping artifacts.
 
 ## Preparing a release
 
-1. Set `VERSION_NAME` in `gradle.properties` to the release version (for example
-   `6.0.0-alpha01`), replacing the `-SNAPSHOT` suffix. The root file is the only place
-   `VERSION_NAME` exists; module `gradle.properties` files must not reintroduce it, or
-   they shadow the root value for that module's publication coordinates.
-2. Keep `.github/workflows/store6.yml` in sync: its `klib-publication-check` job publishes
-   all modules to Maven Local and then verifies the resulting artifacts against a version
-   string hardcoded in the "Verify common and target publications" step. Update that string
-   to match the new `VERSION_NAME` in the same change, or the job fails.
-3. If the public Kotlin/Java surface changed, refresh the committed
-   binary-compatibility-validator dumps under `<module>/api/` (JVM, Android, and klib
-   dumps, for example `core/api/jvm/core.api` and `core/api/core.klib.api`) by running the
-   module's `apiDump` task. Every module's `apiCheck` runs as part of `./gradlew build`,
-   so an unintended ABI change fails before merge. These dumps are committed at every
-   released tag (STABILITY.md §7).
-4. If the Swift-facing surface changed, regenerate the committed Swift dumps with
-   `./gradlew refreshSwiftDumps` and review the diff under `core/api/swift/` and
-   `mutations/api/swift/`. `./gradlew checkSwiftDumps` re-verifies them and runs on every
-   pull request in the `swift-dumps` job of `.github/workflows/store6.yml`.
-5. Update `CHANGELOG.md`.
-6. Open a pull request. If it touches documentation sources listed in
-   `.github/docs-sync-sources.txt`, add the `docs-sync-ack` label; the `docs-sync-guard`
-   job in `.github/workflows/store6.yml` blocks the merge without it.
-7. Merge, then tag the release commit and push the tag to
-   `MobileNativeFoundation/Store`:
-   * `git tag -a vX.Y.Z -m "Version X.Y.Z"`
-   * `git push <upstream> vX.Y.Z`
+1. Select the release version, release date, next alpha target, and community issue resolved by
+   a named conformance guarantee. Prepare the matching `CHANGELOG.md` section. Immutable releases
+   require exactly one `## [VERSION] (YYYY-MM-DD)` heading and nonempty notes without unfinished
+   placeholders. Draft notes are not publication evidence.
+2. Set the root `VERSION_NAME`. A release tag requires a version without `-SNAPSHOT`; manual
+   CI dispatch accepts snapshots only. Module properties must not override the root version.
+   Local publication verification reads this same property, so there is no second version to edit.
+3. Regenerate changed modules' JVM, Android, and KLIB ABI output with their `apiDump` tasks.
+   If Swift-facing source changed, run `./gradlew refreshSwiftDumps`, inspect generated output,
+   and run `./gradlew checkSwiftDumps`. Commit generated output with its source changes.
+4. Validate the candidate's complete matrix, publication metadata, examples, and external
+   consumers. Keep the source revision, command, environment, task outcome, test identifiers,
+   failures, skips, and artifact inventory with the candidate. Compilation, KLIB file existence,
+   cached results, and fresh test execution are different evidence classes.
+5. Open the release pull request. Changes listed in `.github/docs-sync-sources.txt` require the
+   `docs-sync-ack` label. The label acknowledges the synchronization work; it does not establish
+   that the documentation site has synchronized. Verify the site separately before claiming it
+   is ready.
+6. After release-owner approval, merge and tag the release commit, then push the tag to
+   `MobileNativeFoundation/Store`. The tag must be exactly `v${VERSION_NAME}`. A new source,
+   configuration, or version change requires validation at that new revision.
 
-## Publication
+## Publication gate
 
-Pushing a tag matching `v*` (or triggering the workflow manually via `workflow_dispatch`)
-starts the `publish` job in [`.github/workflows/ci.yml`](./.github/workflows/ci.yml),
-which:
+[CI](./.github/workflows/ci.yml) permits publication only in `MobileNativeFoundation/Store`.
+It requires the root build, release-workflow fixtures, all six jobs in the reusable
+[Store6 matrix](./.github/workflows/store6.yml), and the
+[full mutations suite](./.github/workflows/store6-full-jvm.yml). The PR-only documentation
+acknowledgment check is not a release-tag job. Required jobs must succeed at the checked-out
+source SHA, workflow run, attempt, and root version before publication begins. Every required
+job records those values. The matrix and full-suite pair reject missing or mismatched job
+records, so reusing success from an earlier attempt cannot authorize publication.
 
-1. Waits for the full `build-and-test` job to pass.
-2. Reads `VERSION_NAME` from `gradle.properties`.
-3. Binds the version to the ref: a tag build fails unless the tag is exactly
-   `v${VERSION_NAME}` and the version is not a `-SNAPSHOT`; a `workflow_dispatch` build
-   fails unless the version is a `-SNAPSHOT` (manual dispatch is the snapshot lane).
-   Tag only the merged release commit, so the published SHA is the one the release
-   pull request validated.
-4. Publishes the shipping artifacts to Maven Central through the Central Portal using
-   the Vanniktech Maven Publish plugin wired by the tooling convention plugins:
-   `publishToMavenCentral` when the version ends in `-SNAPSHOT`,
-   `publishAndReleaseToMavenCentral` (publish plus release) otherwise. The job
-   enumerates the published modules explicitly: the ten BOM-constrained artifacts plus
-   the BOM itself. Deferred modules stay unpublished until their train; when an
-   artifact joins a release, add it to the publish list in `ci.yml`, the BOM
-   constraints in `bom/build.gradle.kts`, and STABILITY.md's release column in the
-   same change. Credentials come from the workflow secrets.
+The full mutations lane executes twice serially with unchanged source. Its second execution
+requires the first to pass. The JVM test task disables cache and up-to-date reuse when
+`store6.fullJvmSuite` is set; compilation caching remains available. The result artifact records
+task outcome, executed test identifiers, XML hashes, and run provenance. Missing, cached,
+incomplete, and failed test evidence cannot satisfy the gate. A first failure is retained in
+that Actions run's summary and result artifact for classification, not rerun unchanged for green.
 
-Artifacts become available once the Central Portal finishes validating and publishing the
-deployment. The `v*` tag push also runs the full Store6 matrix
-(`.github/workflows/store6.yml`) at the tagged SHA.
+A Lincheck `Unable to transform` diagnostic in the console log or XML `system-err` output
+also rejects the run when test cases pass: the affected class may have run without model-checking
+instrumentation. Inspect the preserved diagnostic before changing or repeating the candidate.
+
+Local publication verification requires the consumable artifact, POM, and Gradle module metadata
+for every expected module and target publication. Missing or unexpected target publications fail
+validation.
+
+The publication controller reads the shipping modules from
+[`.github/release-manifest.json`](./.github/release-manifest.json). Immutable publication uses
+`publishAndReleaseToMavenCentral`; snapshots use `publishToMavenCentral`. Credentials and signing
+material come from CI secrets. Local fixtures exercise these steps with command stubs and do
+not establish signed Central deployment.
+
+Before immutable Maven publication, CI reserves a draft GitHub Release for the tag. It records
+an attempted module before invoking Maven and appends each completed module to
+`publication-receipt.json`. The receipt, validation evidence, and notes are uploaded as an
+Actions artifact before the GitHub Release is made public. Existing release records block
+automatic publication of the same immutable version again.
+
+## Partial publication and record repair
+
+Inspect the original run's receipt before taking another publication action. A failed command
+can leave Central state uncertain; reconcile the attempted module with Central and the recorded
+inventory. Do not treat a failed workflow as proof that no artifacts were released. Published
+Maven versions are immutable, and removing a GitHub record does not undo Maven publication.
+
+When the receipt records every shipping module as complete but the GitHub record failed, run
+[`Store6 release record repair`](./.github/workflows/store6-release-record.yml) with the release
+tag, original CI run ID, and original attempt. It checks the tag/source and downloads that
+attempt's preserved receipt. It only uploads the receipt and updates GitHub notes and release
+visibility; it never invokes Maven. Repeating this record repair is supported. Incomplete or
+missing receipts require reconciliation before repair and are rejected by this workflow.
+
+Full-suite results and release provenance/receipt artifacts are retained for 90 days. Ordinary
+matrix and root-build failure reports are retained for 7 days; preserve those raw reports before
+day 7. Artifact resolution from Central and the final GitHub record must be checked before
+announcing availability or replacing prerelease-only installation text.
 
 ## After the release
 
-1. Set `VERSION_NAME` in `gradle.properties` to the next development version and update
-   the hardcoded verification version in `store6.yml`'s `klib-publication-check` to match,
-   as in step 2 above.
-2. State the next alpha's target month in the release notes (STABILITY.md §5).
+Set the root `VERSION_NAME` to the next development version. Preserve the released source SHA,
+artifact and BOM/POM inventory, consumer evidence, release receipt, notes, and known limitations.
+Keep the selected next-alpha target in the published notes.

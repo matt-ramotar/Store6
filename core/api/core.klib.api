@@ -40,6 +40,7 @@ abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kot
         abstract fun <get-changes>(): kotlinx.coroutines.flow/Flow<org.mobilenativefoundation.store6.core/StoreKey> // org.mobilenativefoundation.store6.core.seam/Overlay.changes.<get-changes>|<get-changes>(){}[0]
 
     abstract fun apply(#A, #B?): #B? // org.mobilenativefoundation.store6.core.seam/Overlay.apply|apply(1:0;1:1?){}[0]
+    open fun apply(#A, #B?, org.mobilenativefoundation.store6.core.seam/SourceAdoption?): #B? // org.mobilenativefoundation.store6.core.seam/Overlay.apply|apply(1:0;1:1?;org.mobilenativefoundation.store6.core.seam.SourceAdoption?){}[0]
 }
 
 abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core.seam/SourceOfTruth { // org.mobilenativefoundation.store6.core.seam/SourceOfTruth|null[0]
@@ -63,6 +64,8 @@ abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kot
     abstract suspend fun apply(#A, #B) // org.mobilenativefoundation.store6.core.seam/StoreWriteHandle.apply|apply(1:0;1:1){}[0]
     abstract suspend fun confirmFresh(#A, kotlin/String?) // org.mobilenativefoundation.store6.core.seam/StoreWriteHandle.confirmFresh|confirmFresh(1:0;kotlin.String?){}[0]
     abstract suspend fun markStale(#A) // org.mobilenativefoundation.store6.core.seam/StoreWriteHandle.markStale|markStale(1:0){}[0]
+    open suspend fun applyAcknowledgement(#A, #B, kotlin/String?, org.mobilenativefoundation.store6.core.seam/FreshnessEvidence? = ..., org.mobilenativefoundation.store6.core.seam/SourceAdoption? = ...) // org.mobilenativefoundation.store6.core.seam/StoreWriteHandle.applyAcknowledgement|applyAcknowledgement(1:0;1:1;kotlin.String?;org.mobilenativefoundation.store6.core.seam.FreshnessEvidence?;org.mobilenativefoundation.store6.core.seam.SourceAdoption?){}[0]
+    open suspend fun captureFreshness(#A): org.mobilenativefoundation.store6.core.seam/FreshnessEvidence? // org.mobilenativefoundation.store6.core.seam/StoreWriteHandle.captureFreshness|captureFreshness(1:0){}[0]
 }
 
 abstract interface <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.core.seam/TransactionalSourceOfTruth : org.mobilenativefoundation.store6.core.seam/SourceOfTruth<#A, #B> { // org.mobilenativefoundation.store6.core.seam/TransactionalSourceOfTruth|null[0]
@@ -293,6 +296,8 @@ final class org.mobilenativefoundation.store6.core.seam/FreshnessContext { // or
         final fun <get-status>(): org.mobilenativefoundation.store6.core.seam/KeyStatus? // org.mobilenativefoundation.store6.core.seam/FreshnessContext.status.<get-status>|<get-status>(){}[0]
 }
 
+final class org.mobilenativefoundation.store6.core.seam/FreshnessEvidence // org.mobilenativefoundation.store6.core.seam/FreshnessEvidence|null[0]
+
 final class org.mobilenativefoundation.store6.core.seam/KeyStatus { // org.mobilenativefoundation.store6.core.seam/KeyStatus|null[0]
     constructor <init>(org.mobilenativefoundation.store6.core/StoreMeta?, kotlin/Long?, kotlin/Long?, kotlin/Int, kotlin/Boolean) // org.mobilenativefoundation.store6.core.seam/KeyStatus.<init>|<init>(org.mobilenativefoundation.store6.core.StoreMeta?;kotlin.Long?;kotlin.Long?;kotlin.Int;kotlin.Boolean){}[0]
 
@@ -306,6 +311,10 @@ final class org.mobilenativefoundation.store6.core.seam/KeyStatus { // org.mobil
         final fun <get-lastSuccessSequence>(): kotlin/Long? // org.mobilenativefoundation.store6.core.seam/KeyStatus.lastSuccessSequence.<get-lastSuccessSequence>|<get-lastSuccessSequence>(){}[0]
     final val meta // org.mobilenativefoundation.store6.core.seam/KeyStatus.meta|{}meta[0]
         final fun <get-meta>(): org.mobilenativefoundation.store6.core/StoreMeta? // org.mobilenativefoundation.store6.core.seam/KeyStatus.meta.<get-meta>|<get-meta>(){}[0]
+}
+
+final class org.mobilenativefoundation.store6.core.seam/SourceAdoption { // org.mobilenativefoundation.store6.core.seam/SourceAdoption|null[0]
+    constructor <init>() // org.mobilenativefoundation.store6.core.seam/SourceAdoption.<init>|<init>(){}[0]
 }
 
 final class org.mobilenativefoundation.store6.core/StoreException : kotlin/RuntimeException { // org.mobilenativefoundation.store6.core/StoreException|null[0]

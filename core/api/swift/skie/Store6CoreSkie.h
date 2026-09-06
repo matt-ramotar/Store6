@@ -6,7 +6,7 @@
 #import <Foundation/NSString.h>
 #import <Foundation/NSValue.h>
 
-@class SCS__SkieSuspendWrappersKt, SCSUShort, SCSULong, SCSUInt, SCSUByte, SCSStoreRuntimeKt, SCSStoreResults, SCSStoreResultRevalidated, SCSStoreResultLoading, SCSStoreResultError, SCSStoreResultData<V>, SCSStoreNamespace, SCSStoreException, SCSStoreErrorPersistence, SCSStoreErrorMissing, SCSStoreErrorFreshnessUnsatisfiable, SCSStoreErrorFetch, SCSStoreErrorConversion, SCSStoreErrorConflict, SCSStoreError, SCSStoreBuilderKt, SCSStoreBuilder<K, V>, SCSSkie_SuspendResultSuccess, SCSSkie_SuspendResultError, SCSSkie_SuspendResultCanceled, SCSSkie_SuspendResult, SCSSkie_SuspendHandler, SCSSkie_CancellationHandler, SCSSkieKotlinStateFlow<T>, SCSSkieKotlinSharedFlow<T>, SCSSkieKotlinOptionalStateFlow<T>, SCSSkieKotlinOptionalSharedFlow<T>, SCSSkieKotlinOptionalMutableStateFlow<T>, SCSSkieKotlinOptionalMutableSharedFlow<T>, SCSSkieKotlinOptionalFlow<T>, SCSSkieKotlinMutableStateFlow<T>, SCSSkieKotlinMutableSharedFlow<T>, SCSSkieKotlinFlow<T>, SCSSkieColdFlowIterator<E>, SCSShort, SCSOrigin, SCSNumber, SCSMutableSet<ObjectType>, SCSMutableDictionary<KeyType, ObjectType>, SCSLong, SCSKotlinThrowable, SCSKotlinRuntimeException, SCSKotlinIllegalStateException, SCSKotlinException, SCSKotlinEnumCompanion, SCSKotlinEnum<E>, SCSKotlinCancellationException, SCSKotlinArray<T>, SCSKeyStatus, SCSKeyEventsWritten, SCSKeyEventsInvalidated, SCSKeyEventsDeleted, SCSKeyEvents, SCSInt, SCSFreshnessStaleIfError, SCSFreshnessMustBeFresh, SCSFreshnessMaxAge, SCSFreshnessLocalOnly, SCSFreshnessContext, SCSFreshnessCachedOrFetch, SCSFloat, SCSFetcherResultSuccess<V>, SCSFetcherResultNotModified, SCSFetcherResultError, SCSFetcherResultDeleted, SCSFetchPlanSkip, SCSFetchPlanFetch, SCSFetchPlanConditional, SCSDouble, SCSByte, SCSBoolean, SCSBase, NSString, NSSet<ObjectType>, NSObject, NSNumber, NSMutableSet<ObjectType>, NSMutableDictionary<KeyType, ObjectType>, NSMutableArray<ObjectType>, NSError, NSDictionary<KeyType, ObjectType>, NSArray<ObjectType>;
+@class SCS__SkieSuspendWrappersKt, SCSUShort, SCSULong, SCSUInt, SCSUByte, SCSStoreRuntimeKt, SCSStoreResults, SCSStoreResultRevalidated, SCSStoreResultLoading, SCSStoreResultError, SCSStoreResultData<V>, SCSStoreNamespace, SCSStoreException, SCSStoreErrorPersistence, SCSStoreErrorMissing, SCSStoreErrorFreshnessUnsatisfiable, SCSStoreErrorFetch, SCSStoreErrorConversion, SCSStoreErrorConflict, SCSStoreError, SCSStoreBuilderKt, SCSStoreBuilder<K, V>, SCSSourceAdoption, SCSSkie_SuspendResultSuccess, SCSSkie_SuspendResultError, SCSSkie_SuspendResultCanceled, SCSSkie_SuspendResult, SCSSkie_SuspendHandler, SCSSkie_CancellationHandler, SCSSkieKotlinStateFlow<T>, SCSSkieKotlinSharedFlow<T>, SCSSkieKotlinOptionalStateFlow<T>, SCSSkieKotlinOptionalSharedFlow<T>, SCSSkieKotlinOptionalMutableStateFlow<T>, SCSSkieKotlinOptionalMutableSharedFlow<T>, SCSSkieKotlinOptionalFlow<T>, SCSSkieKotlinMutableStateFlow<T>, SCSSkieKotlinMutableSharedFlow<T>, SCSSkieKotlinFlow<T>, SCSSkieColdFlowIterator<E>, SCSShort, SCSOrigin, SCSNumber, SCSMutableSet<ObjectType>, SCSMutableDictionary<KeyType, ObjectType>, SCSLong, SCSKotlinThrowable, SCSKotlinRuntimeException, SCSKotlinIllegalStateException, SCSKotlinException, SCSKotlinEnumCompanion, SCSKotlinEnum<E>, SCSKotlinCancellationException, SCSKotlinArray<T>, SCSKeyStatus, SCSKeyEventsWritten, SCSKeyEventsInvalidated, SCSKeyEventsDeleted, SCSKeyEvents, SCSInt, SCSFreshnessStaleIfError, SCSFreshnessMustBeFresh, SCSFreshnessMaxAge, SCSFreshnessLocalOnly, SCSFreshnessEvidence, SCSFreshnessContext, SCSFreshnessCachedOrFetch, SCSFloat, SCSFetcherResultSuccess<V>, SCSFetcherResultNotModified, SCSFetcherResultError, SCSFetcherResultDeleted, SCSFetchPlanSkip, SCSFetchPlanFetch, SCSFetchPlanConditional, SCSDouble, SCSByte, SCSBoolean, SCSBase, NSString, NSSet<ObjectType>, NSObject, NSNumber, NSMutableSet<ObjectType>, NSMutableDictionary<KeyType, ObjectType>, NSMutableArray<ObjectType>, NSError, NSDictionary<KeyType, ObjectType>, NSArray<ObjectType>;
 
 @protocol SCSWallClock, SCSTransactionalSourceOfTruth, SCSStoreWriteHandle, SCSStoreTelemetry, SCSStoreRuntime, SCSStoreResult, SCSStoreMeta, SCSStoreKey, SCSStore, SCSSourceOfTruth, SCSSkie_DispatcherDelegate, SCSOverlay, SCSKotlinx_coroutines_coreStateFlow, SCSKotlinx_coroutines_coreSharedFlow, SCSKotlinx_coroutines_coreRunnable, SCSKotlinx_coroutines_coreMutableStateFlow, SCSKotlinx_coroutines_coreMutableSharedFlow, SCSKotlinx_coroutines_coreFlowCollector, SCSKotlinx_coroutines_coreFlow, SCSKotlinSuspendFunction1, SCSKotlinSuspendFunction0, SCSKotlinIterator, SCSKotlinFunction, SCSKotlinComparable, SCSFreshnessValidator, SCSFreshness, SCSFetcherResult, SCSFetcher, SCSFetchPlan, SCSBookkeeper, NSCopying;
 
@@ -1006,6 +1006,16 @@ __attribute__((swift_name("FreshnessContext")))
 /**
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FreshnessEvidence")))
+@interface SCSFreshnessEvidence : SCSBase
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
 __attribute__((swift_name("FreshnessValidator")))
@@ -1069,7 +1079,20 @@ __attribute__((swift_name("Overlay")))
 @protocol SCSOverlay
 @required
 - (id _Nullable)applyKey:(id<SCSStoreKey>)key base:(id _Nullable)base __attribute__((swift_name("apply(key:base:)")));
+- (id _Nullable)applyKey:(id<SCSStoreKey>)key base:(id _Nullable)base adoption:(SCSSourceAdoption * _Nullable)adoption __attribute__((swift_name("apply(key:base:adoption:)")));
 @property (readonly) id<SCSKotlinx_coroutines_coreFlow> changes __attribute__((swift_name("changes")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("SourceAdoption")))
+@interface SCSSourceAdoption : SCSBase
+- (instancetype)init __attribute__((swift_name("init()"))) __attribute__((objc_designated_initializer));
++ (instancetype)new __attribute__((availability(swift, unavailable, message="use object initializers instead")));
 @end
 
 
@@ -1184,6 +1207,18 @@ __attribute__((swift_name("StoreWriteHandle")))
  * @note This method converts instances of CancellationException to errors.
  * Other uncaught Kotlin exceptions are fatal.
 */
+- (void)applyAcknowledgementKey:(id<SCSStoreKey>)key value:(id)value etag:(NSString * _Nullable)etag freshnessEvidence:(SCSFreshnessEvidence * _Nullable)freshnessEvidence adoption:(SCSSourceAdoption * _Nullable)adoption completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("applyAcknowledgement(key:value:etag:freshnessEvidence:adoption:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)captureFreshnessKey:(id<SCSStoreKey>)key completionHandler:(void (^)(SCSFreshnessEvidence * _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("captureFreshness(key:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
 - (void)confirmFreshKey:(id<SCSStoreKey>)key etag:(NSString * _Nullable)etag completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("confirmFresh(key:etag:completionHandler:)")));
 
 /**
@@ -1259,12 +1294,14 @@ __attribute__((swift_name("__SkieSuspendWrappersKt")))
 + (void)Skie_Suspend__22__recordSuccessDispatchReceiver:(id<SCSBookkeeper>)dispatchReceiver key:(id<SCSStoreKey>)key meta:(id<SCSStoreMeta>)meta suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__22__recordSuccess(dispatchReceiver:key:meta:suspendHandler:)")));
 + (void)Skie_Suspend__23__statusDispatchReceiver:(id<SCSBookkeeper>)dispatchReceiver key:(id<SCSStoreKey>)key suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__23__status(dispatchReceiver:key:suspendHandler:)")));
 + (void)Skie_Suspend__24__applyDispatchReceiver:(id<SCSStoreWriteHandle>)dispatchReceiver key:(id<SCSStoreKey>)key value:(id)value suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__24__apply(dispatchReceiver:key:value:suspendHandler:)")));
-+ (void)Skie_Suspend__25__confirmFreshDispatchReceiver:(id<SCSStoreWriteHandle>)dispatchReceiver key:(id<SCSStoreKey>)key etag:(NSString * _Nullable)etag suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__25__confirmFresh(dispatchReceiver:key:etag:suspendHandler:)")));
-+ (void)Skie_Suspend__26__markStaleDispatchReceiver:(id<SCSStoreWriteHandle>)dispatchReceiver key:(id<SCSStoreKey>)key suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__26__markStale(dispatchReceiver:key:suspendHandler:)")));
-+ (void)Skie_Suspend__27__withTransactionDispatchReceiver:(id<SCSTransactionalSourceOfTruth>)dispatchReceiver block:(id<SCSKotlinSuspendFunction0>)block suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__27__withTransaction(dispatchReceiver:block:suspendHandler:)")));
-+ (void)Skie_Suspend__28__invokeDispatchReceiver:(id<SCSKotlinSuspendFunction0>)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__28__invoke(dispatchReceiver:suspendHandler:)")));
-+ (void)Skie_Suspend__29__hasNextDispatchReceiver:(SCSSkieColdFlowIterator<id> *)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__29__hasNext(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__25__applyAcknowledgementDispatchReceiver:(id<SCSStoreWriteHandle>)dispatchReceiver key:(id<SCSStoreKey>)key value:(id)value etag:(NSString * _Nullable)etag freshnessEvidence:(SCSFreshnessEvidence * _Nullable)freshnessEvidence adoption:(SCSSourceAdoption * _Nullable)adoption suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__25__applyAcknowledgement(dispatchReceiver:key:value:etag:freshnessEvidence:adoption:suspendHandler:)")));
++ (void)Skie_Suspend__26__captureFreshnessDispatchReceiver:(id<SCSStoreWriteHandle>)dispatchReceiver key:(id<SCSStoreKey>)key suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__26__captureFreshness(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__27__confirmFreshDispatchReceiver:(id<SCSStoreWriteHandle>)dispatchReceiver key:(id<SCSStoreKey>)key etag:(NSString * _Nullable)etag suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__27__confirmFresh(dispatchReceiver:key:etag:suspendHandler:)")));
++ (void)Skie_Suspend__28__markStaleDispatchReceiver:(id<SCSStoreWriteHandle>)dispatchReceiver key:(id<SCSStoreKey>)key suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__28__markStale(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__29__withTransactionDispatchReceiver:(id<SCSTransactionalSourceOfTruth>)dispatchReceiver block:(id<SCSKotlinSuspendFunction0>)block suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__29__withTransaction(dispatchReceiver:block:suspendHandler:)")));
 + (void)Skie_Suspend__2__clearNamespaceDispatchReceiver:(id<SCSStore>)dispatchReceiver namespace:(SCSStoreNamespace *)namespace_ suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__2__clearNamespace(dispatchReceiver:namespace:suspendHandler:)")));
++ (void)Skie_Suspend__30__invokeDispatchReceiver:(id<SCSKotlinSuspendFunction0>)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__30__invoke(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__31__hasNextDispatchReceiver:(SCSSkieColdFlowIterator<id> *)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__31__hasNext(dispatchReceiver:suspendHandler:)")));
 + (void)Skie_Suspend__3__getDispatchReceiver:(id<SCSStore>)dispatchReceiver key:(id<SCSStoreKey>)key freshness:(id<SCSFreshness>)freshness suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__3__get(dispatchReceiver:key:freshness:suspendHandler:)")));
 + (void)Skie_Suspend__4__invalidateDispatchReceiver:(id<SCSStore>)dispatchReceiver key:(id<SCSStoreKey>)key suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__4__invalidate(dispatchReceiver:key:suspendHandler:)")));
 + (void)Skie_Suspend__5__invalidateAllDispatchReceiver:(id<SCSStore>)dispatchReceiver suspendHandler:(SCSSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__5__invalidateAll(dispatchReceiver:suspendHandler:)")));

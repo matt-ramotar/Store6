@@ -23,6 +23,8 @@ import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.seam.StoreResults
+import org.mobilenativefoundation.store6.core.seam.FreshnessEvidence
+import org.mobilenativefoundation.store6.core.seam.SourceAdoption
 import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
 import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJournalStorage
 import org.mobilenativefoundation.store6.mutations.storage.MutationAliasState
@@ -511,6 +513,16 @@ private class RecordingInvalidationHandle(
     private val beforeMark: suspend (MutationsTestKey) -> Unit = {},
 ) : StoreWriteHandle<MutationsTestKey, String> {
     val markAttempts = mutableListOf<KeyIdentity>()
+
+    override suspend fun applyAcknowledgement(
+        key: MutationsTestKey,
+        value: String,
+        etag: String?,
+        freshnessEvidence: FreshnessEvidence?,
+        adoption: SourceAdoption?,
+    ) {
+        Unit
+    }
 
     override suspend fun apply(
         key: MutationsTestKey,

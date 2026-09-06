@@ -42,11 +42,17 @@ tasks.withType<Test>().configureEach {
 }
 
 tasks.named("jvmTest", org.jetbrains.kotlin.gradle.targets.jvm.tasks.KotlinJvmTest::class) {
-    // The Lincheck model-checking budget exceeds every default hosted CI lane: measured
-    // 2h40m-3h13m on hosted runners vs ~58-59m locally at the current suite, and once
+    // The Lincheck model-checking budget previously exceeded every default hosted CI lane: measured
+    // 2h40m-3h13m on hosted runners vs ~58-59m locally, and once
     // 9h23m locally at an earlier revision. The scheduled full-suite workflow passes
-    // -Pstore6.fullJvmSuite to run it; nothing else does.
-    if (!providers.gradleProperty("store6.fullJvmSuite").isPresent) {
+    // -Pstore6.fullJvmSuite to run it; release validation uses the same workflow.
+    if (providers.gradleProperty("store6.fullJvmSuite").isPresent) {
+        // Move transformation of loaded classes out of the model-checking invocation deadline.
+        systemProperty("lincheck.instrumentAllClasses", "true")
+        // Compilation may reuse cached outputs; this test task must execute on every invocation.
+        outputs.upToDateWhen { false }
+        outputs.doNotCacheIf("Full-suite validation requires fresh test execution") { true }
+    } else {
         filter {
             excludeTestsMatching("org.mobilenativefoundation.store6.mutations.MutationJournalLincheckTest")
         }
