@@ -1,6 +1,7 @@
 name: Store6
 
 on:
+  workflow_dispatch: {}
   workflow_call:
     outputs:
       source_sha:
