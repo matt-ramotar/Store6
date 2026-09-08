@@ -137,7 +137,9 @@ uses resident and fetched data.
 > **The spelling below is the current API surface.** The module is still experimental — shapes
 > can change in any release — but the snippet below matches the implementation.
 
-Optimistic writes go through a journal, so they survive being offline and survive process death.
+Optimistic writes use a journal. The default journal is in memory and keeps queued writes only for
+that instance's lifetime. To preserve queued writes across process death, configure persistent
+journal storage and reopen the same durable store.
 You get a mutation store instead of a plain one, and it is a `Store` — everything above still works.
 
 <!-- Source anchors: MutationStore.kt (mutationStore factory), MutatorRegistry.kt (sugars),

@@ -58,6 +58,13 @@
 - [Component map](/docs/store6/migration/component-map): translate Store 5 components, policies, and extension points to their Store 6 equivalents.
 - [Migrate from Store 4](/docs/store6/migration/from-store4): move through Store 5 or adopt Store 6 directly, with explicit compatibility and validation checkpoints.
 
+## Agents & LLMs
+
+- [Agents overview](/docs/store6/agents/overview): choose page copy, Markdown documentation, or the Store6 coding skill.
+- [LLM context](/docs/store6/agents/llm-context): select documentation and inspect its recorded source identity.
+- [Agent skills](/docs/store6/agents/agent-skills): install the Store6 skill and retrieve documentation matching your project.
+- [Complete Store6 guides](/llms-full.txt): the Store6 guide corpus, including agent setup pages.
+
 ## Project
 
 - [Stability](STABILITY.md): API tiers, the deprecation cycle, the release cadence commitment, how stability is verified from a released tag, and the mutations posture at alpha01.
