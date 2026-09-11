@@ -56,6 +56,14 @@ internal data class LincheckScenarioSpec(
  * can prove the shards validated one and the same plan. That makes [SCENARIO_SEED] a guarded
  * lever: changing it — or an operation, a shape constant, or the curated scenario — fails the
  * golden test and the release gate rather than silently revalidating a different plan.
+ *
+ * Scope of that guarantee: the digest hashes operation names and thread/actor structure only
+ * (`canonicalForm` joins each scenario's per-actor operation name, actors by `,`, threads by
+ * `|`) — it attests the 101 scenarios' shape, not the meaning behind them. It does not cover
+ * `MutationJournalLincheckTest`'s mapping from each `LincheckOperation` to the `@Operation`
+ * function it actually runs (a silently swapped mapping would not change this digest), nor its
+ * `JournalSequentialSpecification`, the reference implementation Lincheck checks against.
+ * Reviewers must check both by reading; the digest cannot stand in for it.
  */
 internal object LincheckScenarioPlan {
     /** Changing this reshuffles every generated scenario and breaks [SCENARIO_DIGEST]. */

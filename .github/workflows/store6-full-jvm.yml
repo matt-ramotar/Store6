@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       lincheck_runner:
-        description: 'Runner for the Lincheck shard jobs only.'
+        description: "Runner for the Lincheck shard jobs only. Result as of 2026-09-11: macos-latest hit Lincheck's 20-second invocation deadline on three of four shards (run 34566978279) and is not adopted for the gate; the option stays for experiments only."
         type: choice
         required: false
         default: ubuntu-latest

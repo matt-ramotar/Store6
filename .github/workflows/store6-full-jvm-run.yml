@@ -74,6 +74,10 @@ jobs:
         run: |
           set -uo pipefail
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}" || exit 1
+          case "${LANE_TASK}" in
+            jvmTest|lincheckTest) ;;
+            *) echo "LANE_TASK must be jvmTest or lincheckTest, got '${LANE_TASK}'" >&2; exit 1 ;;
+          esac
           mkdir -p full-suite-evidence
           rm -rf "mutations/build/test-results/${LANE_TASK}"
           if [ "${LANE_TASK}" = 'lincheckTest' ]; then

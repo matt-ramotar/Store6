@@ -62,6 +62,8 @@ class WorkflowContract(unittest.TestCase):
         run = runner.read_text()
         self.assertIn('--console=plain', run)
         self.assertIn('release_control.py full-suite-execution', run)
+        self.assertIn('case "${LANE_TASK}" in', run)
+        self.assertIn('jvmTest|lincheckTest', run)
         self.assertIn('./gradlew ":mutations:${LANE_TASK}"', run)
         self.assertIn('arguments="-Pstore6.lincheckShard=${LANE_SHARD}"', run)
         self.assertIn("arguments='-Pstore6.fullJvmSuite'", run)
