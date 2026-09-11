@@ -679,7 +679,7 @@ class KtorFetcherTransportTest {
         }
 
     @Test
-    fun clientDefaultRequestConditionalHeader_isAppendedBesideTheKitsValidator() =
+    fun clientDefaultRequestConditionalHeader_besideTheKitsValidator_isRefused() =
         runTest {
             val seenIfNoneMatch = mutableListOf<List<String>?>()
             val engine =
@@ -695,18 +695,50 @@ class KtorFetcherTransportTest {
             HttpClient(engine) {
                 defaultRequest { header(HttpHeaders.IfNoneMatch, "\"x\"") }
             }.use { client ->
-                val result =
-                    assertIs<FetcherResult.NotModified>(
-                        transportFetcher(client).fetch(KEY, "\"v1\""),
-                    )
+                val result = transportFetcher(client).fetch(KEY, "\"v1\"")
 
-                // Observed on Ktor 3.5.2: DefaultRequest appends beside the kit's validator
-                // rather than yielding to it, so the request carries two entity tags. The kit's
-                // replace-not-append guarantee holds only against `configureRequest`. A server
-                // that matches the plugin's tag answers 304, and the kit then refreshes the
-                // freshness of a resident value recorded under a different tag.
+                // Merge order, observed on Ktor 3.5.2: DefaultRequest appends beside the kit's
+                // validator rather than yielding to it, so the request carries two entity tags.
+                // The kit's replace-not-append guarantee holds only against `configureRequest`.
+                // A red on this assertion means Ktor's precedence changed: re-read the contract
+                // and re-derive what the kit can promise, rather than patching the kit to match.
                 assertEquals(listOf<List<String>?>(listOf("\"v1\"", "\"x\"")), seenIfNoneMatch)
-                assertEquals("\"v2\"", result.etag)
+
+                // A server matching the plugin's tag answers 304 for a representation the kit
+                // never asked about, and adopting it would refresh the freshness of a resident
+                // value recorded under a different tag. The kit compares the conditional headers
+                // the request actually carried against the single one it wrote, and refuses.
+                assertStatusError(result, HttpStatusCode.NotModified)
+            }
+        }
+
+    @Test
+    fun clientDefaultRequestForeignIfModifiedSince_besideTheKitsEtag_isRefused() =
+        runTest {
+            // The foreign validator need not be the same header the kit wrote. Here the kit sends
+            // If-None-Match from its recorded ETag and the plugin adds If-Modified-Since, so a
+            // server may answer 304 on the date alone while the entity tag never matched.
+            val seenConditionals = mutableListOf<Pair<List<String>?, List<String>?>>()
+            val engine =
+                MockEngine { request ->
+                    seenConditionals +=
+                        request.headers.getAll(HttpHeaders.IfNoneMatch) to
+                        request.headers.getAll(HttpHeaders.IfModifiedSince)
+                    respond(content = "", status = HttpStatusCode.NotModified)
+                }
+
+            HttpClient(engine) {
+                defaultRequest { header(HttpHeaders.IfModifiedSince, LM_DATE) }
+            }.use { client ->
+                val result = transportFetcher(client).fetch(KEY, "\"v1\"")
+
+                assertEquals(
+                    listOf<Pair<List<String>?, List<String>?>>(
+                        listOf("\"v1\"") to listOf(LM_DATE),
+                    ),
+                    seenConditionals,
+                )
+                assertStatusError(result, HttpStatusCode.NotModified)
             }
         }
 
