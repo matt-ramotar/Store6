@@ -8,6 +8,7 @@ import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.HttpRequestData
+import io.ktor.client.request.HttpRequestPipeline
 import io.ktor.client.request.header
 import io.ktor.client.request.url
 import io.ktor.client.statement.HttpResponse
@@ -761,6 +762,70 @@ class KtorFetcherTransportTest {
         }
 
     @Test
+    fun clientDefaultRequestConditionalHeader_besideTheKitsLastModified_isRefused() =
+        runTest {
+            // Mirrors clientDefaultRequestConditionalHeader_besideTheKitsValidator_isRefused on
+            // the Last-Modified path: the kit's own conditional header is If-Modified-Since here,
+            // so the plugin's append produces two If-Modified-Since values instead of two entity
+            // tags.
+            val seenIfModifiedSince = mutableListOf<List<String>?>()
+            val engine =
+                MockEngine { request ->
+                    seenIfModifiedSince += request.headers.getAll(HttpHeaders.IfModifiedSince)
+                    respond(content = "", status = HttpStatusCode.NotModified)
+                }
+
+            HttpClient(engine) {
+                defaultRequest { header(HttpHeaders.IfModifiedSince, FOREIGN_LM_DATE) }
+            }.use { client ->
+                val result = transportFetcher(client).fetch(KEY, "LM:$LM_DATE")
+
+                assertEquals(
+                    listOf<List<String>?>(listOf(LM_DATE, FOREIGN_LM_DATE)),
+                    seenIfModifiedSince,
+                )
+
+                val refusal = assertStatusError(result, HttpStatusCode.NotModified)
+                assertTrue(
+                    refusal.message.orEmpty().contains(FOREIGN_VALIDATOR_REFUSAL),
+                    "expected the foreign-validator refusal, was ${refusal.message}",
+                )
+            }
+        }
+
+    @Test
+    fun requestPipelineInterceptor_removesTheKitsIfNoneMatch_isRefused() =
+        runTest {
+            // defaultRequest cannot remove a header the kit's builder already set - it can only
+            // contribute alongside it (see the two tests above) - so the missing-header case is
+            // driven through a request pipeline interceptor instead. Installed at the State phase,
+            // it runs after both prepareRequest's block and the Before phase defaultRequest uses,
+            // so it observes and can strip the kit's own header. The sent request then carries no
+            // conditional header at all, which the guard finds just as unattributable as a foreign
+            // one.
+            val engine =
+                MockEngine { request ->
+                    assertNoHeader(request, HttpHeaders.IfNoneMatch)
+                    respond(content = "", status = HttpStatusCode.NotModified)
+                }
+
+            val client = HttpClient(engine)
+            client.requestPipeline.intercept(HttpRequestPipeline.State) {
+                context.headers.remove(HttpHeaders.IfNoneMatch)
+            }
+
+            client.use {
+                val result = transportFetcher(client).fetch(KEY, "\"v1\"")
+
+                val refusal = assertStatusError(result, HttpStatusCode.NotModified)
+                assertTrue(
+                    refusal.message.orEmpty().contains(FOREIGN_VALIDATOR_REFUSAL),
+                    "expected the foreign-validator refusal, was ${refusal.message}",
+                )
+            }
+        }
+
+    @Test
     fun errorMapper_failOnOk_skipsDecode() =
         runTest {
             var decoded = false
@@ -948,6 +1013,7 @@ class KtorFetcherTransportTest {
     private companion object {
         val KEY = TransportKey("1")
         const val LM_DATE = "Wed, 21 Oct 2015 07:28:00 GMT"
+        const val FOREIGN_LM_DATE = "Thu, 22 Oct 2015 07:28:00 GMT"
         const val FOREIGN_VALIDATOR_REFUSAL = "carried validators the kit did not set"
         val DefaultDecode: suspend (HttpResponse) -> String = { response ->
             val text = response.bodyAsText()

@@ -286,8 +286,12 @@ private class KtorFetcher<K : StoreKey, V : Any>(
             when (sentValidator.name) {
                 HttpHeaders.IfNoneMatch -> ifNoneMatch == expected && ifModifiedSince.isEmpty()
                 HttpHeaders.IfModifiedSince -> ifModifiedSince == expected && ifNoneMatch.isEmpty()
-                // Fail closed: a validator header this function does not know how to compare is
-                // one it cannot clear, so the 304 stays unattributable.
+                // Unreachable today: SentValidator has only two construction sites (in
+                // fetch(), above), one per known header constant, so `name` is always one of
+                // the two branches above. Kept for a future third validator — fail closed
+                // rather than guess how to compare a header this function does not recognize.
+                // The at-most-one-conditional-header invariant this guard depends on is
+                // stated where sentValidator is chosen, in fetch().
                 else -> false
             }
         if (matches) return null
