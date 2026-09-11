@@ -1,9 +1,10 @@
 # Platform targets and verification
 
-This page records declared targets and completed local checks for `6.0.0-SNAPSHOT` during
-6.0.0-alpha01 preparation, as of 2026-09-06. It does not establish a validated release tag or
-Maven Central availability. The [stability policy](../../STABILITY.md) selects fifteen libraries
-plus the BOM for alpha01; a successful build of a deferred library does not add it to that roster.
+This page records declared targets, current as of 2026-09-11, and completed local checks for
+`6.0.0-SNAPSHOT` during 6.0.0-alpha01 preparation, as of 2026-09-06. It does not establish a
+validated release tag or Maven Central availability. The [stability policy](../../STABILITY.md)
+selects fifteen libraries plus the BOM for alpha01; a successful build of a deferred library does
+not add it to that roster.
 
 ## Declared library targets
 

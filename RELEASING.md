@@ -59,6 +59,31 @@ lane. Missing, cached, incomplete, and failed test evidence cannot satisfy the g
 failure is retained in that Actions run's summary and result artifact for classification, not
 rerun unchanged for green.
 
+Beyond that scenario-coverage union, two more checks run per shard. Every shard's
+`store6-lincheck-scenarios` marker line prints a plan digest that `release_control.py` requires to
+equal its pinned `LINCHECK_SCENARIO_DIGEST`, which
+[`test_workflow_contract.py`](./.github/scripts/tests/test_workflow_contract.py) in turn pins
+equal to `SCENARIO_DIGEST`, the golden constant in
+[`LincheckScenarioPlan.kt`](./mutations/src/jvmTest/kotlin/org/mobilenativefoundation/store6/mutations/LincheckScenarioPlan.kt).
+A shard that validated a different plan — a changed `SCENARIO_SEED`, curated scenario, or
+thread/actor shape — fails the gate instead of passing quietly. Separately, Lincheck's own
+`= Iteration k / n =` lines are counted out of the console log and must equal the shard's planned
+scenario count, so a shard that stopped short of its plan — a hang or an early abort — fails even
+where the Gradle task itself reported success.
+
+When the plan legitimately changes — a new `SCENARIO_SEED`, a different curated scenario, or a
+changed thread/actor shape — regenerate the digest from the new plan and update the constant in
+both `LincheckScenarioPlan.kt` (`SCENARIO_DIGEST`) and `release_control.py`
+(`LINCHECK_SCENARIO_DIGEST`); `test_workflow_contract.py` fails the build until the two agree
+again.
+
+Both checks depend on Gradle test output that carries no other role in the build:
+`testLogging.showStandardStreams` in [`mutations/build.gradle.kts`](./mutations/build.gradle.kts)
+and `.logLevel(LoggingLevel.INFO)` in
+[`MutationJournalLincheckTest`](./mutations/src/jvmTest/kotlin/org/mobilenativefoundation/store6/mutations/MutationJournalLincheckTest.kt)
+are gate inputs, not incidental verbosity — removing either blinds the evidence recorder to the
+marker or iteration lines it depends on.
+
 Budget the wall-clock cost from the first hosted execution of this gate, measured on
 `ubuntu-latest` on 2026-09-11: 51 minutes end to end, with the jvmTest lane under 2 minutes and
 the shards between 36 and 51 minutes.
