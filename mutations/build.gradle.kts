@@ -41,22 +41,62 @@ tasks.withType<Test>().configureEach {
     }
 }
 
+// The Lincheck model-checking budget never fitted a shared test JVM: measured 2h40m-3h13m on
+// hosted runners against ~58-59m locally, and a hang that a previous session traced to JVM-state
+// instrumentation left over from earlier test classes. It therefore owns a task and a JVM of its
+// own (`lincheckTest`), and `jvmTest` never runs it. The full suite is jvmTest + lincheckTest.
+val lincheckTestClass = "org.mobilenativefoundation.store6.mutations.MutationJournalLincheckTest"
+
 tasks.named("jvmTest", org.jetbrains.kotlin.gradle.targets.jvm.tasks.KotlinJvmTest::class) {
-    // The Lincheck model-checking budget previously exceeded every default hosted CI lane: measured
-    // 2h40m-3h13m on hosted runners vs ~58-59m locally, and once
-    // 9h23m locally at an earlier revision. The scheduled full-suite workflow passes
-    // -Pstore6.fullJvmSuite to run it; release validation uses the same workflow.
+    filter {
+        excludeTestsMatching(lincheckTestClass)
+    }
+    // The scheduled full-suite workflow and release validation pass -Pstore6.fullJvmSuite.
     if (providers.gradleProperty("store6.fullJvmSuite").isPresent) {
-        // Isolate Lincheck's eager instrumentation from previous test-class execution.
-        forkEvery = 1
-        // Move transformation of loaded classes out of the model-checking invocation deadline.
-        systemProperty("lincheck.instrumentAllClasses", "true")
         // Compilation may reuse cached outputs; this test task must execute on every invocation.
         outputs.upToDateWhen { false }
         outputs.doNotCacheIf("Full-suite validation requires fresh test execution") { true }
-    } else {
-        filter {
-            excludeTestsMatching("org.mobilenativefoundation.store6.mutations.MutationJournalLincheckTest")
+    }
+}
+
+// Deliberately absent from `check`, `build` and `jvmTest`: only the sharded full-suite workflow
+// lane and a deliberate local invocation run it.
+tasks.register("lincheckTest", Test::class) {
+    group = org.gradle.language.base.plugins.LifecycleBasePlugin.VERIFICATION_GROUP
+    description =
+        "Runs $lincheckTestClass in its own JVM. -Pstore6.lincheckShard=k/N runs one shard of the scenario plan."
+
+    val jvmTest = tasks.named("jvmTest", Test::class)
+    testClassesDirs = files(jvmTest.map { task -> task.testClassesDirs })
+    classpath = files(jvmTest.map { task -> task.classpath })
+    dependsOn("jvmTestClasses")
+
+    filter {
+        includeTestsMatching(lincheckTestClass)
+    }
+
+    // The evidence recorder parses the executed scenario indices out of the Gradle log.
+    testLogging {
+        showStandardStreams = true
+    }
+
+    val shard = providers.gradleProperty("store6.lincheckShard")
+    if (shard.isPresent) {
+        systemProperty("store6.lincheckShard", shard.get())
+    }
+
+    // Sharding only helps if every invocation really executes.
+    outputs.upToDateWhen { false }
+    outputs.doNotCacheIf("Lincheck shards must execute on every invocation") { true }
+}
+
+// Kover's on-the-fly agent must not attach to the Lincheck JVM: Lincheck performs its own bytecode
+// transformation, and an agent conflict there is indistinguishable from a model-checking hang.
+// The jvmTest counterpart of this exclusion lives in Store6Conventions.
+extensions.configure<kotlinx.kover.gradle.plugin.dsl.KoverProjectExtension> {
+    currentProject {
+        instrumentation {
+            disabledForTestTasks.add("lincheckTest")
         }
     }
 }

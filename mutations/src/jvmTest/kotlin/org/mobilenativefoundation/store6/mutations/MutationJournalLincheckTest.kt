@@ -23,6 +23,7 @@ import org.mobilenativefoundation.store6.mutations.storage.MutationIntentRecord
 import org.mobilenativefoundation.store6.mutations.storage.MutationJournalTransaction
 import org.mobilenativefoundation.store6.mutations.storage.MutationKeyAliasRecord
 import org.mobilenativefoundation.store6.mutations.storage.MutationKeyTombstoneRecord
+import kotlin.reflect.KFunction
 import kotlin.test.Test
 
 class MutationJournalLincheckTest {
@@ -78,44 +79,56 @@ class MutationJournalLincheckTest {
 
     @Test
     fun inMemoryJournalTransactions_areLinearizable() {
-        ModelCheckingOptions()
-            .iterations(100)
-            .threads(3)
-            .actorsPerThread(3)
-            .actorsBefore(0)
-            .actorsAfter(0)
-            .sequentialSpecification(JournalSequentialSpecification::class.java)
-            .addGuarantee(
-                forClasses(JournalViewNormalizer::class)
-                    .allMethods()
-                    .ignore(),
-            )
-            .addGuarantee(
-                forClasses(LincheckRecordFactory::class)
-                    .allMethods()
-                    .ignore(),
-            )
-            .addCustomScenario {
+        val shard = LincheckScenarioPlan.shard(System.getProperty(LincheckScenarioPlan.SHARD_PROPERTY))
+        val scenarios = LincheckScenarioPlan.scenarios(shard)
+        // The release evidence recorder parses the executed indices out of this line, so the
+        // union across shards can be proved equal to the whole plan.
+        println(LincheckScenarioPlan.marker(shard, scenarios.map(LincheckScenarioSpec::index)))
+
+        val options =
+            ModelCheckingOptions()
+                // Lincheck seeds its own generator with a constant, so random scenarios would be
+                // identical in every shard. Only the custom scenarios below run.
+                .iterations(0)
+                .threads(LincheckScenarioPlan.THREAD_COUNT)
+                .actorsPerThread(LincheckScenarioPlan.ACTORS_PER_THREAD)
+                .actorsBefore(0)
+                .actorsAfter(0)
+                .sequentialSpecification(JournalSequentialSpecification::class.java)
+                .addGuarantee(
+                    forClasses(JournalViewNormalizer::class)
+                        .allMethods()
+                        .ignore(),
+                )
+                .addGuarantee(
+                    forClasses(LincheckRecordFactory::class)
+                        .allMethods()
+                        .ignore(),
+                )
+        scenarios.forEach { scenario ->
+            options.addCustomScenario {
                 parallel {
-                    thread {
-                        actor(::appendA)
-                        actor(::retireB)
-                        actor(::hydrate)
-                    }
-                    thread {
-                        actor(::appendB)
-                        actor(::retireA)
-                        actor(::hydrate)
-                    }
-                    thread {
-                        actor(::confirmTwo)
-                        actor(::prune)
-                        actor(::hydrate)
+                    scenario.threads.forEach { operations ->
+                        thread {
+                            operations.forEach { operation -> actor(operationOf(operation)) }
+                        }
                     }
                 }
             }
-            .check(this::class)
+        }
+        options.check(this::class)
     }
+
+    private fun operationOf(operation: LincheckOperation): KFunction<*> =
+        when (operation) {
+            LincheckOperation.APPEND_A -> ::appendA
+            LincheckOperation.APPEND_B -> ::appendB
+            LincheckOperation.RETIRE_A -> ::retireA
+            LincheckOperation.RETIRE_B -> ::retireB
+            LincheckOperation.CONFIRM_TWO -> ::confirmTwo
+            LincheckOperation.PRUNE -> ::prune
+            LincheckOperation.HYDRATE -> ::hydrate
+        }
 
     private suspend fun append(slot: String): JournalAppendResult =
         storage.transaction { transaction ->
