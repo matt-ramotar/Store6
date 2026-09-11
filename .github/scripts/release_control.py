@@ -441,7 +441,7 @@ def full_suite_validation(context, version, manifest, needs, executions, shards)
     lincheck = [record for record in records if record.get('task') == LINCHECK_TASK]
     expected_shards = [f'{index}/{shards}' for index in range(1, shards + 1)]
     observed = sorted(str(record.get('shard')) for record in lincheck)
-    if observed != expected_shards:
+    if observed != sorted(expected_shards):
         raise ValueError('expected Lincheck shards ' + ', '.join(expected_shards) +
                          '; found ' + (', '.join(observed) or 'none'))
     union = []

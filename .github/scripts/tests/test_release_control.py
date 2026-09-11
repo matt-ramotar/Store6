@@ -839,6 +839,15 @@ class FullSuiteShardCensusFixtures(unittest.TestCase):
         self.assertEqual(record['scenario_count'], CONTROL.LINCHECK_SCENARIO_COUNT)
         self.assertEqual(len(record['executions']), self.SHARDS + 1)
 
+    def test_two_digit_shard_counts_are_compared_by_shard_not_by_string_order(self):
+        shutil.rmtree(self.executions / 'full-jvm-results-lincheck-1')
+        for index in range(2, self.SHARDS + 1):
+            shutil.rmtree(self.executions / ('full-jvm-results-lincheck-' + str(index)))
+        self.SHARDS = 10
+        for index in range(1, 11):
+            self.write_shard(index)
+        self.assertEqual(self.validate()['lincheck_shards'][-1], '10/10')
+
     def test_a_missing_shard_is_refused(self):
         (self.executions / 'full-jvm-results-lincheck-3' / 'full-suite-evidence' / 'execution.json').unlink()
         with self.assertRaisesRegex(ValueError, '3/4'):
