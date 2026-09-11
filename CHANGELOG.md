@@ -11,9 +11,12 @@ stability policy is in [STABILITY.md](./STABILITY.md); each artifact's tier is s
 **New Features**
 
 * The alpha roster contains stable-track `core`, experimental `testing`, `mutations`,
-  `mutations-sqldelight`, `mutations-testing`, `sqldelight`, `room`, `compose`, `graphql`, and
-  `realtime`, plus `bom` for version alignment. Other modules remain deferred as listed in
+  `mutations-sqldelight`, `mutations-testing`, `mutations-conflicts`, `sqldelight`, `room`,
+  `compose`, `graphql`, `realtime`, `file`, `ktor`, `opentelemetry`, and `paging-androidx`, plus
+  `bom` for version alignment. Other modules remain deferred as listed in
   [STABILITY.md](STABILITY.md); a passing build does not change release eligibility.
+* `KtorExchange`'s constructor is public, so a `KtorErrorMapper` can be unit-tested without
+  driving a fetch.
 * With durable journal storage, recovery from a committed `ACKED` receipt resumes source adoption,
   effects, and retirement without another push. A crash before that receipt commits can resend
   the same generation. Endpoints must treat a repeated idempotency key as the same request;
@@ -56,6 +59,20 @@ stability policy is in [STABILITY.md](./STABILITY.md); each artifact's tier is s
   admission now fails fast with an exception naming both databases.
 * Stop adapter bookkeepers from swallowing `OutOfMemoryError` and other VM failures as "stale".
 * Replace quadratic UTF-8 truncation in the in-memory journal storage with a single pass.
+* Refuse `204 No Content` and `205 Reset Content` in the Ktor kit's default mapping instead of
+  adopting them; neither carries a representation, so an empty body never replaces a resident
+  value. Handle those statuses in a `KtorErrorMapper`.
+* Refuse a `KtorOutcome.NotModified` returned by a mapper for an exchange that sent no validator:
+  freshness cannot be refreshed from an unconditional request.
+* Refuse a `304 Not Modified` whose request carried a validator header the Ktor kit did not set.
+  The kit cannot tell which validator the server compared, so it fails closed rather than
+  trusting the response.
+* Default the paging refresh key to the previous key of the page closest to the anchor, so a
+  forward-only source restarts from the initial page instead of resuming at the next page and
+  skipping the anchored content.
+* Reject a `file` namespace or canonical id holding an unpaired surrogate before any file or
+  mirror change. UTF-8 encoding replaces an unpaired surrogate with U+FFFD, so distinct malformed
+  keys would otherwise map onto one on-disk name.
 
 **Known limitations**
 
@@ -73,8 +90,36 @@ stability policy is in [STABILITY.md](./STABILITY.md); each artifact's tier is s
   mutation; one wedged collector freezes writes to its database. This tradeoff is documented at
   the adapter.
 
-The release date, next-alpha target, and community issue/guarantee link await the release owner.
-These notes are a draft and do not establish artifact availability.
+**Community issues**
+
+* Closes [#402](https://github.com/MobileNativeFoundation/Store/issues/402). `Freshness.MustBeFresh`
+  refetches even when the resident value is fresh: `mustBeFreshRefetchesFreshResident` in
+  [FreshnessPolicyConformanceTest](core/src/commonTest/kotlin/org/mobilenativefoundation/store6/core/FreshnessPolicyConformanceTest.kt).
+* Closes [#536](https://github.com/MobileNativeFoundation/Store/issues/536). `Freshness.LocalOnly`
+  serves a pre-populated source of truth without calling the fetcher:
+  `localOnly_prePopulatedSot_getServesWithoutFetcher` in
+  [SourceOfTruthConformanceTest](core/src/commonTest/kotlin/org/mobilenativefoundation/store6/core/SourceOfTruthConformanceTest.kt).
+* Closes [#702](https://github.com/MobileNativeFoundation/Store/issues/702) and
+  [#602](https://github.com/MobileNativeFoundation/Store/issues/602). `paging-androidx` builds an
+  androidx `PagingSource` and a `RemoteMediator` over any Store: `refreshLoad_mapsFirstDataFrameToPage`
+  and `appendLoad_usesPageKeyFromParams` in
+  [StorePagingSourceTest](paging-androidx/src/commonTest/kotlin/org/mobilenativefoundation/store6/paging/StorePagingSourceTest.kt),
+  and `mediatorRefresh_invalidatesThenGetsFresh` and `mediatorAppend_getsCachedOrFetch` in
+  [StoreRemoteMediatorTest](paging-androidx/src/commonTest/kotlin/org/mobilenativefoundation/store6/paging/StoreRemoteMediatorTest.kt).
+* Answers [#534](https://github.com/MobileNativeFoundation/Store/issues/534) with the published
+  roadmap, [ROADMAP.md](ROADMAP.md).
+* Answers [#570](https://github.com/MobileNativeFoundation/Store/issues/570) with the committed
+  JVM and KLIB ABI dumps described in [STABILITY.md](STABILITY.md#verification), which are
+  committed at every released tag and checked on every pull request.
+* Answers [#722](https://github.com/MobileNativeFoundation/Store/issues/722) and
+  [#578](https://github.com/MobileNativeFoundation/Store/issues/578) with the mutations floor in
+  this alpha — `mutations`, `mutations-sqldelight`, and `mutations-testing` — described in
+  [STABILITY.md](STABILITY.md#mutations).
+
+The release date and the next-alpha target month await the release owner; the target month is
+stated as one month after the cut date, per the monthly cadence in
+[STABILITY.md](STABILITY.md#cadence). Posting and closing the issues above is a release-owner
+action. These notes are a draft and do not establish artifact availability.
 
 ## [5.1.0-alpha10] (2026-07-13)
 
