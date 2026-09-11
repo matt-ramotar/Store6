@@ -13,8 +13,9 @@ release.
 
 Use JDK 17 and configure an Android SDK containing platform 36 through `sdk.dir` in
 `local.properties` or `ANDROID_HOME`. The commands below enable Native KLIB cross-compilation;
-publication of those files does not establish Native execution. Apple execution and linking
-require macOS with Xcode.
+`:core` publishes Native KLIBs while this module is JVM and Android only, and publication of
+those files does not establish Native execution. Apple execution and linking require macOS with
+Xcode.
 
 From the repository root, publish the module and its Store6 dependencies locally:
 

@@ -13,6 +13,8 @@ CONTROL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CONTROL)
 # One Maven invocation per shipping artifact. Read from the manifest so a roster change is a
 # one-file edit rather than a count to chase through these fixtures.
+# The independent check that this roster matches the BOM and STABILITY.md lives in
+# test_workflow_contract.py's test_publication_roster_matches_bom_and_root_version.
 ARTIFACTS = json.loads((ROOT / '.github/release-manifest.json').read_text())['artifacts']
 
 

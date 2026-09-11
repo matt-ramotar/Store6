@@ -288,3 +288,10 @@ class, own JVM, never cached) and therefore drops `forkEvery` from `jvmTest`, wh
 have cost one JVM start per non-Lincheck class. The workflow-contract fixture pins `forkEvery`
 absent. The per-job record command in `release_control.py` is `full-suite-execution`; the
 aggregate gate is `full-suite`.
+
+**Clarification appended 2026-09-11 (R3 scenario count).** The R3 / F01–F02 ruling above cites "the
+100 Lincheck scenarios." The executed plan in `LincheckScenarioPlan.kt` holds 101:
+`GENERATED_SCENARIO_COUNT = 100` drawn from the seed, plus the curated regression scenario restored
+at `CURATED_SCENARIO_INDEX = 100` during Task 1's review, for `SCENARIO_COUNT = 101`. Read the
+ruling table's "100" as the generated count, not the total; `RELEASING.md` and `release_control.py`
+(`LINCHECK_SCENARIO_COUNT = 101`) state the total.
