@@ -1,0 +1,80 @@
+2026-09-11T05:45:41.9068500Z     store6-lincheck-scenarios shard=2/4 count=25 indices=1,5,9,13,17,21,25,29,33,37,41,45,49,53,57,61,65,69,73,77,81,85,89,93,97 digest=353a057d5f715bc8
+2026-09-11T05:45:43.2129380Z 
+2026-09-11T05:45:43.2230240Z     = Iteration 1 / 25 =
+2026-09-11T05:45:43.2332260Z     | ------------------------------------ |
+2026-09-11T05:45:43.2431900Z     |   Thread 1   | Thread 2  | Thread 3  |
+2026-09-11T05:45:43.2533330Z     | ------------------------------------ |
+2026-09-11T05:45:43.2635800Z     | appendA()    | prune()   | retireB() |
+2026-09-11T05:45:43.2639350Z     | retireA()    | hydrate() | hydrate() |
+2026-09-11T05:45:43.2858940Z     | confirmTwo() | appendB() | hydrate() |
+2026-09-11T05:45:43.2897720Z     | ------------------------------------ |
+2026-09-11T05:45:43.2898320Z 
+2026-09-11T05:46:05.2571340Z 
+2026-09-11T05:46:05.2576680Z MutationJournalLincheckTest > inMemoryJournalTransactions_areLinearizable STANDARD_ERROR
+2026-09-11T05:46:05.2578860Z     Unable to transform java/util/Collections$EmptyList
+2026-09-11T05:46:05.2580490Z     java.lang.ThreadDeath
+2026-09-11T05:46:05.7267400Z     	at java.base/java.lang.Thread.stop(Thread.java:937)
+2026-09-11T05:46:05.7269980Z     	at org.jetbrains.kotlinx.lincheck.runner.FixedActiveThreadsExecutor.close(FixedActiveThreadsExecutor.kt:210)
+2026-09-11T05:46:05.7272740Z     	at org.jetbrains.kotlinx.lincheck.runner.ParallelThreadsRunner.close(ParallelThreadsRunner.kt:484)
+2026-09-11T05:46:05.7275680Z     	at org.jetbrains.kotlinx.lincheck.strategy.Strategy.close(Strategy.kt:106)
+2026-09-11T05:46:05.7278110Z     	at org.jetbrains.kotlinx.lincheck.strategy.managed.ManagedStrategy.close(ManagedStrategy.kt:203)
+2026-09-11T05:46:05.7280670Z     	at kotlin.io.CloseableKt.closeFinally(Closeable.kt:47)
+2026-09-11T05:46:05.7281990Z     	at org.jetbrains.kotlinx.lincheck.LinChecker.run(LinChecker.kt:145)
+2026-09-11T05:46:05.7283320Z     	at org.jetbrains.kotlinx.lincheck.LinChecker.checkImpl(LinChecker.kt:105)
+2026-09-11T05:46:05.7285830Z     	at org.jetbrains.kotlinx.lincheck.LinChecker.checkImpl$lincheck(LinChecker.kt:66)
+2026-09-11T05:46:05.7288080Z     	at org.jetbrains.kotlinx.lincheck.LinChecker.check(LinChecker.kt:48)
+2026-09-11T05:46:05.7289710Z     	at org.jetbrains.kotlinx.lincheck.LinChecker$Companion.check(LinChecker.kt:191)
+2026-09-11T05:46:05.7292480Z     	at org.jetbrains.kotlinx.lincheck.LinCheckerKt.check(LinChecker.kt:291)
+2026-09-11T05:46:05.7294410Z     	at org.jetbrains.kotlinx.lincheck.LinCheckerKt.check(LinChecker.kt:300)
+2026-09-11T05:46:05.7296680Z     	at org.mobilenativefoundation.store6.mutations.MutationJournalLincheckTest.inMemoryJournalTransactions_areLinearizable(Unknown Source)
+2026-09-11T05:46:05.7300040Z     	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+2026-09-11T05:46:05.7304070Z     	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+2026-09-11T05:46:05.7306250Z     	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+2026-09-11T05:46:05.7308560Z     	at java.base/java.lang.reflect.Method.invoke(Method.java:566)
+2026-09-11T05:46:05.7310000Z     	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+2026-09-11T05:46:05.7312140Z     	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+2026-09-11T05:46:05.7313870Z     	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+2026-09-11T05:46:05.7315970Z     	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+2026-09-11T05:46:05.7317220Z     	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+2026-09-11T05:46:05.7318790Z     	at org.junit.runners.BlockJUnit4ClassRunner$1.evaluate(BlockJUnit4ClassRunner.java:100)
+2026-09-11T05:46:05.7320330Z     	at org.junit.runners.ParentRunner.runLeaf(ParentRunner.java:366)
+2026-09-11T05:46:05.7321750Z     	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:103)
+2026-09-11T05:46:05.7328180Z     	at org.junit.runners.BlockJUnit4ClassRunner.runChild(BlockJUnit4ClassRunner.java:63)
+2026-09-11T05:46:05.7329300Z     	at org.junit.runners.ParentRunner$4.run(ParentRunner.java:331)
+2026-09-11T05:46:05.7330290Z     	at org.junit.runners.ParentRunner$1.schedule(ParentRunner.java:79)
+2026-09-11T05:46:05.7332570Z     	at org.junit.runners.ParentRunner.runChildren(ParentRunner.java:329)
+2026-09-11T05:46:05.7333120Z     	at org.junit.runners.ParentRunner.access$100(ParentRunner.java:66)
+2026-09-11T05:46:05.7334070Z     	at org.junit.runners.ParentRunner$2.evaluate(ParentRunner.java:293)
+2026-09-11T05:46:05.7334650Z     	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+2026-09-11T05:46:05.7335360Z     	at org.junit.runners.ParentRunner.run(ParentRunner.java:413)
+2026-09-11T05:46:05.7336060Z     	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.runTestClass(JUnitTestClassExecutor.java:112)
+2026-09-11T05:46:05.7338460Z     	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.execute(JUnitTestClassExecutor.java:58)
+2026-09-11T05:46:05.7340910Z     	at org.gradle.api.internal.tasks.testing.junit.JUnitTestClassExecutor.execute(JUnitTestClassExecutor.java:40)
+2026-09-11T05:46:05.7342700Z     	at org.gradle.api.internal.tasks.testing.junit.AbstractJUnitTestClassProcessor.processTestClass(AbstractJUnitTestClassProcessor.java:54)
+2026-09-11T05:46:05.7347690Z     	at org.gradle.api.internal.tasks.testing.SuiteTestClassProcessor.processTestClass(SuiteTestClassProcessor.java:53)
+2026-09-11T05:46:05.7348730Z     	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+2026-09-11T05:46:05.7349850Z     	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:62)
+2026-09-11T05:46:05.7350650Z     	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+2026-09-11T05:46:05.7351670Z     	at java.base/java.lang.reflect.Method.invoke(Method.java:566)
+2026-09-11T05:46:05.7352230Z     	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:36)
+2026-09-11T05:46:05.7353060Z     	at org.gradle.internal.dispatch.ReflectionDispatch.dispatch(ReflectionDispatch.java:24)
+2026-09-11T05:46:05.7354010Z     	at org.gradle.internal.dispatch.ContextClassLoaderDispatch.dispatch(Unknown Source)
+2026-09-11T05:46:05.7354850Z     	at org.gradle.internal.dispatch.ProxyDispatchAdapter$DispatchingInvocationHandler.invoke(ProxyDispatchAdapter.java:92)
+2026-09-11T05:46:05.7355950Z     	at com.sun.proxy.$Proxy4.processTestClass(Unknown Source)
+2026-09-11T05:46:05.7356500Z     	at org.gradle.api.internal.tasks.testing.worker.TestWorker$2.run(TestWorker.java:183)
+2026-09-11T05:46:05.7357370Z     	at org.gradle.api.internal.tasks.testing.worker.TestWorker.executeAndMaintainThreadName(TestWorker.java:132)
+2026-09-11T05:46:05.7358330Z     	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:103)
+2026-09-11T05:46:05.7359430Z     	at org.gradle.api.internal.tasks.testing.worker.TestWorker.execute(TestWorker.java:63)
+2026-09-11T05:46:05.7360160Z     	at org.gradle.process.internal.worker.child.ActionExecutionWorker.execute(ActionExecutionWorker.java:56)
+2026-09-11T05:46:05.7361360Z     	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(Unknown Source)
+2026-09-11T05:46:05.7362260Z     	at org.gradle.process.internal.worker.child.SystemApplicationClassLoaderWorker.call(Unknown Source)
+2026-09-11T05:46:05.7363900Z     	at worker.org.gradle.process.internal.worker.GradleWorkerMain.run(GradleWorkerMain.java:69)
+2026-09-11T05:46:05.7365240Z     	at worker.org.gradle.process.internal.worker.GradleWorkerMain.main(GradleWorkerMain.java:74)
+2026-09-11T05:46:06.2599990Z 
+2026-09-11T05:46:06.2617740Z MutationJournalLincheckTest > inMemoryJournalTransactions_areLinearizable STANDARD_OUT
+2026-09-11T05:46:06.2620160Z     = The execution has hung, see the thread dump =
+2026-09-11T05:46:06.2622800Z     | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+2026-09-11T05:46:06.2627560Z     |     Thread 1      |                                                                                                                Thread 2                                                                                                                |     Thread 3      |
+2026-09-11T05:46:06.2630900Z     | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+2026-09-11T05:46:06.2635970Z     | appendA(): <hung> | prune(): JournalView(lastAllocated=0, retiredThrough=0, serverConfirmedThrough=0, retained=[], orphanExecutionCount=0, orphanAttemptCount=0, orphanAckCount=0, orphanFailureCount=0, orphanEffectCount=0, aliases=[], tombstones=[])   | retireB(): <hung> |
+2026-09-11T05:46:06.2640670Z     |                   | hydrate(): JournalView(lastAllocated=0, retiredThrough=0, serverConfirmedThrough=0, retained=[], orphanExecutionCount=0, orphanAttemptCount=0, orphanAckCount=0, orphanFailureCount=0, orphanEffectCount=0, aliases=[], tombstones=[]) |                   |
