@@ -209,6 +209,29 @@ class MutationMergesFieldsTest {
     }
 
     @Test
+    fun fields_overlappingLenses_laterKeepTheirsDoesNotRevertEarlierWrite() {
+        val base = Note("base title", "base body", 1)
+        val mine = Note("mine title", "base body", 1)
+        val theirs = base.copy()
+        val policy = MutationMerges.fields<Note> {
+            field(Note::title, { value, title -> value.copy(title = title) })
+            field(Note::body, { value, body -> value.copy(title = body) })
+        }
+
+        val merged = policy(
+            MutationPresence.Present(base),
+            MutationPresence.Present(mine),
+            MutationPresence.Present(theirs),
+        )
+
+        // The first registration writes "mine title" (theirsField == baseField for title).
+        // The second registration's mineField == baseField for body ("base body" == "base body"),
+        // so it hits the keep-theirs branch and returns the canvas untouched rather than writing
+        // — the first registration's write must survive, not revert to "theirs".
+        assertEquals("mine title", retryValue(merged).title)
+    }
+
+    @Test
     fun fields_unregisteredFieldResolvesToTheirs() {
         val base = Note("title", "base body", 1)
         val mine = base.copy(body = "mine body")
