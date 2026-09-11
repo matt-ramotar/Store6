@@ -25,6 +25,11 @@ public sealed interface KtorOutcome {
      * it for an unconditional exchange is rejected with a [KtorFetchException]: no validator was
      * compared, so nothing licenses calling a stale value fresh.
      *
+     * This gate is deliberately asymmetric with the built-in `304` path: the mapper's gate is only
+     * "the exchange was conditional", so on a conditional exchange a mapper may return
+     * [NotModified] for any status, whereas the built-in `304` path additionally requires that the
+     * sent request carried exactly the kit's own validator.
+     *
      * @property validatorToken the replacement validator, or null to keep the recorded one
      */
     @ExperimentalStoreApi

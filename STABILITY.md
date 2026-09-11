@@ -56,7 +56,7 @@ Group coordinates are unchanged: `org.mobilenativefoundation.store`. Packages ar
 | `mutations-testing` | Experimental mutations-family artifact (`@ExperimentalStoreApi`). Contract kits for journal storage and mutator purity, plus deterministic crash-test storage. | alpha01 |
 | `paging-androidx` | Experimental (`@ExperimentalStoreApi`). Paging 3 interop. The default refresh key restarts from the initial page unless the page closest to the anchor has a previous key. | alpha01 |
 | `opentelemetry` | Experimental (`@ExperimentalStoreApi`). Telemetry sink over the OpenTelemetry API; JVM and Android only. | alpha01 |
-| `ktor` | Experimental (`@ExperimentalStoreApi`). HTTP fetcher kit. A `304 Not Modified` is adopted only when the request carried exactly the validator the kit wrote; any other 304 is refused as an error. | alpha01 |
+| `ktor` | Experimental (`@ExperimentalStoreApi`). HTTP fetcher kit. A `304 Not Modified` is adopted only when the request carried exactly the validator the kit wrote; any other 304 is refused as an error. `204` and `205` responses are refused by default (previously they reached `decode`). | alpha01 |
 | `file` | Experimental (`@ExperimentalStoreApi`). Filesystem source of truth and bookkeeper. Malformed UTF-16 key components are rejected before any file or mirror change. | alpha01 |
 | `mutations-conflicts` | Experimental (`@ExperimentalStoreApi`). Canned conflict merge policies registered in the `conflicts { }` door of `mutationStore`. | alpha01 |
 | `bom` | Version alignment only; no API surface of its own. | alpha01 |

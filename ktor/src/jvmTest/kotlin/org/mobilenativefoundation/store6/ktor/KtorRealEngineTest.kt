@@ -183,7 +183,7 @@ class KtorRealEngineTest {
 
                     assertEquals("payload", result.value)
                     assertEquals(ETAG_V2, result.etag)
-                    // The retry plugin re-executes the request while `conditionalSent` is computed
+                    // The retry plugin re-executes the request while `sentValidator` is computed
                     // once from the original builder. Each attempt must therefore carry exactly
                     // one If-None-Match, and the same one.
                     assertEquals(

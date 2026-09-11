@@ -470,6 +470,13 @@ if it returns anything other than `Defer`, that wins; otherwise the kit applies 
 `decode`. `KtorExchange.response` is valid only during the map call (the kit executes inside a
 response scope, [§8](#8-conditional-request-construction)).
 
+A mapper-supplied `KtorOutcome.NotModified` is honored only on a conditional exchange — the kit
+sent a validator (`KtorExchange.conditional == true`) — regardless of which status the response
+carried; on a non-conditional exchange the kit returns `Error(KtorFetchException(…))` instead,
+naming that no validator was sent. This is a looser gate than the built-in `304` path in
+[§7](#7-http-outcome--fetcherresult-mapping), which additionally requires that the sent request
+carried exactly the validator the kit wrote.
+
 Typed-error requirement: a consumer catches `StoreException`, reads `error as? StoreError.Fetch`,
 then `cause as? KtorFetchException`, and branches on `status`. Transport failures (timeouts, IO) and
 decoder failures are returned as `FetcherResult.Error(originalException)` so Ktor's own typed
@@ -484,8 +491,8 @@ Default table, applied when `errorMapper` returns `Defer`:
 |---|---|---|
 | 200/2xx with a body the decoder accepts | `Success(value, token)` | token per [§5.4](#54-response-side-validator-selection-and-the-no-flip-rule); `decode` runs here |
 | `206 Partial Content` | `Error(KtorFetchException(206, …))` | a partial body is not a complete representation; the kit is not range-aware |
-| `204`/`205` (no content) | delegated to `decode` | `V` is non-null, so an empty body has no value; `decode` throws and the kit maps to `Error` |
-| `304` **after a conditional request** | `NotModified(token or null)` | only when the request actually carried exactly the validator the kit wrote, else `Error(KtorFetchException(304, …))` naming the validators it did not set; see [§3.4](#34-the-not-modified-path); no-flip rule in [§5.4](#54-response-side-validator-selection-and-the-no-flip-rule) |
+| `204`/`205` (no content) | `Error(KtorFetchException(status, …))` | refused before `decode` runs: neither status carries a representation, so the kit never calls `decode`; a `KtorErrorMapper` may override the refusal by returning a `KtorOutcome` other than `Defer` ([§6.2](#62-policy-mapper-and-error-types)) |
+| `304` **after a conditional request** | `NotModified(token or null)` | only when the request actually carried exactly the validator the kit wrote, else `Error(KtorFetchException(304, …))` naming the validators it did not set; see [§3.4](#34-the-not-modified-path); no-flip rule in [§5.4](#54-response-side-validator-selection-and-the-no-flip-rule). A mapper-supplied `KtorOutcome.NotModified` follows a looser gate: honored on any status as long as the exchange was conditional (the kit sent a validator), not only on `304`; see [§6.2](#62-policy-mapper-and-error-types). |
 | `304` with **no** conditional request sent | `Error(KtorFetchException(304, …))` | the kit sent no validator, so a 304 is a protocol violation |
 | `404`/`410`, `KtorNotFoundPolicy.Error` (default) | `Error(KtorFetchException(status, …))` | preserves residence, recorded validator, success time, and stale state; bookkeeping records the fetch failure (`KeyEngine.kt` lines ~1949–1964) |
 | `404`/`410`, `KtorNotFoundPolicy.Delete` | `Deleted` | opt-in destructive clear ([§3.2](#32-fetcherresult)) |

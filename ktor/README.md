@@ -167,6 +167,12 @@ and throws `IllegalArgumentException` by default.
 mechanisms compatible. Use it only when the client's cache cannot affect these requests or
 when the changed 304 behavior is acceptable.
 
+If `HttpCache` does contribute a conditional header, the foreign-validator guard in
+[Methods and conditional headers](#methods-and-conditional-headers) refuses every 304 it
+produces — the request then carries `HttpCache`'s header beside the kit's own rather than
+exactly the one header the kit wrote — so `allowHttpCache = true` does not risk merely an
+occasional incorrect `Success`; it costs successful revalidation entirely.
+
 ### Methods and conditional headers
 
 The kit sends conditional headers only for GET and HEAD. Other methods fetch
@@ -185,9 +191,11 @@ builder and survives. Both outcomes are pinned by the suite on Ktor 3.5.2:
   request" — on every fetch.
 - With a recorded validator, the plugin's header survives beside the kit's: a second
   entity tag appended to `If-None-Match`, or the other conditional header added outright.
-  The kit refuses such a 304 rather than trusting it. On every 304 for a request it made
-  conditional, it compares the conditional headers the request actually carried against
-  the single header and value it wrote, and maps any difference to
+  The kit refuses such a 304 rather than trusting it — even when the plugin's header is a
+  byte-for-byte duplicate of the kit's own value, because the guard requires the request to
+  carry exactly one conditional header, not merely one whose value matches. On every 304
+  for a request it made conditional, it compares the conditional headers the request
+  actually carried against the single header and value it wrote, and maps any difference to
   `Error(KtorFetchException)` — "the conditional request carried validators the kit did
   not set". It reads those headers from `HttpResponse.request`, the one place a plugin's
   contribution is visible to the kit. That visibility ends at Ktor's own plugin pipeline:

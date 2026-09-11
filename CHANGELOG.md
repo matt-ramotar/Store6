@@ -17,6 +17,9 @@ stability policy is in [STABILITY.md](./STABILITY.md); each artifact's tier is s
   [STABILITY.md](STABILITY.md); a passing build does not change release eligibility.
 * `KtorExchange`'s constructor is public, so a `KtorErrorMapper` can be unit-tested without
   driving a fetch.
+* The OpenTelemetry instrumentation-scope version is generated from the build version; a
+  hardcoded constant would otherwise have reported `6.0.0-SNAPSHOT` regardless of the version
+  actually published.
 * With durable journal storage, recovery from a committed `ACKED` receipt resumes source adoption,
   effects, and retirement without another push. A crash before that receipt commits can resend
   the same generation. Endpoints must treat a repeated idempotency key as the same request;
