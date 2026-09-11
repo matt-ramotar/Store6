@@ -357,12 +357,12 @@ android {
 
 tasks.withType<Test>().configureEach {
     // The instrumentation-scope version constant must match this module's published version;
-    // InstrumentationScopeVersionTest reads this property. findProperty is load-bearing: the
-    // module's gradle.properties overrides the root's for project properties, while
-    // providers.gradleProperty would read only the root's VERSION_NAME.
+    // InstrumentationScopeVersionTest reads this property. VERSION_NAME exists only in the root
+    // gradle.properties (RELEASING.md: module gradle.properties files must not reintroduce it),
+    // so the root property is the only source.
     systemProperty(
         "store6.opentelemetry.versionName",
-        findProperty("VERSION_NAME") as String,
+        providers.gradleProperty("VERSION_NAME").get(),
     )
 }
 ```
@@ -1548,10 +1548,8 @@ import kotlin.test.assertNotNull
 class InstrumentationScopeVersionTest {
     @Test
     fun scopeVersionConstantMatchesTheModuleVersion() {
-        // Forwarded by the module build file from the module's VERSION_NAME project property;
-        // a missing property fails the test rather than silently passing. An actual value of
-        // 5.1.0-SNAPSHOT means the build file read the root's property instead of the
-        // module's (see the failure playbook).
+        // Forwarded by the module build file from the root VERSION_NAME property, which is
+        // the only source; a missing property fails the test rather than silently passing.
         val versionName = System.getProperty("store6.opentelemetry.versionName")
         assertNotNull(versionName, "store6.opentelemetry.versionName system property is not set")
         assertEquals(versionName, INSTRUMENTATION_SCOPE_VERSION)
@@ -2153,8 +2151,8 @@ process-lifetime heuristic, not an invariant.
 ## Instrumentation scope
 
 Meter and tracer use the scope name `org.mobilenativefoundation.store6.opentelemetry` with
-the artifact version as the scope version. A unit test pins the version constant to the
-module's Gradle `VERSION_NAME`.
+the artifact version as the scope version. The module build generates the version constant from
+the root `VERSION_NAME` property, and a unit test pins the two together.
 
 ## Change policy
 
