@@ -280,3 +280,11 @@ most of L1–L8 and supersedes this plan's "implementation not started" status l
 
 Stated defaults (not rulings): the notes name the next alpha's target month as one month after the
 cut date; the initial shard count is 4.
+
+**Clarification appended 2026-09-11 (execution of R3).** R3's "keep `forkEvery = 1`" expressed the
+intent that the Lincheck class runs in its own JVM, isolated from other tests' class-loading
+state. Task 1 satisfies that intent with a dedicated `:mutations:lincheckTest` task (single
+class, own JVM, never cached) and therefore drops `forkEvery` from `jvmTest`, where it would only
+have cost one JVM start per non-Lincheck class. The workflow-contract fixture pins `forkEvery`
+absent. The per-job record command in `release_control.py` is `full-suite-execution`; the
+aggregate gate is `full-suite`.
