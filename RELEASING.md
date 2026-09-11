@@ -37,15 +37,30 @@ It requires the root build, release-workflow fixtures, all six jobs in the reusa
 [full mutations suite](./.github/workflows/store6-full-jvm.yml). The PR-only documentation
 acknowledgment check is not a release-tag job. Required jobs must succeed at the checked-out
 source SHA, workflow run, attempt, and root version before publication begins. Every required
-job records those values. The matrix and full-suite pair reject missing or mismatched job
+job records those values. The matrix and full-suite censuses reject missing or mismatched job
 records, so reusing success from an earlier attempt cannot authorize publication.
 
-The full mutations lane executes twice serially with unchanged source. Its second execution
-requires the first to pass. The JVM test task disables cache and up-to-date reuse when
-`store6.fullJvmSuite` is set; compilation caching remains available. The result artifact records
-task outcome, executed test identifiers, XML hashes, and run provenance. Missing, cached,
-incomplete, and failed test evidence cannot satisfy the gate. A first failure is retained in
-that Actions run's summary and result artifact for classification, not rerun unchanged for green.
+The full mutations suite executes once, split across five jobs on `ubuntu-latest`:
+`full-mutations-jvm` runs `:mutations:jvmTest`, which carries every test class except the
+model-checking one, and the four-shard `lincheck` matrix runs `:mutations:lincheckTest` over the
+100 Lincheck scenarios, each shard taking a quarter of them. The matrix does not fail fast, and
+every lane must pass. Each lane records its own execution with
+`release_control.py full-suite-execution`; `validation-evidence` aggregates those records with
+`release_control.py full-suite`.
+
+The JVM test task disables cache and up-to-date reuse when `store6.fullJvmSuite` is set;
+`lincheckTest` disables both unconditionally, and `jvmTest` always excludes the Lincheck class.
+Compilation caching remains available. Each result artifact records task outcome, executed test
+identifiers, XML hashes, and run provenance, and each record also carries its task, its shard,
+its executed class list, and, for a shard, its scenario indices. The gate proves that the shards
+cover scenarios 0 through 99 exactly once and that the Lincheck class never ran in the jvmTest
+lane. Missing, cached, incomplete, and failed test evidence cannot satisfy the gate. A first
+failure is retained in that Actions run's summary and result artifact for classification, not
+rerun unchanged for green.
+
+Budget the wall-clock cost from the first hosted execution of this gate, measured on
+`ubuntu-latest` on 2026-09-11: 51 minutes end to end, with the jvmTest lane under 2 minutes and
+the shards between 36 and 51 minutes.
 
 A Lincheck `Unable to transform` diagnostic in the console log or XML `system-err` output
 also rejects the run when test cases pass: the affected class may have run without model-checking
@@ -56,10 +71,13 @@ for every expected module and target publication. Missing or unexpected target p
 validation.
 
 The publication controller reads the shipping modules from
-[`.github/release-manifest.json`](./.github/release-manifest.json). Immutable publication uses
-`publishAndReleaseToMavenCentral`; snapshots use `publishToMavenCentral`. Credentials and signing
-material come from CI secrets. Local fixtures exercise these steps with command stubs and do
-not establish signed Central deployment.
+[`.github/release-manifest.json`](./.github/release-manifest.json), which lists fifteen libraries
+plus the BOM at this revision. Immutable publication uses `publishAndReleaseToMavenCentral`;
+snapshots use `publishToMavenCentral`. The rest of the publication metadata also comes from the
+root [`gradle.properties`](./gradle.properties): the group, the version, and the
+`mobilenativefoundation` / Mobile Native Foundation developer identity written into every
+generated POM. Credentials and signing material come from CI secrets. Local fixtures exercise
+these steps with command stubs and do not establish signed Central deployment.
 
 Before immutable Maven publication, CI reserves a draft GitHub Release for the tag. It records
 an attempted module before invoking Maven and appends each completed module to
