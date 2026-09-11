@@ -12,6 +12,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreBuilder
@@ -154,6 +156,11 @@ private class KtorFetcher<K : StoreKey, V : Any>(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (failure: Throwable) {
+            // An engine may surface a cancelled call as its own exception type rather than as a
+            // CancellationException (Darwin's NSURLErrorCancelled, OkHttp's IOException("Canceled"),
+            // the JS AbortError). Recording that as a fetch failure would give the key an error
+            // result and a failure record for a coroutine that is no longer alive.
+            currentCoroutineContext().ensureActive()
             FetcherResult.Error(failure)
         }
 

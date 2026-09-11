@@ -16,8 +16,10 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
@@ -26,6 +28,7 @@ import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
@@ -527,22 +530,123 @@ class KtorFetcherTransportTest {
             HttpClient(engine).use { client ->
                 val fetcher = transportFetcher(client)
                 var returned: FetcherResult<String>? = null
-                val job =
-                    launch {
-                        try {
-                            returned = fetcher.fetch(KEY, null)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        }
+                val deferred =
+                    async {
+                        fetcher.fetch(KEY, null).also { result -> returned = result }
                     }
                 started.await()
-                job.cancel()
-                val joinFailure = runCatching { job.join() }.exceptionOrNull()
-                assertNull(returned)
-                assertTrue(job.isCancelled)
-                if (joinFailure != null) {
-                    assertIs<CancellationException>(joinFailure)
+                deferred.cancel()
+
+                // Deferred.await rethrows the terminal cause, so this assertion has teeth where
+                // Job.join's did not: join resumes normally for a cancelled job.
+                assertFailsWith<CancellationException> { deferred.await() }
+                assertNull(returned, "a cancelled fetch must not produce a FetcherResult")
+            }
+        }
+
+    @Test
+    fun engineThrownCancellation_propagatesInsteadOfBecomingError() =
+        runTest {
+            // Negative control for the `catch (CancellationException)` rethrow arm: delete that
+            // arm and this fetch returns FetcherResult.Error instead of failing.
+            val engine =
+                MockEngine {
+                    throw CancellationException("the engine cancelled the call")
                 }
+
+            HttpClient(engine).use { client ->
+                val fetcher = transportFetcher(client)
+                var returned: FetcherResult<String>? = null
+
+                assertFailsWith<CancellationException> {
+                    returned = fetcher.fetch(KEY, null)
+                }
+                assertNull(returned, "a cancellation must never be adopted as a FetcherResult")
+            }
+        }
+
+    @Test
+    fun cancellationSurfacedAsAnotherExceptionType_rethrowsAsCancellation() =
+        runTest {
+            var returned: FetcherResult<String>? = null
+            var thrown: Throwable? = null
+            lateinit var deferred: Deferred<Unit>
+            val engine =
+                MockEngine {
+                    // Some engines report a cancelled call as their own exception type rather than
+                    // as a CancellationException (Darwin's NSURLErrorCancelled, OkHttp's
+                    // IOException("Canceled"), the JS AbortError). Cancel first, then surface the
+                    // engine's own type, and the kit must still stand down rather than record a
+                    // fetch failure.
+                    deferred.cancel()
+                    throw EngineSurfacedCancellation()
+                }
+
+            HttpClient(engine).use { client ->
+                val fetcher = transportFetcher(client)
+                deferred =
+                    async(start = CoroutineStart.LAZY) {
+                        try {
+                            returned = fetcher.fetch(KEY, null)
+                        } catch (failure: Throwable) {
+                            thrown = failure
+                            throw failure
+                        }
+                    }
+
+                runCatching { deferred.await() }
+
+                assertNull(returned, "a cancelled fetch must not produce a FetcherResult")
+                assertIs<CancellationException>(
+                    thrown,
+                    "an engine-surfaced cancellation must be rethrown as cancellation",
+                )
+            }
+        }
+
+    @Test
+    fun nonCancellationFailureAfterCancellation_isNotRecordedAsFetchError() =
+        runTest {
+            var returned: FetcherResult<String>? = null
+            var thrown: Throwable? = null
+            lateinit var deferred: Deferred<Unit>
+            val engine =
+                MockEngine {
+                    respond(content = "payload", status = HttpStatusCode.OK)
+                }
+
+            HttpClient(engine).use { client ->
+                // Negative control for `ensureActive()` in the broad catch arm. The failure is
+                // raised synchronously inside the fetch, with the job already cancelled, so it
+                // reaches that arm as its own type rather than being converted to a
+                // CancellationException by a suspension point on the way. Without ensureActive()
+                // the arm records FetcherResult.Error for a coroutine that is no longer alive.
+                val fetcher =
+                    transportFetcher(
+                        client,
+                        configureRequest = { key ->
+                            url("https://example.test/items/${key.canonicalId()}")
+                            deferred.cancel()
+                            throw EngineSurfacedCancellation()
+                        },
+                    )
+                deferred =
+                    async(start = CoroutineStart.LAZY) {
+                        try {
+                            returned = fetcher.fetch(KEY, null)
+                        } catch (failure: Throwable) {
+                            thrown = failure
+                            throw failure
+                        }
+                    }
+
+                runCatching { deferred.await() }
+
+                assertNull(returned, "a cancelled fetch must not produce a FetcherResult")
+                assertIs<CancellationException>(
+                    thrown,
+                    "a failure raised after cancellation must be rethrown as cancellation",
+                )
             }
         }
 
@@ -763,3 +867,5 @@ private class TransportKey(
 private class EmptyBodyException : IllegalStateException("empty body")
 
 private class TransportIoException : Exception("io failure")
+
+private class EngineSurfacedCancellation : Exception("the engine reports the call was cancelled")
