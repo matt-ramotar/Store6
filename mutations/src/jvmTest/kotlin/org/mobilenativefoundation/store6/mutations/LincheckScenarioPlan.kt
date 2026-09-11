@@ -2,6 +2,7 @@ package org.mobilenativefoundation.store6.mutations
 
 import java.security.MessageDigest
 import java.util.Collections
+import java.util.Locale
 import kotlin.random.Random
 
 /**
@@ -110,14 +111,14 @@ internal object LincheckScenarioPlan {
     }
 
     /**
-     * A stable hash over the ordered operation names of every scenario. Neither the enum's ordinals
-     * nor Kotlin's `hashCode` take part, so the value survives a JVM upgrade and a reordering of
-     * [LincheckOperation] that leaves the plan itself alone.
+     * A stable hash over the ordered operation names of every scenario. It is built from names in
+     * UTF-8, not from enum ordinals or Kotlin hash codes, and formatted under [Locale.ROOT], so the
+     * same plan yields the same value on any JVM and under any default locale.
      */
     fun digest(scenarios: List<LincheckScenarioSpec>): String =
         MessageDigest.getInstance("SHA-256")
             .digest(canonicalForm(scenarios).toByteArray(Charsets.UTF_8))
-            .joinToString("") { byte -> "%02x".format(byte) }
+            .joinToString("") { byte -> String.format(Locale.ROOT, "%02x", byte) }
             .take(DIGEST_LENGTH)
 
     fun scenarios(): List<LincheckScenarioSpec> = PLAN
