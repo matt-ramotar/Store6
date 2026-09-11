@@ -17,7 +17,8 @@ metadata on hydration. See [Validator lifetime](#validator-lifetime).
 
 ## Install
 
-Until the snapshot is published remotely, publish `core` and `ktor` to Maven Local:
+This artifact ships in 6.0.0-alpha01, which is not released yet. Until then, publish `core`
+and `ktor` to Maven Local:
 
 ```shell
 ./gradlew :core:publishToMavenLocal :ktor:publishToMavenLocal

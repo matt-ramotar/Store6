@@ -7,8 +7,9 @@ Every public entry point is `@ExperimentalStoreApi`. See [STABILITY.md](../STABI
 
 ## Install
 
-This artifact is deferred from alpha01. The coordinates below are for a local publication
-from this source tree; alpha01 does not publish them to Maven Central.
+This artifact ships in 6.0.0-alpha01, which is not released yet. The coordinates below are
+for a local publication from this source tree; nothing reaches Maven Central before that
+release.
 
 Use JDK 17 and configure an Android SDK containing platform 36 through `sdk.dir` in
 `local.properties` or `ANDROID_HOME`. The commands below enable Native KLIB cross-compilation;
@@ -112,7 +113,7 @@ server-wins otherwise.
 > newer to win, so the policy silently degrades to server-wins.
 
 This anti-example projector copies the base's stamp — the routine `copy(title = ...)` shape —
-so its merges always tie and lose:
+so its stamps never exceed the server's and every conflict resolves to server-wins:
 
 ```kotlin
 update(

@@ -7,8 +7,9 @@ seam is a **freeze candidate, not frozen** — see [STABILITY.md](../STABILITY.m
 
 ## Install
 
-This artifact is deferred from alpha01. The coordinates below are for a local publication
-from this source tree; alpha01 does not publish them to Maven Central.
+This artifact ships in 6.0.0-alpha01, which is not released yet. The coordinates below are
+for a local publication from this source tree; nothing reaches Maven Central before that
+release.
 
 Use JDK 17 and configure an Android SDK containing platform 36 through `sdk.dir` in
 `local.properties` or `ANDROID_HOME`. The commands below enable Native KLIB cross-compilation;
@@ -125,9 +126,9 @@ Components must also be well-formed UTF-16. A component holding an unpaired surr
 file or mirror change: UTF-8 encoding replaces an unpaired surrogate with U+FFFD, so distinct
 malformed strings would otherwise map to one on-disk name while staying distinct Store identities.
 
-**Cold bookkeeping recovery.** Typed status-failure and recovery behavior with real filesystem
-faults has not been verified. The in-memory fault-kit diagnostics do not establish that boundary.
-This verification remains required before distribution.
+**Cold bookkeeping recovery.** `status` reads storage only on its first-operation recovery. A
+failed recovery propagates as a typed persistence failure, never as `null` or as fresh
+metadata, and leaves the mirror uninitialized so a later call retries.
 
 **Absent paths.** A path that does not exist is absence, never an error and never corruption.
 

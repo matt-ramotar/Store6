@@ -12,7 +12,8 @@ except `iosX64`, which `androidx.paging` dropped at 3.4.0-rc01.
 
 ## Install
 
-Until the snapshot is published remotely, publish `core` and `paging-androidx` to Maven Local:
+This artifact ships in 6.0.0-alpha01, which is not released yet. Until then, publish `core`
+and `paging-androidx` to Maven Local:
 
 ```shell
 ./gradlew :core:publishToMavenLocal :paging-androidx:publishToMavenLocal
