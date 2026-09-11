@@ -171,7 +171,15 @@ private class KtorFetcher<K : StoreKey, V : Any>(
             // CancellationException (Darwin's NSURLErrorCancelled, OkHttp's IOException("Canceled"),
             // the JS AbortError). Recording that as a fetch failure would give the key an error
             // result and a failure record for a coroutine that is no longer alive.
-            currentCoroutineContext().ensureActive()
+            try {
+                currentCoroutineContext().ensureActive()
+            } catch (cancellation: CancellationException) {
+                // ensureActive() throws its own CancellationException carrying the job's
+                // cancellation cause, unrelated to `failure`. Without attaching it, the original
+                // non-cancellation failure's information is silently dropped.
+                cancellation.addSuppressed(failure)
+                throw cancellation
+            }
             FetcherResult.Error(failure)
         }
 

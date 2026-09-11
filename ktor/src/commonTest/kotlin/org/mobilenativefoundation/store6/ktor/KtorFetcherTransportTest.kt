@@ -621,6 +621,7 @@ class KtorFetcherTransportTest {
             var returned: FetcherResult<String>? = null
             var thrown: Throwable? = null
             lateinit var deferred: Deferred<Unit>
+            lateinit var originalFailure: EngineSurfacedCancellation
             val engine =
                 MockEngine {
                     respond(content = "payload", status = HttpStatusCode.OK)
@@ -638,7 +639,8 @@ class KtorFetcherTransportTest {
                         configureRequest = { key ->
                             url("https://example.test/items/${key.canonicalId()}")
                             deferred.cancel()
-                            throw EngineSurfacedCancellation()
+                            originalFailure = EngineSurfacedCancellation()
+                            throw originalFailure
                         },
                     )
                 deferred =
@@ -654,9 +656,18 @@ class KtorFetcherTransportTest {
                 runCatching { deferred.await() }
 
                 assertNull(returned, "a cancelled fetch must not produce a FetcherResult")
-                assertIs<CancellationException>(
-                    thrown,
-                    "a failure raised after cancellation must be rethrown as cancellation",
+                val rethrown =
+                    assertIs<CancellationException>(
+                        thrown,
+                        "a failure raised after cancellation must be rethrown as cancellation",
+                    )
+                // The `ensureActive()` throw replaces `failure` in the control flow, so without
+                // attaching it, the original non-cancellation failure's information is silently
+                // lost. It must survive as a suppressed exception on the rethrown cancellation.
+                assertSame(
+                    originalFailure,
+                    rethrown.suppressedExceptions.singleOrNull(),
+                    "the original failure must be attached to the rethrown cancellation via addSuppressed",
                 )
             }
         }
