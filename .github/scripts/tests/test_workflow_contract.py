@@ -33,21 +33,45 @@ class WorkflowContract(unittest.TestCase):
         self.assertLess(publish.index('release_control.py publish'), publish.index('publication-receipt-${{'))
         self.assertLess(publish.index('publication-receipt-${{'), publish.index('release_control.py record'))
 
-    def test_full_suite_second_run_requires_first_success(self):
+    def test_the_full_suite_is_one_forced_execution_split_into_shards(self):
         self.assertIn('workflow_call:', self.full)
-        self.assertIn('needs: first-execution', self.full)
+        self.assertNotIn('sequence', self.full)
+        self.assertNotIn('first-execution', self.full)
+        self.assertNotIn('second-execution', self.full)
+        self.assertIn('shard: [1, 2, 3, 4]', self.full)
+        self.assertIn('fail-fast: false', self.full)
+        self.assertIn('-Pstore6.lincheckShard=${{ matrix.shard }}/4', self.full)
         self.assertEqual(self.full.count('uses: ./.github/workflows/store6-full-jvm-run.yml'), 2)
+        for name, minutes in [('full-mutations-jvm', 60), ('lincheck', 150), ('validation-evidence', 10)]:
+            with self.subTest(job=name):
+                self.assertIn(f'{name}:', self.full)
+                self.assertIn(str(minutes), self.full)
+        self.assertIn('lincheck_runner', self.full)
+        self.assertIn('macos-latest', self.full)
         config = (ROOT / 'mutations/build.gradle.kts').read_text()
         self.assertIn('outputs.upToDateWhen { false }', config)
         self.assertIn('outputs.doNotCacheIf(', config)
+        self.assertNotIn('lincheck.instrumentAllClasses', config)
+        self.assertNotIn('forkEvery', config)
         runner = ROOT / '.github/workflows/store6-full-jvm-run.yml'
         self.assertTrue(runner.exists(), 'Full-suite execution workflow must exist')
         run = runner.read_text()
         self.assertIn('--console=plain', run)
-        self.assertIn('release_control.py full-suite', run)
+        self.assertIn('release_control.py full-suite-execution', run)
         self.assertIn('if: ${{ always() }}', run)
         self.assertNotIn('docs/v6', run + self.full)
         self.assertNotIn('gh issue', run + self.full)
+
+    def test_the_lincheck_scenario_count_matches_the_kotlin_plan(self):
+        control = (ROOT / '.github/scripts/release_control.py').read_text()
+        plan = (ROOT / 'mutations/src/jvmTest/kotlin/org/mobilenativefoundation/store6/mutations'
+                       '/LincheckScenarioPlan.kt').read_text()
+        self.assertEqual(re.search(r'(?m)^LINCHECK_SCENARIO_COUNT = (\d+)$', control)[1],
+                         re.search(r'SCENARIO_COUNT: Int = (\d+)', plan)[1])
+        self.assertEqual(re.search(r"(?m)^SCENARIO_MARKER = '([^']+)'$", control)[1],
+                         re.search(r'SCENARIO_MARKER: String = "([^"]+)"', plan)[1])
+        self.assertEqual(re.search(r"(?m)^LINCHECK_CLASS = '([^']+)'$", control)[1].rsplit('.', 1)[1],
+                         'MutationJournalLincheckTest')
 
     def test_publication_roster_matches_bom_and_root_version(self):
         bom = (ROOT / 'bom/build.gradle.kts').read_text()
@@ -79,10 +103,13 @@ class WorkflowContract(unittest.TestCase):
                         self.assertIn(f'{field}: ${{{{ steps.provenance.outputs.{field} }}}}', block)
                     self.assertIn('release_control.py provenance', block)
 
-    def test_full_suite_pair_aggregates_both_executions(self):
-        self.assertIn('needs: [first-execution, second-execution]', self.full)
-        self.assertIn('release_control.py full-suite-pair', self.full)
-        self.assertEqual(self.manifest.get('full_suite_jobs'), ['first-execution', 'second-execution'])
+    def test_full_suite_validation_aggregates_every_execution(self):
+        self.assertEqual(self.manifest.get('full_suite_jobs'), ['full-mutations-jvm', 'lincheck'])
+        self.assertIn('needs: [' + ', '.join(self.manifest['full_suite_jobs']) + ']', self.full)
+        self.assertIn('release_control.py full-suite --output full-suite-validation.json', self.full)
+        self.assertIn('actions/download-artifact@v4', self.full)
+        self.assertIn('FULL_SUITE_EXECUTIONS:', self.full)
+        self.assertIn("FULL_SUITE_SHARDS: '4'", self.full)
         for field in ['source_sha', 'run_id', 'run_attempt', 'version']:
             self.assertIn(f'value: ${{{{ jobs.validation-evidence.outputs.{field} }}}}', self.full)
 

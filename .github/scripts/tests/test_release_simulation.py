@@ -70,9 +70,9 @@ if os.environ.get('STUB_FAIL_MODULE') and sys.argv[1].startswith(':' + os.enviro
         path.write_text('#!/usr/bin/env python3\n' + body)
         path.chmod(0o755)
 
-    def run_command(self, command, success=True):
-        result = subprocess.run(['python3', '.github/scripts/release_control.py', command], cwd=self.root,
-                                env=self.env, text=True, capture_output=True)
+    def run_command(self, command, success=True, arguments=()):
+        result = subprocess.run(['python3', '.github/scripts/release_control.py', command, *arguments],
+                                cwd=self.root, env=self.env, text=True, capture_output=True)
         if success:
             self.assertEqual(result.returncode, 0, result.stderr)
         else:
@@ -121,12 +121,43 @@ if os.environ.get('STUB_FAIL_MODULE') and sys.argv[1].startswith(':' + os.enviro
         self.assertEqual(len(calls), 11)
         self.assertTrue(all(call.endswith(':publishToMavenCentral') for call in calls))
 
-    def test_matrix_and_full_suite_pair_cli_preserve_leaf_attempt_provenance(self):
+    def write_execution(self, name, **fields):
+        record = dict(schema_version=1, source_sha='a' * 40, checked_out_sha='a' * 40,
+                      version='6.0.0-alpha01', repository='MobileNativeFoundation/Store',
+                      run_id='123', run_attempt='1', gradle_exit_code=0, classification='passed',
+                      task_outcome='executed', log_sha256='0' * 64)
+        record.update(fields)
+        path = self.root / 'full-suite-artifacts' / name / 'full-suite-evidence' / 'execution.json'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record))
+
+    def write_full_suite_executions(self, shards=4):
+        lincheck = 'org.mobilenativefoundation.store6.mutations.MutationJournalLincheckTest'
+        for package, name in [('example', 'ExampleTest'), (lincheck.rsplit('.', 1)[0], lincheck.rsplit('.', 1)[1])]:
+            source = self.root / 'mutations/src/jvmTest/kotlin' / (name + '.kt')
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text('package ' + package + '\nclass ' + name + '\n')
+        self.write_execution('results-jvmTest', task=':mutations:jvmTest', shard=None,
+                             executed_classes=['example.ExampleTest'],
+                             test_identifiers=[dict(id='example.ExampleTest#works', outcome='passed')])
+        for index in range(1, shards + 1):
+            self.write_execution(
+                'results-lincheck-' + str(index), task=':mutations:lincheckTest',
+                shard=f'{index}/{shards}',
+                scenario_indices=[value for value in range(100) if value % shards == index - 1],
+                executed_classes=[lincheck],
+                test_identifiers=[dict(id=lincheck + '#inMemoryJournalTransactions_areLinearizable',
+                                       outcome='passed')])
+        self.env['FULL_SUITE_EXECUTIONS'] = 'full-suite-artifacts'
+        self.env['FULL_SUITE_SHARDS'] = str(shards)
+
+    def test_matrix_and_full_suite_cli_preserve_leaf_attempt_provenance(self):
         manifest = json.loads((self.root / '.github/release-manifest.json').read_text())
         output = self.root / 'job-outputs.txt'
         self.env['GITHUB_OUTPUT'] = str(output)
+        self.write_full_suite_executions()
         for command, required in [('matrix', manifest['matrix_jobs']),
-                                  ('full-suite-pair', manifest['full_suite_jobs'])]:
+                                  ('full-suite', manifest['full_suite_jobs'])]:
             with self.subTest(command=command):
                 needs = {name: dict(result='success', outputs=dict(source_sha='a' * 40, run_id='123',
                                                                   run_attempt='1', version='6.0.0-alpha01'))
@@ -145,6 +176,30 @@ if os.environ.get('STUB_FAIL_MODULE') and sys.argv[1].startswith(':' + os.enviro
                         self.assertEqual(output.read_bytes(), saved_outputs)
                         needs[name]['outputs']['run_attempt'] = '1'
         self.assertFalse((self.root / 'maven-calls.txt').exists())
+
+    def test_the_full_suite_cli_refuses_an_incomplete_shard_census(self):
+        manifest = json.loads((self.root / '.github/release-manifest.json').read_text())
+        output = self.root / 'job-outputs.txt'
+        self.env['GITHUB_OUTPUT'] = str(output)
+        self.write_full_suite_executions()
+        self.env['VALIDATION_NEEDS'] = json.dumps({
+            name: dict(result='success', outputs=dict(source_sha='a' * 40, run_id='123',
+                                                      run_attempt='1', version='6.0.0-alpha01'))
+            for name in manifest['full_suite_jobs']})
+        record = self.root / 'full-suite-artifacts/results-lincheck-2/full-suite-evidence/execution.json'
+        saved = record.read_text()
+        record.unlink()
+        self.run_command('full-suite', success=False)
+        self.assertFalse(output.exists())
+        record.write_text(saved)
+        for missing in ['FULL_SUITE_EXECUTIONS', 'FULL_SUITE_SHARDS']:
+            with self.subTest(missing=missing):
+                value = self.env.pop(missing)
+                self.run_command('full-suite', success=False)
+                self.assertFalse(output.exists())
+                self.env[missing] = value
+        self.run_command('full-suite')
+        self.assertIn('version=6.0.0-alpha01\n', output.read_text())
 
 
 if __name__ == '__main__':
