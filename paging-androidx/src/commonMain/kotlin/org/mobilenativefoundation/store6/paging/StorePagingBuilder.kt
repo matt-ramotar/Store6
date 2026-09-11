@@ -17,7 +17,7 @@ public class StorePagingBuilder<K : StoreKey, V : Any, PK : Any, Item : Any> int
     private var freshness: (LoadType) -> Freshness = { Freshness.CachedOrFetch }
     private var refreshKey: (PagingState<PK, Item>) -> PK? = { state ->
         state.anchorPosition?.let { anchor ->
-            state.closestPageToPosition(anchor)?.let { page -> page.prevKey ?: page.nextKey }
+            state.closestPageToPosition(anchor)?.prevKey
         }
     }
     private var itemsBefore: (K, V) -> Int = { _, _ ->
@@ -65,8 +65,17 @@ public class StorePagingBuilder<K : StoreKey, V : Any, PK : Any, Item : Any> int
     /**
      * Selects the refresh key from the current paging state.
      *
-     * By default, the page closest to the anchor contributes its previous key when present and
-     * its next key otherwise. A state without an anchor or closest page returns `null`.
+     * The default returns the previous key of the page closest to the anchor. It returns `null`
+     * when that page has no previous key, and when the state has no anchor or no closest page. A
+     * `null` key restarts paging from the initial page.
+     *
+     * The default never returns the closest page's next key. Paging can only append from the page
+     * a refresh loads, so a refresh keyed on the next key drops the anchored page: a forward-only
+     * source has no previous key to prepend it with. Restarting from the initial page keeps the
+     * anchored content reachable.
+     *
+     * An application whose pagination keys are invertible should supply a mapping that targets the
+     * anchored page itself. Store cannot derive one: a pagination key is opaque to this module.
      */
     public fun refreshKey(block: (PagingState<PK, Item>) -> PK?) {
         refreshKey = block
