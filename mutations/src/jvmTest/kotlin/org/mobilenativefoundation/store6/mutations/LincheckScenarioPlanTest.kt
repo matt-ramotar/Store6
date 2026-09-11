@@ -3,6 +3,7 @@ package org.mobilenativefoundation.store6.mutations
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
 /**
@@ -12,13 +13,63 @@ import kotlin.test.assertTrue
  */
 class LincheckScenarioPlanTest {
     @Test
-    fun theSameSeedProducesIdenticalScenarios() {
-        assertEquals(LincheckScenarioPlan.scenarios(), LincheckScenarioPlan.scenarios())
-        assertEquals(LincheckScenarioPlan.SCENARIO_COUNT, LincheckScenarioPlan.scenarios().size)
+    fun generatingTwiceFromTheSameSeedProducesIdenticalScenarios() {
+        val first = LincheckScenarioPlan.generate(LincheckScenarioPlan.SCENARIO_SEED)
+        val second = LincheckScenarioPlan.generate(LincheckScenarioPlan.SCENARIO_SEED)
+        assertEquals(first, second)
+        assertEquals(LincheckScenarioPlan.SCENARIO_COUNT, first.size)
+        assertEquals((0 until LincheckScenarioPlan.SCENARIO_COUNT).toList(), first.map(LincheckScenarioSpec::index))
+        assertEquals(first, LincheckScenarioPlan.scenarios())
+    }
+
+    @Test
+    fun thePlanMatchesItsCheckedInGoldenDigest() {
         assertEquals(
-            (0 until LincheckScenarioPlan.SCENARIO_COUNT).toList(),
-            LincheckScenarioPlan.scenarios().map(LincheckScenarioSpec::index),
+            LincheckScenarioPlan.SCENARIO_DIGEST,
+            LincheckScenarioPlan.digest(LincheckScenarioPlan.generate(LincheckScenarioPlan.SCENARIO_SEED)),
+            "the checked-in golden digest no longer describes the plan this seed generates",
         )
+        assertEquals(
+            LincheckScenarioPlan.SCENARIO_DIGEST,
+            LincheckScenarioPlan.digest(LincheckScenarioPlan.scenarios()),
+        )
+    }
+
+    @Test
+    fun theDigestMovesWhenTheSeedOrAnOperationMoves() {
+        assertNotEquals(
+            LincheckScenarioPlan.SCENARIO_DIGEST,
+            LincheckScenarioPlan.digest(LincheckScenarioPlan.generate(LincheckScenarioPlan.SCENARIO_SEED + 1L)),
+        )
+        val edited =
+            LincheckScenarioPlan.scenarios().toMutableList().also { plan ->
+                plan[0] = plan[0].copy(threads = plan[0].threads.reversed())
+            }
+        assertNotEquals(LincheckScenarioPlan.SCENARIO_DIGEST, LincheckScenarioPlan.digest(edited))
+    }
+
+    @Test
+    fun theCuratedRegressionScenarioIsPinnedAtTheEndOfThePlan() {
+        assertEquals(LincheckScenarioPlan.GENERATED_SCENARIO_COUNT + 1, LincheckScenarioPlan.SCENARIO_COUNT)
+        assertEquals(LincheckScenarioPlan.GENERATED_SCENARIO_COUNT, LincheckScenarioPlan.CURATED_SCENARIO_INDEX)
+        val curated = LincheckScenarioPlan.scenarios()[LincheckScenarioPlan.CURATED_SCENARIO_INDEX]
+        assertEquals(LincheckScenarioPlan.CURATED_SCENARIO_INDEX, curated.index)
+        assertEquals(
+            listOf(
+                listOf(LincheckOperation.APPEND_A, LincheckOperation.RETIRE_B, LincheckOperation.HYDRATE),
+                listOf(LincheckOperation.APPEND_B, LincheckOperation.RETIRE_A, LincheckOperation.HYDRATE),
+                listOf(LincheckOperation.CONFIRM_TWO, LincheckOperation.PRUNE, LincheckOperation.HYDRATE),
+            ),
+            curated.threads,
+        )
+    }
+
+    @Test
+    fun thePlanIsReadOnlyToItsCallers() {
+        @Suppress("UNCHECKED_CAST")
+        val plan = LincheckScenarioPlan.scenarios() as MutableList<LincheckScenarioSpec>
+        assertFailsWith<UnsupportedOperationException> { plan.clear() }
+        assertEquals(LincheckScenarioPlan.SCENARIO_COUNT, LincheckScenarioPlan.scenarios().size)
     }
 
     @Test
@@ -68,6 +119,9 @@ class LincheckScenarioPlanTest {
             LincheckScenarioPlan.scenarios(shard).map(LincheckScenarioSpec::index),
         )
         assertEquals(25, LincheckScenarioPlan.scenarios(shard).size)
+        // 101 scenarios over four shards: the first one carries the curated scenario and one extra.
+        assertEquals(26, LincheckScenarioPlan.scenarios(LincheckShard(1, 4)).size)
+        assertTrue(LincheckScenarioPlan.CURATED_SCENARIO_INDEX in LincheckScenarioPlan.indices(LincheckShard(1, 4)))
     }
 
     @Test
@@ -81,12 +135,12 @@ class LincheckScenarioPlanTest {
     fun wellFormedShardSpecificationsParse() {
         assertEquals(LincheckShard(1, 4), LincheckScenarioPlan.shard("1/4"))
         assertEquals(LincheckShard(4, 4), LincheckScenarioPlan.shard(" 4/4 "))
-        assertEquals(LincheckShard(100, 100), LincheckScenarioPlan.shard("100/100"))
+        assertEquals(LincheckShard(101, 101), LincheckScenarioPlan.shard("101/101"))
     }
 
     @Test
     fun malformedOrOutOfRangeShardSpecificationsAreRejected() {
-        val rejected = listOf("", "   ", "1", "4", "0/4", "5/4", "-1/4", "1/0", "1/-4", "1/101",
+        val rejected = listOf("", "   ", "1", "4", "0/4", "5/4", "-1/4", "1/0", "1/-4", "1/102",
                               "1/4/2", "a/b", "1 / 4", "1,4", "one/four", "1.0/4")
         rejected.forEach { specification ->
             val failure = assertFailsWith<IllegalArgumentException>("accepted '$specification'") {
@@ -101,13 +155,14 @@ class LincheckScenarioPlanTest {
     }
 
     @Test
-    fun theScenarioMarkerNamesTheShardAndItsIndices() {
+    fun theScenarioMarkerNamesTheShardItsIndicesAndTheWholePlansDigest() {
         val shard = LincheckShard(1, 4)
-        val marker = LincheckScenarioPlan.marker(shard, LincheckScenarioPlan.indices(shard))
+        val indices = LincheckScenarioPlan.indices(shard)
         assertEquals(
-            "${LincheckScenarioPlan.SCENARIO_MARKER} shard=1/4 count=25 " +
-                "indices=" + (0 until 100).filter { it % 4 == 0 }.joinToString(","),
-            marker,
+            "${LincheckScenarioPlan.SCENARIO_MARKER} shard=1/4 count=26 " +
+                "indices=" + (0..100).filter { it % 4 == 0 }.joinToString(",") +
+                " digest=${LincheckScenarioPlan.SCENARIO_DIGEST}",
+            LincheckScenarioPlan.marker(shard, indices),
         )
     }
 }
