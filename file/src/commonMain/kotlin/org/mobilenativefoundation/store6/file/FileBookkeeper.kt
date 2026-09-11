@@ -48,6 +48,10 @@ import kotlin.coroutines.CoroutineContext
  * and update the mirror only after persistence succeeds, so a persistence failure leaves canonical
  * disk state and the mirror unchanged.
  *
+ * [status] answers from the mirror, and the only storage read it makes is that first-operation
+ * recovery. A failed recovery propagates to the caller and is never reported as `null` or as
+ * fresh metadata. The mirror stays uninitialized, so a later call retries the recovery.
+ *
  * Only one live `FileBookkeeper` may use a directory. A [FileSourceOfTruth] may use the same
  * directory because the two classes own disjoint subtrees.
  *
@@ -172,6 +176,8 @@ public class FileBookkeeper internal constructor(
         requireValid(identity)
         return mutex.withLock {
             if (!initialized) {
+                // Decision D4: a failed cold recovery propagates to the caller. Absorbing it into
+                // a null answer would report a failed read as "no record".
                 withContext(NonCancellable) {
                     withContext(ioContext) {
                         recoverFromDiskIfNeeded()
