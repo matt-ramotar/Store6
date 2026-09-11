@@ -2,7 +2,7 @@
 
 This page records declared targets and completed local checks for `6.0.0-SNAPSHOT` during
 6.0.0-alpha01 preparation, as of 2026-09-06. It does not establish a validated release tag or
-Maven Central availability. The [stability policy](../../STABILITY.md) selects ten libraries
+Maven Central availability. The [stability policy](../../STABILITY.md) selects fifteen libraries
 plus the BOM for alpha01; a successful build of a deferred library does not add it to that roster.
 
 ## Declared library targets
@@ -29,13 +29,13 @@ declares this set; five libraries declare smaller sets in their own builds.
 | [devtools-inspector](../../devtools-inspector/build.gradle.kts) | Deferred | `android`, `jvm`, `iosX64`, `iosArm64`, `iosSimulatorArm64`, `macosArm64`, `js` (Node), `wasmJs` (browser) |
 | [mutations-drain](../../mutations-drain/build.gradle.kts) | Deferred | Full set |
 | [mutations-drain-meeseeks](../../mutations-drain-meeseeks/build.gradle.kts) | Deferred | `android`, `jvm`, `iosX64`, `iosArm64`, `iosSimulatorArm64`, `js` (Node) |
-| [mutations-conflicts](../../mutations-conflicts/build.gradle.kts) | Deferred | Full set |
-| [paging-androidx](../../paging-androidx/build.gradle.kts) | Deferred | Full set except `iosX64` |
-| [file](../../file/build.gradle.kts) | Deferred | Full set |
-| [ktor](../../ktor/build.gradle.kts) | Deferred | Full set |
-| [opentelemetry](../../opentelemetry/build.gradle.kts) | Deferred | `android`, `jvm` |
+| [mutations-conflicts](../../mutations-conflicts/build.gradle.kts) | Included | Full set |
+| [paging-androidx](../../paging-androidx/build.gradle.kts) | Included | Full set except `iosX64` |
+| [file](../../file/build.gradle.kts) | Included | Full set |
+| [ktor](../../ktor/build.gradle.kts) | Included | Full set |
+| [opentelemetry](../../opentelemetry/build.gradle.kts) | Included | `android`, `jvm` |
 
-The [BOM](../../bom/build.gradle.kts) constrains the ten included libraries and has no runtime
+The [BOM](../../bom/build.gradle.kts) constrains the fifteen included libraries and has no runtime
 target of its own. The [publication manifest](../../.github/release-manifest.json) is the release
 allowlist. Samples, demos, API-dump projects, and `extension-probe` are verification projects,
 not additional libraries in this table.
@@ -88,7 +88,7 @@ does not lower the producer's SDK requirement or establish Android runtime cover
 
 | Independent consumer | Completed evidence | Boundary |
 | --- | --- | --- |
-| JVM with BOM | Resolved the ten alpha01 libraries and ran using published local coordinates. | No repository project dependencies; not Central resolution. |
+| JVM with BOM | Resolved ten of the alpha01 libraries and ran using published local coordinates. | No repository project dependencies; not Central resolution. The five libraries added to the roster after this check are not in that graph. |
 | Store 5 coexistence | Ran with Store6 core/BOM and `store5:5.1.0-alpha10`. | This checks that selected pair, not every Store 5 release. |
 | Android | Compiled with core, Room, and SQLDelight using the toolchain above. | No device execution. |
 | Room walkthrough | Generated database code with Room 3.0.0/KSP 2.3.10 and ran the JVM walkthrough. | Independent artifact consumer of the adapter and core. |
@@ -128,5 +128,6 @@ and process-survival tests remain prerequisites for distribution; see the facade
 | Complete validation bound to the eventual release tag | Pending |
 | Signed Central publication and resolution of released artifacts | Pending |
 
-The [release procedure](../../RELEASING.md) defines the required matrix, the two full mutation
-suite executions, artifact checks, and evidence tied to the release source and workflow attempt.
+The [release procedure](../../RELEASING.md) defines the required matrix, the single sharded full
+mutation suite execution, artifact checks, and evidence tied to the release source and workflow
+attempt.
