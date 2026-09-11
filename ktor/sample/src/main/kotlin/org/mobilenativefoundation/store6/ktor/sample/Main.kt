@@ -71,9 +71,9 @@ private suspend fun scene200ThenConditional304() {
             itemStore.stream(key).first { result -> result is StoreResult.Revalidated }
             check(itemStore.get(key) == BODY)
             val validators = recorded.map { request -> request.ifNoneMatch }
-            check(validators.size in 2..3) { "expected 2..3 executions, recorded $validators" }
-            check(validators[0] == null)
-            check(validators.drop(1).all { etag -> etag == ETAG })
+            check(validators == listOf(null, ETAG)) {
+                "expected one unconditional request then one carrying $ETAG, recorded $validators"
+            }
             println("Scene 1: 200 then conditional 304 revalidated; recorded If-None-Match=$validators")
         } finally {
             itemStore.close()
@@ -184,9 +184,9 @@ private suspend fun sceneLastModifiedRoundTrip() {
             itemStore.stream(key).first { result -> result is StoreResult.Revalidated }
             check(itemStore.get(key) == BODY)
             val validators = recorded.map { request -> request.ifModifiedSince }
-            check(validators.size in 2..3) { "expected 2..3 executions, recorded $validators" }
-            check(validators[0] == null)
-            check(validators.drop(1).all { date -> date == LM_DATE })
+            check(validators == listOf(null, LM_DATE)) {
+                "expected one unconditional request then one carrying $LM_DATE, recorded $validators"
+            }
             println("Scene 4: Last-Modified 200 then If-Modified-Since 304 revalidated; recorded IMS=$validators")
         } finally {
             itemStore.close()

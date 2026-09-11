@@ -40,10 +40,16 @@ class KtorStoreIntegrationTest {
     @Test
     fun invalidateThenConditionalRefetch_emitsOneRevalidatedAndClearsStaleness() = runTest {
         var requests = 0
+        var invalidateReturned = false
         val ifNoneMatchHeaders = mutableListOf<String?>()
+        val revalidationHeaders = mutableListOf<String?>()
         val engine =
             MockEngine { request ->
-                ifNoneMatchHeaders += request.headers[HttpHeaders.IfNoneMatch]
+                val ifNoneMatch = request.headers[HttpHeaders.IfNoneMatch]
+                ifNoneMatchHeaders += ifNoneMatch
+                if (invalidateReturned) {
+                    revalidationHeaders += ifNoneMatch
+                }
                 when (++requests) {
                     1 ->
                         respond(
@@ -70,7 +76,9 @@ class KtorStoreIntegrationTest {
             val key = IntegrationKey("revalidation")
             try {
                 assertEquals("v1", store.get(key))
+                assertEquals(1, requests, "the cold read must issue exactly one request")
                 store.invalidate(key)
+                invalidateReturned = true
 
                 store.stream(key).test {
                     var revalidatedCount = 0
@@ -95,10 +103,12 @@ class KtorStoreIntegrationTest {
                     cancelAndIgnoreRemainingEvents()
                 }
 
-                assertTrue(
-                    requests in 2..3,
-                    "the 304 cycle may self-heal one obsolete cold-baseline launch",
+                assertEquals(
+                    listOf<String?>("\"v1\""),
+                    revalidationHeaders,
+                    "invalidation must issue exactly one conditional revalidation request",
                 )
+                assertEquals(2, requests, "the whole cycle is one cold read plus one revalidation")
                 assertNull(ifNoneMatchHeaders[0])
                 ifNoneMatchHeaders.drop(1).forEach { header ->
                     assertEquals("\"v1\"", header)
