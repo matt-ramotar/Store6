@@ -108,8 +108,8 @@ A bare `lastWriteWins { ... }` call is last-write-wins when both sides are prese
 server-wins otherwise.
 
 > **WARNING: assign a fresh stamp in every local-write projector.** A projector that copies
-> the base's stamp produces ties. Ties lose to the server, so the policy silently degrades to
-> server-wins.
+> the base's stamp produces stamps that never exceed the server's, and `mine` must be strictly
+> newer to win, so the policy silently degrades to server-wins.
 
 This anti-example projector copies the base's stamp — the routine `copy(title = ...)` shape —
 so its merges always tie and lose:
