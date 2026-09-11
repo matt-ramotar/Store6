@@ -132,12 +132,12 @@ class KtorFetcherTransportTest {
         }
 
     @Test
-    fun noContent_decodeThrows_errorPreservesOriginalExceptionType() =
+    fun ok_decodeThrows_errorPreservesOriginalExceptionType() =
         runTest {
             val decodeFailure = EmptyBodyException()
             val engine =
                 MockEngine {
-                    respond(content = "", status = HttpStatusCode.NoContent)
+                    respond(content = "", status = HttpStatusCode.OK)
                 }
 
             HttpClient(engine).use { client ->
@@ -154,9 +154,37 @@ class KtorFetcherTransportTest {
         }
 
     @Test
-    fun resetContent_decodeThrows_errorPreservesOriginalExceptionType() =
+    fun noContent_decodeReturningValue_isNotAdoptedAsSuccess() =
         runTest {
-            val decodeFailure = EmptyBodyException()
+            var decoded = false
+            val engine =
+                MockEngine {
+                    respond(content = "", status = HttpStatusCode.NoContent)
+                }
+
+            HttpClient(engine).use { client ->
+                val result =
+                    transportFetcher(
+                        client,
+                        decode = { response ->
+                            decoded = true
+                            response.bodyAsText()
+                        },
+                    ).fetch(KEY, null)
+
+                assertFalse(
+                    result is FetcherResult.Success<*>,
+                    "204 carries no representation and must not be adopted as Success",
+                )
+                assertFalse(decoded, "decode must not run for 204")
+                assertStatusError(result, HttpStatusCode.NoContent)
+            }
+        }
+
+    @Test
+    fun resetContent_decodeReturningValue_isNotAdoptedAsSuccess() =
+        runTest {
+            var decoded = false
             val engine =
                 MockEngine {
                     respond(content = "", status = HttpStatusCode.ResetContent)
@@ -164,14 +192,46 @@ class KtorFetcherTransportTest {
 
             HttpClient(engine).use { client ->
                 val result =
-                    assertIs<FetcherResult.Error>(
-                        transportFetcher(
-                            client,
-                            decode = { throw decodeFailure },
-                        ).fetch(KEY, null),
-                    )
-                assertSame(decodeFailure, result.cause)
-                assertFalse(result.cause is KtorFetchException)
+                    transportFetcher(
+                        client,
+                        decode = { response ->
+                            decoded = true
+                            response.bodyAsText()
+                        },
+                    ).fetch(KEY, null)
+
+                assertFalse(
+                    result is FetcherResult.Success<*>,
+                    "205 carries no representation and must not be adopted as Success",
+                )
+                assertFalse(decoded, "decode must not run for 205")
+                assertStatusError(result, HttpStatusCode.ResetContent)
+            }
+        }
+
+    @Test
+    fun noContent_errorMapperMayStillAdoptAnEmptyRepresentation() =
+        runTest {
+            val engine =
+                MockEngine {
+                    respond(content = "", status = HttpStatusCode.NoContent)
+                }
+
+            HttpClient(engine).use { client ->
+                assertEquals(
+                    FetcherResult.Deleted,
+                    transportFetcher(
+                        client,
+                        errorMapper =
+                            KtorErrorMapper { exchange ->
+                                if (exchange.status == HttpStatusCode.NoContent) {
+                                    KtorOutcome.Delete
+                                } else {
+                                    KtorOutcome.Defer
+                                }
+                            },
+                    ).fetch(KEY, null),
+                )
             }
         }
 

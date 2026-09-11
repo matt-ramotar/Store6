@@ -25,7 +25,10 @@ import org.mobilenativefoundation.store6.core.seam.FetcherResult
  * @param client caller-owned HTTP client; the kit never closes it. Must not have Ktor's HttpCache
  *   plugin installed unless [allowHttpCache] is true (see the technical design §13.2).
  * @param decode maps an adopted 2xx response to a value; invoked inside the response scope only for
- *   outcomes the kit adopts as Success
+ *   outcomes the kit adopts as Success. The default table never calls it for 204, 205, or 206,
+ *   because none of those carries a representation. A caller who wants different handling for
+ *   those statuses opts in through [errorMapper]; note that no [KtorOutcome] adopts a body, so a
+ *   mapper can map them to Delete, Fail, or NotModified but never to a value.
  * @param notFoundPolicy how 404 and 410 are mapped (default: typed error, non-destructive)
  * @param lastModifiedFallback whether to record and send Last-Modified when no ETag is available
  * @param errorMapper optional override of status-to-result mapping; returns Defer to keep defaults
@@ -181,6 +184,13 @@ private class KtorFetcher<K : StoreKey, V : Any>(
                 statusError(
                     exchange,
                     "HTTP 206 Partial Content cannot be adopted as a complete representation.",
+                )
+
+            status == HttpStatusCode.NoContent || status == HttpStatusCode.ResetContent ->
+                statusError(
+                    exchange,
+                    "HTTP ${status.value} ${status.description} carries no representation to adopt; " +
+                        "return a KtorOutcome from a KtorErrorMapper to handle it.",
                 )
 
             status.value in 200..299 ->

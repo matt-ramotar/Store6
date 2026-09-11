@@ -153,6 +153,63 @@ class KtorStoreIntegrationTest {
     }
 
     @Test
+    fun noContent_doesNotReplaceResidentValueAndDoesNotMarkItFresh() = runTest {
+        var requests = 0
+        val engine =
+            MockEngine {
+                when (++requests) {
+                    1 ->
+                        respond(
+                            content = "v1",
+                            status = HttpStatusCode.OK,
+                            headers = headersOf(HttpHeaders.ETag, "\"v1\""),
+                        )
+
+                    else -> respond(content = "", status = HttpStatusCode.NoContent)
+                }
+            }
+
+        HttpClient(engine).use { client ->
+            val store =
+                store<IntegrationKey, String> {
+                    ktorFetcher(
+                        client = client,
+                        decode = { response -> response.bodyAsText() },
+                        configureRequest = { key ->
+                            url("https://example.test/items/${key.canonicalId()}")
+                        },
+                    )
+                }
+            val key = IntegrationKey("no-content")
+            try {
+                assertEquals("v1", store.get(key))
+                store.invalidate(key)
+
+                val failure =
+                    assertFailsWith<StoreException> {
+                        store.get(key, Freshness.MustBeFresh)
+                    }
+                val fetchError =
+                    failure.error as? StoreError.Fetch
+                        ?: fail("expected StoreError.Fetch, was ${failure.error}")
+                val cause =
+                    fetchError.cause as? KtorFetchException
+                        ?: fail("expected KtorFetchException, was ${fetchError.cause}")
+                assertEquals(HttpStatusCode.NoContent, cause.status)
+
+                store.stream(key, Freshness.LocalOnly).test {
+                    val data = assertIs<StoreResult.Data<String>>(awaitItem())
+                    assertEquals("v1", data.value)
+                    assertTrue(data.isStale, "a refused 204 must not mark the resident value fresh")
+                    cancelAndIgnoreRemainingEvents()
+                }
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    @Test
     fun mustBeFresh_reRequestsInsteadOfServingResident() = runTest {
         var requests = 0
         val engine =

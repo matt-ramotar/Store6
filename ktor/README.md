@@ -46,7 +46,9 @@ val item = itemStore.get(ItemKey("1"))
 ```
 
 `configureRequest` sets the method, URL, headers, and body for a key. The default Ktor
-request method is GET. `decode` runs only when the default mapping adopts a 2xx response.
+request method is GET. `decode` runs only when the default mapping adopts a 2xx response, which
+excludes 204, 205, and 206: none of them carries a representation, so an empty body never
+replaces a resident value.
 
 ## Entry points
 
@@ -93,9 +95,9 @@ This table applies when `KtorErrorMapper` returns `KtorOutcome.Defer`.
 
 | HTTP outcome | `FetcherResult` | Behavior |
 | --- | --- | --- |
-| 2xx other than 206 with a body accepted by `decode` | `Success(value, validatorToken)` | `decode` runs. The validator selection is described below. |
+| 2xx other than 204, 205, and 206 with a body accepted by `decode` | `Success(value, validatorToken)` | `decode` runs. The validator selection is described below. |
 | `206 Partial Content` | `Error(KtorFetchException)` | A partial body is not adopted as a complete representation. |
-| `204 No Content` or `205 Reset Content` | Delegated to `decode` | A returned value becomes `Success`. A thrown empty-body failure becomes `Error(originalException)`. |
+| `204 No Content` or `205 Reset Content` | `Error(KtorFetchException)` | Neither status carries a representation, so `decode` never runs. Handle them in a `KtorErrorMapper`. |
 | `304 Not Modified` after a conditional request | `NotModified(newEtagOrNull)` | A response ETag replaces the recorded token. Null keeps the previous token. |
 | `304 Not Modified` without a conditional request | `Error(KtorFetchException)` | The status is treated as a protocol anomaly. |
 | 404 or 410 with `KtorNotFoundPolicy.Error` | `Error(KtorFetchException)` | This is the non-destructive default. |
