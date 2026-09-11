@@ -5,8 +5,10 @@ package org.mobilenativefoundation.store6.ktor
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.HttpRequestData
+import io.ktor.client.request.header
 import io.ktor.client.request.url
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -647,6 +649,64 @@ class KtorFetcherTransportTest {
                     thrown,
                     "a failure raised after cancellation must be rethrown as cancellation",
                 )
+            }
+        }
+
+    @Test
+    fun clientDefaultRequestConditionalHeader_reachesTheEngineAndBreaksTheFetch() =
+        runTest {
+            // The kit's strip is builder-scoped: `headers.remove` inside `prepareRequest` cannot
+            // reach a header a client plugin contributes later in the request pipeline. Observed
+            // on Ktor 3.5.2: the DefaultRequest header reaches the engine, the kit's own
+            // `conditional` flag stays false, and the resulting 304 is read as a protocol anomaly.
+            // That is a hard failure on every request, with a message pointing at the wrong thing,
+            // which is why the contract has to name `defaultRequest` and plugins explicitly.
+            val seenIfNoneMatch = mutableListOf<List<String>?>()
+            val engine =
+                MockEngine { request ->
+                    seenIfNoneMatch += request.headers.getAll(HttpHeaders.IfNoneMatch)
+                    respond(content = "", status = HttpStatusCode.NotModified)
+                }
+
+            HttpClient(engine) {
+                defaultRequest { header(HttpHeaders.IfNoneMatch, "\"x\"") }
+            }.use { client ->
+                val result = transportFetcher(client).fetch(KEY, null)
+
+                assertEquals(listOf<List<String>?>(listOf("\"x\"")), seenIfNoneMatch)
+                assertStatusError(result, HttpStatusCode.NotModified)
+            }
+        }
+
+    @Test
+    fun clientDefaultRequestConditionalHeader_isAppendedBesideTheKitsValidator() =
+        runTest {
+            val seenIfNoneMatch = mutableListOf<List<String>?>()
+            val engine =
+                MockEngine { request ->
+                    seenIfNoneMatch += request.headers.getAll(HttpHeaders.IfNoneMatch)
+                    respond(
+                        content = "",
+                        status = HttpStatusCode.NotModified,
+                        headers = headersOf(HttpHeaders.ETag, "\"v2\""),
+                    )
+                }
+
+            HttpClient(engine) {
+                defaultRequest { header(HttpHeaders.IfNoneMatch, "\"x\"") }
+            }.use { client ->
+                val result =
+                    assertIs<FetcherResult.NotModified>(
+                        transportFetcher(client).fetch(KEY, "\"v1\""),
+                    )
+
+                // Observed on Ktor 3.5.2: DefaultRequest appends beside the kit's validator
+                // rather than yielding to it, so the request carries two entity tags. The kit's
+                // replace-not-append guarantee holds only against `configureRequest`. A server
+                // that matches the plugin's tag answers 304, and the kit then refreshes the
+                // freshness of a resident value recorded under a different tag.
+                assertEquals(listOf<List<String>?>(listOf("\"v1\"", "\"x\"")), seenIfNoneMatch)
+                assertEquals("\"v2\"", result.etag)
             }
         }
 

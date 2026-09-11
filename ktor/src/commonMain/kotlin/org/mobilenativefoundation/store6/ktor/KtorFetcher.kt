@@ -25,7 +25,11 @@ import org.mobilenativefoundation.store6.core.seam.FetcherResult
  * Builds a [Fetcher] that revalidates over HTTP on [client].
  *
  * @param client caller-owned HTTP client; the kit never closes it. Must not have Ktor's HttpCache
- *   plugin installed unless [allowHttpCache] is true (see the technical design §13.2).
+ *   plugin installed unless [allowHttpCache] is true (see the technical design §13.2). Must not
+ *   contribute `If-None-Match` or `If-Modified-Since` from `defaultRequest` or from any other
+ *   plugin: the kit's header removal is scoped to the request builder and cannot reach a header
+ *   the request pipeline adds afterwards, so such a header is sent without the kit knowing, which
+ *   turns a 304 into a fetch failure or adds a second entity tag beside the kit's validator.
  * @param decode maps an adopted 2xx response to a value; invoked inside the response scope only for
  *   outcomes the kit adopts as Success. The default table never calls it for 204, 205, or 206,
  *   because none of those carries a representation. A caller who wants different handling for
@@ -35,7 +39,9 @@ import org.mobilenativefoundation.store6.core.seam.FetcherResult
  * @param lastModifiedFallback whether to record and send Last-Modified when no ETag is available
  * @param errorMapper optional override of status-to-result mapping; returns Defer to keep defaults
  * @param allowHttpCache set true only when you accept that HttpCache can intercept the 304 path
- * @param configureRequest applies the per-key request shape (method, URL, headers, body)
+ * @param configureRequest applies the per-key request shape (method, URL, headers, body). The kit
+ *   removes `If-None-Match` and `If-Modified-Since` after this lambda runs and then sets at most
+ *   one of them from its recorded validator, so a conditional header set here is always discarded.
  */
 @ExperimentalStoreApi
 public fun <K : StoreKey, V : Any> ktorFetcher(

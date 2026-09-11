@@ -164,9 +164,22 @@ when the changed 304 behavior is acceptable.
 ### Methods and conditional headers
 
 The kit sends conditional headers only for GET and HEAD. Other methods fetch
-unconditionally. Do not set `If-None-Match` or `If-Modified-Since` in
-`configureRequest`. The kit removes both headers and then sets the one represented by its
+unconditionally. Do not set `If-None-Match` or `If-Modified-Since` anywhere on these
+requests: not in `configureRequest`, and not in the client's `defaultRequest` or any
+client plugin. The kit removes both headers and then sets the one represented by its
 recorded validator, or sets neither when no applicable validator exists.
+
+That removal is scoped to the request builder, so it reaches `configureRequest` and
+nothing later. A header contributed by `defaultRequest` or another plugin runs after the
+builder and survives. Both outcomes are pinned by the suite on Ktor 3.5.2:
+
+- With no recorded validator, the plugin's header reaches the server while the kit still
+  regards the request as unconditional, so a 304 is mapped to
+  `Error(KtorFetchException)` — "304 Not Modified was received without a conditional
+  request" — on every fetch.
+- With a recorded validator, the plugin's header is appended beside the kit's, so the
+  request carries two entity tags. A 304 matching the plugin's tag then refreshes the
+  freshness of a resident value recorded under a different one.
 
 ### Representation identity
 
