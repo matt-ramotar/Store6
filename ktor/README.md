@@ -82,7 +82,12 @@ public fun <K : StoreKey, V : Any> StoreBuilder<K, V>.ktorFetcher(
   `KtorNotFoundPolicy.Delete` maps them to `FetcherResult.Deleted`.
 - `KtorErrorMapper.map(exchange)` runs on every completed response before `decode`.
   Return `KtorOutcome.Defer` to use the default table. `KtorOutcome.Fail`,
-  `KtorOutcome.Delete`, and `KtorOutcome.NotModified` override it.
+  `KtorOutcome.Delete`, and `KtorOutcome.NotModified` override it. No outcome adopts a
+  body: only the default 2xx branch produces `Success`.
+- `KtorOutcome.NotModified` is accepted only when `exchange.conditional` is true. It
+  refreshes freshness metadata without the kit comparing a validator, so returning it for
+  an exchange that sent no `If-None-Match` or `If-Modified-Since` is rejected with
+  `Error(KtorFetchException)` rather than marking a stale value fresh.
 - `KtorExchange` exposes `status`, `method`, `url`, whether the kit sent a conditional
   header, and the live `response`. Read the response only during `map`.
 - `KtorFetchException(status, method, url, message, cause = null)` is the
@@ -100,6 +105,7 @@ This table applies when `KtorErrorMapper` returns `KtorOutcome.Defer`.
 | `204 No Content` or `205 Reset Content` | `Error(KtorFetchException)` | Neither status carries a representation, so `decode` never runs. Handle them in a `KtorErrorMapper`. |
 | `304 Not Modified` after a conditional request | `NotModified(newEtagOrNull)` | A response ETag replaces the recorded token. Null keeps the previous token. |
 | `304 Not Modified` without a conditional request | `Error(KtorFetchException)` | The status is treated as a protocol anomaly. |
+| `KtorOutcome.NotModified` from a mapper without a conditional request | `Error(KtorFetchException)` | A mapper cannot refresh freshness for an exchange that sent no validator. |
 | 404 or 410 with `KtorNotFoundPolicy.Error` | `Error(KtorFetchException)` | This is the non-destructive default. |
 | 404 or 410 with `KtorNotFoundPolicy.Delete` | `Deleted` | This clears the resident value and its freshness metadata. |
 | Other 4xx or 5xx | `Error(KtorFetchException)` | The exception retains the HTTP status, method, and URL. |

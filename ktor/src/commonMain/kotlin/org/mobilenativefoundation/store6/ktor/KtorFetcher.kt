@@ -173,7 +173,17 @@ private class KtorFetcher<K : StoreKey, V : Any>(
             KtorOutcome.Defer -> mapDefault(exchange)
             is KtorOutcome.Fail -> FetcherResult.Error(outcome.exception)
             KtorOutcome.Delete -> FetcherResult.Deleted
-            is KtorOutcome.NotModified -> FetcherResult.NotModified(outcome.validatorToken)
+            is KtorOutcome.NotModified ->
+                if (exchange.conditional) {
+                    FetcherResult.NotModified(outcome.validatorToken)
+                } else {
+                    statusError(
+                        exchange,
+                        "KtorOutcome.NotModified requires a conditional request: this exchange " +
+                            "sent no validator, so nothing was compared and freshness cannot be " +
+                            "refreshed.",
+                    )
+                }
         }
     }
 

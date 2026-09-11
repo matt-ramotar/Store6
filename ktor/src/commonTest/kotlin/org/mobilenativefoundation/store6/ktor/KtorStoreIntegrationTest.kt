@@ -113,7 +113,7 @@ class KtorStoreIntegrationTest {
     }
 
     @Test
-    fun trulyColdNotModified_surfacesMissing() = runTest {
+    fun trulyColdNotModified_mapperOverrideIsRejected() = runTest {
         val engine =
             MockEngine { request ->
                 assertNull(request.headers[HttpHeaders.IfNoneMatch])
@@ -126,14 +126,7 @@ class KtorStoreIntegrationTest {
                 store<IntegrationKey, String> {
                     ktorFetcher(
                         client = client,
-                        errorMapper =
-                            KtorErrorMapper { exchange ->
-                                if (exchange.status == HttpStatusCode.NotModified) {
-                                    KtorOutcome.NotModified(null)
-                                } else {
-                                    KtorOutcome.Defer
-                                }
-                            },
+                        errorMapper = UnconditionalNotModifiedOverride,
                         decode = { response -> response.bodyAsText() },
                         configureRequest = { key ->
                             url("https://example.test/items/${key.canonicalId()}")
@@ -145,7 +138,70 @@ class KtorStoreIntegrationTest {
                     assertFailsWith<StoreException> {
                         store.get(IntegrationKey("cold-304"))
                     }
-                assertIs<StoreError.Missing>(failure.error)
+                val fetchError =
+                    failure.error as? StoreError.Fetch
+                        ?: fail("expected StoreError.Fetch, was ${failure.error}")
+                val cause =
+                    fetchError.cause as? KtorFetchException
+                        ?: fail("expected KtorFetchException, was ${fetchError.cause}")
+                assertEquals(HttpStatusCode.NotModified, cause.status)
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    @Test
+    fun mapperNotModifiedWithoutConditionalRequest_leavesStaleValueStale() = runTest {
+        var requests = 0
+        val engine =
+            MockEngine {
+                when (++requests) {
+                    // No ETag and no Last-Modified: the resident value carries no validator, so
+                    // every later request is unconditional.
+                    1 -> respond(content = "v1", status = HttpStatusCode.OK)
+                    else -> respond(content = "", status = HttpStatusCode.NotModified)
+                }
+            }
+
+        HttpClient(engine).use { client ->
+            val store =
+                store<IntegrationKey, String> {
+                    ktorFetcher(
+                        client = client,
+                        errorMapper = UnconditionalNotModifiedOverride,
+                        decode = { response -> response.bodyAsText() },
+                        configureRequest = { key ->
+                            url("https://example.test/items/${key.canonicalId()}")
+                        },
+                    )
+                }
+            val key = IntegrationKey("stale-stays-stale")
+            try {
+                assertEquals("v1", store.get(key))
+                store.invalidate(key)
+
+                val failure =
+                    assertFailsWith<StoreException> {
+                        store.get(key, Freshness.MustBeFresh)
+                    }
+                val fetchError =
+                    failure.error as? StoreError.Fetch
+                        ?: fail("expected StoreError.Fetch, was ${failure.error}")
+                val cause =
+                    fetchError.cause as? KtorFetchException
+                        ?: fail("expected KtorFetchException, was ${fetchError.cause}")
+                assertEquals(HttpStatusCode.NotModified, cause.status)
+
+                store.stream(key, Freshness.LocalOnly).test {
+                    val data = assertIs<StoreResult.Data<String>>(awaitItem())
+                    assertEquals("v1", data.value)
+                    assertTrue(
+                        data.isStale,
+                        "an unvalidated NotModified must not mark the stale value fresh",
+                    )
+                    cancelAndIgnoreRemainingEvents()
+                }
             } finally {
                 store.close()
             }
@@ -330,6 +386,15 @@ class KtorStoreIntegrationTest {
         }
     }
 }
+
+private val UnconditionalNotModifiedOverride =
+    KtorErrorMapper { exchange ->
+        if (exchange.status == HttpStatusCode.NotModified) {
+            KtorOutcome.NotModified(null)
+        } else {
+            KtorOutcome.Defer
+        }
+    }
 
 private class IntegrationKey(private val id: String) : StoreKey {
     override val namespace: StoreNamespace = StoreNamespace("ktor-integration")

@@ -599,7 +599,7 @@ class KtorFetcherTransportTest {
         }
 
     @Test
-    fun errorMapper_notModifiedOnUnconditional304_overridesAnomaly() =
+    fun errorMapper_notModifiedOnUnconditionalExchange_isRejected() =
         runTest {
             val engine =
                 MockEngine {
@@ -608,18 +608,58 @@ class KtorFetcherTransportTest {
 
             HttpClient(engine).use { client ->
                 val result =
+                    transportFetcher(
+                        client,
+                        errorMapper = NotModifiedOverride,
+                    ).fetch(KEY, null)
+
+                assertFalse(
+                    result is FetcherResult.NotModified,
+                    "a mapper must not refresh freshness for an exchange that sent no validator",
+                )
+                assertStatusError(result, HttpStatusCode.NotModified)
+            }
+        }
+
+    @Test
+    fun errorMapper_notModifiedOnUnconditionalNon304_isRejected() =
+        runTest {
+            val engine =
+                MockEngine {
+                    respond(content = "", status = HttpStatusCode.InternalServerError)
+                }
+
+            HttpClient(engine).use { client ->
+                val result =
+                    transportFetcher(
+                        client,
+                        errorMapper = KtorErrorMapper { KtorOutcome.NotModified(null) },
+                    ).fetch(KEY, null)
+
+                assertFalse(
+                    result is FetcherResult.NotModified,
+                    "a mapper must not refresh freshness from a status the kit never validated",
+                )
+                assertStatusError(result, HttpStatusCode.InternalServerError)
+            }
+        }
+
+    @Test
+    fun errorMapper_notModifiedOnConditionalExchange_overridesValidatorToken() =
+        runTest {
+            val engine =
+                MockEngine { request ->
+                    assertEquals(listOf("\"v1\""), request.headers.getAll(HttpHeaders.IfNoneMatch))
+                    respond(content = "", status = HttpStatusCode.NotModified)
+                }
+
+            HttpClient(engine).use { client ->
+                val result =
                     assertIs<FetcherResult.NotModified>(
                         transportFetcher(
                             client,
-                            errorMapper =
-                                KtorErrorMapper { exchange ->
-                                    if (exchange.status == HttpStatusCode.NotModified) {
-                                        KtorOutcome.NotModified("\"override\"")
-                                    } else {
-                                        KtorOutcome.Defer
-                                    }
-                                },
-                        ).fetch(KEY, null),
+                            errorMapper = NotModifiedOverride,
+                        ).fetch(KEY, "\"v1\""),
                     )
                 assertEquals("\"override\"", result.etag)
             }
@@ -701,6 +741,14 @@ class KtorFetcherTransportTest {
         val DefaultConfigure: HttpRequestBuilder.(TransportKey) -> Unit = { key ->
             url("https://example.test/items/${key.canonicalId()}")
         }
+        val NotModifiedOverride: KtorErrorMapper =
+            KtorErrorMapper { exchange ->
+                if (exchange.status == HttpStatusCode.NotModified) {
+                    KtorOutcome.NotModified("\"override\"")
+                } else {
+                    KtorOutcome.Defer
+                }
+            }
     }
 }
 
