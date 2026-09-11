@@ -708,7 +708,13 @@ class KtorFetcherTransportTest {
                 // never asked about, and adopting it would refresh the freshness of a resident
                 // value recorded under a different tag. The kit compares the conditional headers
                 // the request actually carried against the single one it wrote, and refuses.
-                assertStatusError(result, HttpStatusCode.NotModified)
+                // The message is asserted so that a regression turning `conditional` false —
+                // which would refuse with the unrelated case-1 anomaly — cannot pass this test.
+                val refusal = assertStatusError(result, HttpStatusCode.NotModified)
+                assertTrue(
+                    refusal.message.orEmpty().contains(FOREIGN_VALIDATOR_REFUSAL),
+                    "expected the foreign-validator refusal, was ${refusal.message}",
+                )
             }
         }
 
@@ -738,7 +744,11 @@ class KtorFetcherTransportTest {
                     ),
                     seenConditionals,
                 )
-                assertStatusError(result, HttpStatusCode.NotModified)
+                val refusal = assertStatusError(result, HttpStatusCode.NotModified)
+                assertTrue(
+                    refusal.message.orEmpty().contains(FOREIGN_VALIDATOR_REFUSAL),
+                    "expected the foreign-validator refusal, was ${refusal.message}",
+                )
             }
         }
 
@@ -907,10 +917,11 @@ class KtorFetcherTransportTest {
     private fun assertStatusError(
         result: FetcherResult<String>,
         status: HttpStatusCode,
-    ) {
+    ): KtorFetchException {
         val error = assertIs<FetcherResult.Error>(result)
         val cause = assertIs<KtorFetchException>(error.cause)
         assertEquals(status, cause.status)
+        return cause
     }
 
     private fun assertNoConditionalHeaders(request: HttpRequestData) {
@@ -929,6 +940,7 @@ class KtorFetcherTransportTest {
     private companion object {
         val KEY = TransportKey("1")
         const val LM_DATE = "Wed, 21 Oct 2015 07:28:00 GMT"
+        const val FOREIGN_VALIDATOR_REFUSAL = "carried validators the kit did not set"
         val DefaultDecode: suspend (HttpResponse) -> String = { response ->
             val text = response.bodyAsText()
             if (text.isEmpty()) throw EmptyBodyException()

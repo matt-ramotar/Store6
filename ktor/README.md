@@ -182,9 +182,21 @@ builder and survives. Both outcomes are pinned by the suite on Ktor 3.5.2:
   regards the request as unconditional, so a 304 is mapped to
   `Error(KtorFetchException)` — "304 Not Modified was received without a conditional
   request" — on every fetch.
-- With a recorded validator, the plugin's header is appended beside the kit's, so the
-  request carries two entity tags. A 304 matching the plugin's tag then refreshes the
-  freshness of a resident value recorded under a different one.
+- With a recorded validator, the plugin's header survives beside the kit's: a second
+  entity tag appended to `If-None-Match`, or the other conditional header added outright.
+  The kit refuses such a 304 rather than trusting it. On every 304 for a request it made
+  conditional, it compares the conditional headers the request actually carried against
+  the single header and value it wrote, and maps any difference to
+  `Error(KtorFetchException)` — "the conditional request carried validators the kit did
+  not set". It reads those headers from `HttpResponse.request`, the one place a plugin's
+  contribution is visible to the kit.
+
+The refusal is the only way the kit can tell a 304 that answers its own validator from
+one that answers a foreign one, so it runs before `KtorErrorMapper`: the exchange is
+uninterpretable, and no mapper can recover which validator the server compared. Requests
+the kit did not make conditional, and every response other than 304, are unaffected. The
+fix on the caller's side is to stop contributing conditional headers from a plugin, not
+to map the refusal away.
 
 ### Representation identity
 

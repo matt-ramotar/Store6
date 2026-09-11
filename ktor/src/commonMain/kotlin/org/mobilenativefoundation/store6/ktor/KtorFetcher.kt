@@ -28,8 +28,11 @@ import org.mobilenativefoundation.store6.core.seam.FetcherResult
  *   plugin installed unless [allowHttpCache] is true (see the technical design §13.2). Must not
  *   contribute `If-None-Match` or `If-Modified-Since` from `defaultRequest` or from any other
  *   plugin: the kit's header removal is scoped to the request builder and cannot reach a header
- *   the request pipeline adds afterwards, so such a header is sent without the kit knowing, which
- *   turns a 304 into a fetch failure or adds a second entity tag beside the kit's validator.
+ *   the request pipeline adds afterwards, so such a header reaches the server without the kit
+ *   knowing. The kit refuses the resulting 304 rather than trusting it — as a protocol anomaly
+ *   when it sent no validator of its own, and as a conditional request carrying validators it did
+ *   not set when it did, which it detects by comparing the headers the request actually carried
+ *   against the single one it wrote.
  * @param decode maps an adopted 2xx response to a value; invoked inside the response scope only for
  *   outcomes the kit adopts as Success. The default table never calls it for 204, 205, or 206,
  *   because none of those carries a representation. A caller who wants different handling for
@@ -133,7 +136,9 @@ private class KtorFetcher<K : StoreKey, V : Any>(
         etag: String?,
     ): FetcherResult<V> =
         try {
-            var conditionalSent = false
+            // decodeValidatorToken yields at most one of the two headers, so the kit writes at
+            // most one conditional header per request. The guard below depends on that.
+            var sentValidator: SentValidator? = null
             client
                 .prepareRequest {
                     configureRequest(key)
@@ -149,15 +154,15 @@ private class KtorFetcher<K : StoreKey, V : Any>(
                             )
                         validatorHeaders?.ifNoneMatch?.let { value ->
                             headers[HttpHeaders.IfNoneMatch] = value
-                            conditionalSent = true
+                            sentValidator = SentValidator(HttpHeaders.IfNoneMatch, value)
                         }
                         validatorHeaders?.ifModifiedSince?.let { value ->
                             headers[HttpHeaders.IfModifiedSince] = value
-                            conditionalSent = true
+                            sentValidator = SentValidator(HttpHeaders.IfModifiedSince, value)
                         }
                     }
                 }.execute { response ->
-                    mapResponse(response, conditionalSent)
+                    mapResponse(response, sentValidator)
                 }
         } catch (cancellation: CancellationException) {
             throw cancellation
@@ -172,16 +177,23 @@ private class KtorFetcher<K : StoreKey, V : Any>(
 
     private suspend fun mapResponse(
         response: HttpResponse,
-        conditionalSent: Boolean,
+        sentValidator: SentValidator?,
     ): FetcherResult<V> {
         val exchange =
             KtorExchange(
                 status = response.status,
                 method = response.request.method,
                 url = response.request.url.toString(),
-                conditional = conditionalSent,
+                conditional = sentValidator != null,
                 response = response,
             )
+        if (sentValidator != null && exchange.status == HttpStatusCode.NotModified) {
+            // The exchange is uninterpretable, not merely unwelcome: the kit cannot know which
+            // validator the server compared, so no mapper can recover the meaning of this 304
+            // either. Refused before the mapper runs, unlike the KtorOutcome.NotModified rule
+            // below, which needs the outcome as well as the exchange to decide.
+            foreignValidatorRefusal(exchange, sentValidator)?.let { return it }
+        }
         return when (val outcome = errorMapper.map(exchange)) {
             KtorOutcome.Defer -> mapDefault(exchange)
             is KtorOutcome.Fail -> FetcherResult.Error(outcome.exception)
@@ -250,6 +262,52 @@ private class KtorFetcher<K : StoreKey, V : Any>(
         }
     }
 
+    /**
+     * Refuses a 304 whose request did not carry exactly the one conditional header the kit wrote.
+     *
+     * `headers.remove` in the request builder reaches [configureRequest] and nothing later, so a
+     * `defaultRequest` or another client plugin can append a second entity tag beside the kit's
+     * validator, or add the other conditional header entirely. A server matching the foreign
+     * validator answers 304, and adopting it would refresh the freshness of a resident value the
+     * server never compared. [HttpResponse.request] carries the headers the request actually went
+     * out with, which is the only place the plugin's contribution is visible to the kit.
+     *
+     * Returns null when the sent headers match, so the caller proceeds unchanged.
+     */
+    private fun foreignValidatorRefusal(
+        exchange: KtorExchange,
+        sentValidator: SentValidator,
+    ): FetcherResult.Error? {
+        val sentHeaders = exchange.response.request.headers
+        val ifNoneMatch = sentHeaders.getAll(HttpHeaders.IfNoneMatch).orEmpty()
+        val ifModifiedSince = sentHeaders.getAll(HttpHeaders.IfModifiedSince).orEmpty()
+        val expected = listOf(sentValidator.value)
+        val matches =
+            when (sentValidator.name) {
+                HttpHeaders.IfNoneMatch -> ifNoneMatch == expected && ifModifiedSince.isEmpty()
+                else -> ifModifiedSince == expected && ifNoneMatch.isEmpty()
+            }
+        if (matches) return null
+
+        val carried =
+            buildList {
+                if (ifNoneMatch.isNotEmpty()) {
+                    add("${HttpHeaders.IfNoneMatch}: ${ifNoneMatch.joinToString()}")
+                }
+                if (ifModifiedSince.isNotEmpty()) {
+                    add("${HttpHeaders.IfModifiedSince}: ${ifModifiedSince.joinToString()}")
+                }
+            }.joinToString("; ").ifEmpty { "no conditional header" }
+        return statusError(
+            exchange,
+            "The conditional request carried validators the kit did not set, so this HTTP 304 " +
+                "Not Modified cannot be attributed to the recorded validator and freshness is " +
+                "not refreshed. The kit set ${sentValidator.name}: ${sentValidator.value}; the " +
+                "request went out with $carried. A client plugin such as defaultRequest " +
+                "contributes headers after the kit's request builder, which cannot reach them.",
+        )
+    }
+
     private fun statusError(
         exchange: KtorExchange,
         message: String =
@@ -264,3 +322,9 @@ private class KtorFetcher<K : StoreKey, V : Any>(
             ),
         )
 }
+
+/** The one conditional header the kit wrote for a request, recorded so a 304 can be attributed. */
+private class SentValidator(
+    val name: String,
+    val value: String,
+)
