@@ -196,7 +196,9 @@ public object MutationMerges {
      * Field values compare with `==` (`Any.equals`). `Array` and `ByteArray` compare by identity,
      * not content, and `Double.NaN != NaN`. Registrations apply in order over one local canvas
      * initialized to `theirs`; the policy makes no additional copy. A later registration's `set`
-     * sees earlier results, and the later registration wins where overlapping lenses collide.
+     * sees earlier results; where overlapping lenses collide, the last registration that writes
+     * wins, and a later registration that keeps `theirs` leaves an earlier registration's write in
+     * place.
      *
      * A field's `combine` receives the whole base value as `V?`, not the baseline field as `F?`.
      * It receives the base value when base is `Present` and null when base is `Absent`. This
