@@ -245,7 +245,8 @@ internal fun storeErrorType(error: StoreError): String =
 
 internal const val INSTRUMENTATION_SCOPE_NAME: String =
     "org.mobilenativefoundation.store6.opentelemetry"
-internal const val INSTRUMENTATION_SCOPE_VERSION: String = "6.0.0-SNAPSHOT"
+// INSTRUMENTATION_SCOPE_VERSION is generated from VERSION_NAME by the
+// generateInstrumentationScopeVersion Gradle task; see opentelemetry/build.gradle.kts.
 internal const val SPAN_NAME: String = "store6.fetch"
 internal const val OVERFLOW_NAMESPACE: String = "overflow"
 
