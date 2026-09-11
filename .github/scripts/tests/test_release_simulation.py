@@ -11,6 +11,9 @@ ROOT = Path(__file__).resolve().parents[3]
 SPEC = importlib.util.spec_from_file_location('release_control', ROOT / '.github/scripts/release_control.py')
 CONTROL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CONTROL)
+# One Maven invocation per shipping artifact. Read from the manifest so a roster change is a
+# one-file edit rather than a count to chase through these fixtures.
+ARTIFACTS = json.loads((ROOT / '.github/release-manifest.json').read_text())['artifacts']
 
 
 class ReleaseSimulation(unittest.TestCase):
@@ -87,7 +90,7 @@ if os.environ.get('STUB_FAIL_MODULE') and sys.argv[1].startswith(':' + os.enviro
         for command in ['gate', 'reserve', 'publish']:
             self.run_command(command)
         receipt = (self.root / 'publication-receipt.json').read_bytes()
-        self.assertEqual(len((self.root / 'maven-calls.txt').read_text().splitlines()), 11)
+        self.assertEqual(len((self.root / 'maven-calls.txt').read_text().splitlines()), len(ARTIFACTS))
         self.env['STUB_FAIL_RECORD'] = '1'
         self.run_command('record', success=False)
         self.assertEqual((self.root / 'publication-receipt.json').read_bytes(), receipt)
@@ -97,7 +100,7 @@ if os.environ.get('STUB_FAIL_MODULE') and sys.argv[1].startswith(':' + os.enviro
         self.run_command('record')
         self.assertEqual((self.root / 'uploaded-receipt.json').read_bytes(), receipt)
         self.assertFalse(json.loads((self.root / 'github-release.json').read_text())['draft'])
-        self.assertEqual(len((self.root / 'maven-calls.txt').read_text().splitlines()), 11)
+        self.assertEqual(len((self.root / 'maven-calls.txt').read_text().splitlines()), len(ARTIFACTS))
 
     def test_partial_maven_success_blocks_release_record_and_automatic_retry(self):
         for command in ['gate', 'reserve']:
@@ -122,7 +125,7 @@ if os.environ.get('STUB_FAIL_MODULE') and sys.argv[1].startswith(':' + os.enviro
             self.run_command(command)
         self.assertFalse((self.root / 'github-release.json').exists())
         calls = (self.root / 'maven-calls.txt').read_text().splitlines()
-        self.assertEqual(len(calls), 11)
+        self.assertEqual(len(calls), len(ARTIFACTS))
         self.assertTrue(all(call.endswith(':publishToMavenCentral') for call in calls))
 
     def write_execution(self, name, **fields):

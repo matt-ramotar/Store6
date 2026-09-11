@@ -3,7 +3,7 @@
   "repository": "MobileNativeFoundation/Store",
   "version_property": "VERSION_NAME",
   "group_property": "GROUP",
-  "artifacts": ["core", "testing", "sqldelight", "room", "compose", "graphql", "realtime", "mutations", "mutations-testing", "mutations-sqldelight", "bom"],
+  "artifacts": ["core", "testing", "sqldelight", "room", "compose", "graphql", "realtime", "mutations", "mutations-testing", "mutations-sqldelight", "paging-androidx", "opentelemetry", "ktor", "file", "mutations-conflicts", "bom"],
   "release_jobs": ["build-and-test", "release-matrix", "release-full-suite", "workflow-fixtures"],
   "matrix_jobs": ["linux-build-test", "apple-tests", "swift-dumps", "swift-facade", "klib-publication-check", "native-stress"],
   "full_suite_jobs": ["full-mutations-jvm", "lincheck"],
