@@ -43,8 +43,9 @@ records, so reusing success from an earlier attempt cannot authorize publication
 The full mutations suite executes once, split across five jobs on `ubuntu-latest`:
 `full-mutations-jvm` runs `:mutations:jvmTest`, which carries every test class except the
 model-checking one, and the four-shard `lincheck` matrix runs `:mutations:lincheckTest` over the
-100 Lincheck scenarios, each shard taking a quarter of them. The matrix does not fail fast, and
-every lane must pass. Each lane records its own execution with
+101 scenarios of the pinned plan (100 generated from the seed plus one curated), split round-robin
+by index across the four shards (26/25/25/25). The matrix does not fail fast, and every lane must
+pass. Each lane records its own execution with
 `release_control.py full-suite-execution`; `validation-evidence` aggregates those records with
 `release_control.py full-suite`.
 
@@ -53,7 +54,7 @@ The JVM test task disables cache and up-to-date reuse when `store6.fullJvmSuite`
 Compilation caching remains available. Each result artifact records task outcome, executed test
 identifiers, XML hashes, and run provenance, and each record also carries its task, its shard,
 its executed class list, and, for a shard, its scenario indices. The gate proves that the shards
-cover scenarios 0 through 99 exactly once and that the Lincheck class never ran in the jvmTest
+cover scenarios 0 through 100 exactly once and that the Lincheck class never ran in the jvmTest
 lane. Missing, cached, incomplete, and failed test evidence cannot satisfy the gate. A first
 failure is retained in that Actions run's summary and result artifact for classification, not
 rerun unchanged for green.
