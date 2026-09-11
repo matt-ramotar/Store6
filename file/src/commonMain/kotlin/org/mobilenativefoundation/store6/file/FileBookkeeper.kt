@@ -51,8 +51,9 @@ import kotlin.coroutines.CoroutineContext
  * Only one live `FileBookkeeper` may use a directory. A [FileSourceOfTruth] may use the same
  * directory because the two classes own disjoint subtrees.
  *
- * `namespace.value` and `canonicalId()` each must be at most 159 UTF-8 bytes. A longer
- * component throws [IllegalArgumentException] and applies nothing. Empty strings are valid.
+ * `namespace.value` and `canonicalId()` each must be well-formed UTF-16 and at most 159 UTF-8
+ * bytes. A component holding an unpaired surrogate, or a longer component, throws
+ * [IllegalArgumentException] and applies nothing. Empty strings are valid.
  */
 @ExperimentalStoreApi
 @OptIn(DelicateStoreApi::class)
@@ -228,7 +229,7 @@ public class FileBookkeeper internal constructor(
 
     public override suspend fun advanceStaleWatermark(namespace: StoreNamespace) {
         val namespaceValue = namespace.value
-        FileNames.requireComponentLengths(namespaceValue, "")
+        FileNames.requireValidComponents(namespaceValue, "")
 
         admittedMutation {
             val nextSequence = nextSequenceOrThrow()
@@ -262,7 +263,7 @@ public class FileBookkeeper internal constructor(
 
     public override suspend fun forgetNamespace(namespace: StoreNamespace) {
         val namespaceValue = namespace.value
-        FileNames.requireComponentLengths(namespaceValue, "")
+        FileNames.requireValidComponents(namespaceValue, "")
 
         admittedMutation {
             val nextRecords = HashMap<KeyIdentity, Record>(records.size)
@@ -558,7 +559,7 @@ public class FileBookkeeper internal constructor(
         FileNames.keyPath(recordsDirectory, identity.namespace, identity.canonicalId)
 
     private fun requireValid(identity: KeyIdentity) {
-        FileNames.requireComponentLengths(identity.namespace, identity.canonicalId)
+        FileNames.requireValidComponents(identity.namespace, identity.canonicalId)
     }
 
     private fun nextSequenceOrThrow(): Long {

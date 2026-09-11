@@ -23,32 +23,38 @@ internal object FileNames {
     const val CORRUPT_SUFFIX: String = ".corrupt"
 
     /**
-     * Throws [IllegalArgumentException] when the UTF-8 byte length of [namespace] or
-     * [canonicalId] exceeds [MAX_COMPONENT_UTF8_BYTES].
+     * Throws [IllegalArgumentException] when [namespace] or [canonicalId] is not well-formed
+     * UTF-16, or when its UTF-8 byte length exceeds [MAX_COMPONENT_UTF8_BYTES].
      *
-     * The exception message names the offending part (`namespace` or `canonical id`), the
-     * limit (`159`), and the actual UTF-8 byte length. [namespace] is checked first.
-     * Empty strings are 0 bytes and are accepted. Their encoded names use the `"0"` sentinel.
+     * This is the one validation entry point for the strings a path is derived from. The
+     * exception message names the offending part (`namespace` or `canonical id`). A malformed
+     * message adds the index of the first unpaired surrogate; a length message adds the limit
+     * (`159`) and the actual UTF-8 byte length. [namespace] is checked first, and each part is
+     * checked for well-formedness before its length.
+     *
+     * Well-formedness is checked first because `String.encodeToByteArray` replaces an unpaired
+     * surrogate with U+FFFD: distinct malformed strings would otherwise encode to the same
+     * bytes, share an on-disk name, and be measured against the limit as their replacement
+     * encoding rather than as themselves.
+     *
+     * Empty strings are well-formed and 0 bytes, so they are accepted. Their encoded names use
+     * the `"0"` sentinel.
      */
-    fun requireComponentLengths(
+    fun requireValidComponents(
         namespace: String,
         canonicalId: String,
     ) {
-        val namespaceByteLength = namespace.encodeToByteArray().size
-        require(namespaceByteLength <= MAX_COMPONENT_UTF8_BYTES) {
-            "namespace UTF-8 byte length $namespaceByteLength exceeds limit $MAX_COMPONENT_UTF8_BYTES"
-        }
-        val canonicalIdByteLength = canonicalId.encodeToByteArray().size
-        require(canonicalIdByteLength <= MAX_COMPONENT_UTF8_BYTES) {
-            "canonical id UTF-8 byte length $canonicalIdByteLength exceeds limit $MAX_COMPONENT_UTF8_BYTES"
-        }
+        requireWellFormed(namespace, "namespace")
+        requireComponentLength(namespace, "namespace")
+        requireWellFormed(canonicalId, "canonical id")
+        requireComponentLength(canonicalId, "canonical id")
     }
 
     /**
      * Directory of one namespace under [subtreeRoot]: `<subtreeRoot>/<enc(namespace)>`.
      *
-     * Does not enforce [MAX_COMPONENT_UTF8_BYTES]. Call [requireComponentLengths] first when
-     * the strings come from a key.
+     * Does not validate [namespace]. Call [requireValidComponents] first when the string comes
+     * from a key.
      */
     fun namespaceDirectory(
         subtreeRoot: Path,
@@ -59,8 +65,8 @@ internal object FileNames {
      * File of one key under [subtreeRoot]:
      * `<subtreeRoot>/<enc(namespace)>/<enc(canonicalId)>`.
      *
-     * Does not enforce [MAX_COMPONENT_UTF8_BYTES]. Call [requireComponentLengths] first when
-     * the strings come from a key.
+     * Does not validate its components. Call [requireValidComponents] first when the strings
+     * come from a key.
      */
     fun keyPath(
         subtreeRoot: Path,
@@ -83,5 +89,47 @@ internal object FileNames {
         } else {
             Path(name)
         }
+    }
+
+    private fun requireWellFormed(
+        value: String,
+        part: String,
+    ) {
+        val malformedIndex = firstMalformedIndex(value)
+        require(malformedIndex < 0) {
+            "$part contains a malformed UTF-16 sequence at index $malformedIndex"
+        }
+    }
+
+    private fun requireComponentLength(
+        value: String,
+        part: String,
+    ) {
+        val byteLength = value.encodeToByteArray().size
+        require(byteLength <= MAX_COMPONENT_UTF8_BYTES) {
+            "$part UTF-8 byte length $byteLength exceeds limit $MAX_COMPONENT_UTF8_BYTES"
+        }
+    }
+
+    /**
+     * Index of the first unpaired surrogate in [value], or `-1` when every surrogate is paired.
+     *
+     * A high surrogate must be followed by a low surrogate, and a low surrogate must be
+     * preceded by a high surrogate.
+     */
+    private fun firstMalformedIndex(value: String): Int {
+        var index = 0
+        while (index < value.length) {
+            val character = value[index]
+            if (character.isLowSurrogate()) return index
+            if (!character.isHighSurrogate()) {
+                index += 1
+                continue
+            }
+            val lowIndex = index + 1
+            if (lowIndex >= value.length || !value[lowIndex].isLowSurrogate()) return index
+            index = lowIndex + 1
+        }
+        return -1
     }
 }
