@@ -39,6 +39,7 @@ class WorkflowContract(unittest.TestCase):
         self.assertNotIn('first-execution', self.full)
         self.assertNotIn('second-execution', self.full)
         self.assertIn('shard: [1, 2, 3, 4]', self.full)
+        self.assertIn('configuration cache', (ROOT / 'mutations/build.gradle.kts').read_text())
         self.assertIn('fail-fast: false', self.full)
         self.assertIn('shard: ${{ matrix.shard }}/4', self.full)
         self.assertEqual(self.full.count('uses: ./.github/workflows/store6-full-jvm-run.yml'), 2)
@@ -75,7 +76,13 @@ class WorkflowContract(unittest.TestCase):
         plan = (ROOT / 'mutations/src/jvmTest/kotlin/org/mobilenativefoundation/store6/mutations'
                        '/LincheckScenarioPlan.kt').read_text()
         self.assertEqual(re.search(r'(?m)^LINCHECK_SCENARIO_COUNT = (\d+)$', control)[1],
-                         re.search(r'SCENARIO_COUNT: Int = (\d+)', plan)[1])
+                         re.search(r'(?m)^ *const val SCENARIO_COUNT: Int = (\d+)$', plan)[1])
+        self.assertEqual(re.search(r"(?m)^LINCHECK_SCENARIO_DIGEST = '([0-9a-f]+)'$", control)[1],
+                         re.search(r'(?m)^ *const val SCENARIO_DIGEST: String = "([0-9a-f]+)"$', plan)[1])
+        self.assertIn('digest=', re.search(r'(?m)^SCENARIO_MARKER_FORM = re\.compile\(\n(.*\n)+?\)',
+                                          control)[0])
+        self.assertIn('CURATED_SCENARIO_INDEX', plan)
+        self.assertIn('must never be regenerated', plan)
         self.assertEqual(re.search(r"(?m)^SCENARIO_MARKER = '([^']+)'$", control)[1],
                          re.search(r'SCENARIO_MARKER: String = "([^"]+)"', plan)[1])
         self.assertEqual(re.search(r"(?m)^LINCHECK_CLASS = '([^']+)'$", control)[1].rsplit('.', 1)[1],

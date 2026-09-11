@@ -1,5 +1,7 @@
+import contextlib
 import copy
 import importlib.util
+import io
 import json
 from pathlib import Path
 import shutil
@@ -244,17 +246,26 @@ class ReleaseFixtures(unittest.TestCase):
                                 neighboring_tasks + started + '> Task :mutations:jvmTest ' + outcome + '\n', task)
 
     def test_shard_indices_partition_the_whole_scenario_plan(self):
-        self.assertEqual(CONTROL.LINCHECK_SCENARIO_COUNT, 100)
+        self.assertEqual(CONTROL.LINCHECK_SCENARIO_COUNT, 101)
         for count in range(1, 9):
             union = []
             for index in range(1, count + 1):
                 union += CONTROL.shard_indices(f'{index}/{count}')
             self.assertEqual(sorted(union), list(range(CONTROL.LINCHECK_SCENARIO_COUNT)))
         self.assertEqual(CONTROL.shard_indices('1/4')[:3], [0, 4, 8])
-        for malformed in ['', '1', '0/4', '5/4', '1/0', '1/101', 'a/b', '1/4/2', None]:
+        self.assertEqual(CONTROL.shard_indices('1/4')[-1], CONTROL.LINCHECK_SCENARIO_COUNT - 1)
+        for malformed in ['', '1', '0/4', '5/4', '1/0', '1/102', 'a/b', '1/4/2', None]:
             with self.subTest(shard=malformed):
                 with self.assertRaisesRegex(ValueError, 'k/N'):
                     CONTROL.shard_indices(malformed)
+
+    def test_full_suite_execution_requires_an_explicit_task(self):
+        argv = ['release_control.py', 'full-suite-execution', '--log', 'gradle.log']
+        with mock.patch.object(CONTROL.sys, 'argv', argv), contextlib.redirect_stderr(io.StringIO()) as err:
+            with self.assertRaises(SystemExit) as raised:
+                CONTROL.main()
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn('--task', err.getvalue())
 
     def test_full_suite_identifiers_and_skipped_class_guard(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -687,24 +698,34 @@ class LincheckShardExecutionFixtures(unittest.TestCase):
         summary_patch.start()
         self.addCleanup(summary_patch.stop)
 
-    def marker(self, shard='1/4', indices=None):
+    def marker(self, shard='1/4', indices=None, digest=None):
         indices = CONTROL.shard_indices(shard) if indices is None else indices
         return (CONTROL.SCENARIO_MARKER + ' shard=' + shard + ' count=' + str(len(indices)) +
-                ' indices=' + ','.join(str(value) for value in indices))
+                ' indices=' + ','.join(str(value) for value in indices) +
+                ' digest=' + (digest or CONTROL.LINCHECK_SCENARIO_DIGEST))
 
-    def write_inputs(self, marker=None, in_log=True, failure=False):
+    def iterations(self, planned, executed=None):
+        """What Lincheck's own reporter prints per scenario at LoggingLevel.INFO."""
+        executed = planned if executed is None else executed
+        return ''.join('= Iteration %d / %d =\n' % (index, planned)
+                       for index in range(1, executed + 1))
+
+    def write_inputs(self, marker=None, in_log=True, failure=False, iterations=None):
         suite = ET.Element('testsuite', tests='1', failures='1' if failure else '0',
                            errors='0', skipped='0')
         testcase = ET.SubElement(suite, 'testcase', classname=CONTROL.LINCHECK_CLASS,
                                  name='inMemoryJournalTransactions_areLinearizable')
         if failure:
             ET.SubElement(testcase, 'failure', message='not linearizable').text = 'not linearizable'
-        ET.SubElement(suite, 'system-out').text = '' if (marker is None or in_log) else marker + '\n'
+        if marker is not None and iterations is None:
+            iterations = self.iterations(int(marker.split(' count=')[1].split(' ')[0]))
+        standard_output = '' if marker is None else marker + '\n' + (iterations or '')
+        ET.SubElement(suite, 'system-out').text = '' if in_log else standard_output
         (self.results / ('TEST-' + CONTROL.LINCHECK_CLASS + '.xml')).write_text(
             ET.tostring(suite, encoding='unicode'))
         log = '> Task :mutations:lincheckTest' + (' FAILED' if failure else '') + '\n'
-        if marker is not None and in_log:
-            log += '    ' + marker + '\n'
+        if in_log:
+            log += ''.join('    ' + line + '\n' for line in standard_output.splitlines())
         self.log.write_text(log)
 
     def record(self, shard='1/4', exit_code=0):
@@ -720,6 +741,8 @@ class LincheckShardExecutionFixtures(unittest.TestCase):
         self.assertEqual(record['task'], ':mutations:lincheckTest')
         self.assertEqual(record['shard'], '2/4')
         self.assertEqual(record['scenario_indices'], CONTROL.shard_indices('2/4'))
+        self.assertEqual(record['scenario_digest'], CONTROL.LINCHECK_SCENARIO_DIGEST)
+        self.assertEqual(record['executed_iterations'], len(CONTROL.shard_indices('2/4')))
         self.assertEqual(record['executed_classes'], [CONTROL.LINCHECK_CLASS])
         self.append_outputs.assert_called_once_with(self.context, '6.0.0-alpha01')
 
@@ -760,9 +783,61 @@ class LincheckShardExecutionFixtures(unittest.TestCase):
         self.assertEqual(json.loads(self.output.read_text())['classification'], 'test-failure')
         self.append_outputs.assert_not_called()
 
+    def test_a_shard_reporting_a_foreign_plan_digest_is_refused(self):
+        self.write_inputs(marker=self.marker('1/4', digest='f' * 16))
+        with self.assertRaisesRegex(ValueError, 'full-suite evidence did not pass'):
+            self.record(shard='1/4')
+        error = json.loads(self.output.read_text())['evidence_error']
+        self.assertIn(CONTROL.LINCHECK_SCENARIO_DIGEST, error)
+        self.append_outputs.assert_not_called()
+
+    def test_a_shard_that_logged_fewer_iterations_than_it_planned_is_refused(self):
+        planned = len(CONTROL.shard_indices('1/4'))
+        self.write_inputs(marker=self.marker('1/4'),
+                          iterations=self.iterations(planned, executed=planned - 1))
+        with self.assertRaisesRegex(ValueError, 'full-suite evidence did not pass'):
+            self.record(shard='1/4')
+        record = json.loads(self.output.read_text())
+        self.assertEqual(record['executed_iterations'], planned - 1)
+        self.assertIn('iteration', record['evidence_error'])
+        self.append_outputs.assert_not_called()
+
+    def test_a_shard_with_no_iteration_evidence_at_all_is_refused(self):
+        self.write_inputs(marker=self.marker('1/4'), iterations='')
+        with self.assertRaisesRegex(ValueError, 'full-suite evidence did not pass'):
+            self.record(shard='1/4')
+        self.assertIn('iteration', json.loads(self.output.read_text())['evidence_error'])
+
+    def test_a_shard_whose_iteration_total_is_not_its_plan_is_refused(self):
+        planned = len(CONTROL.shard_indices('1/4'))
+        self.write_inputs(marker=self.marker('1/4'), iterations=self.iterations(planned + 100))
+        with self.assertRaisesRegex(ValueError, 'full-suite evidence did not pass'):
+            self.record(shard='1/4')
+        self.assertIn('iteration', json.loads(self.output.read_text())['evidence_error'])
+
+    def test_a_failing_shard_reports_its_short_iteration_count_without_masking_the_failure(self):
+        planned = len(CONTROL.shard_indices('1/4'))
+        self.write_inputs(marker=self.marker('1/4'), failure=True,
+                          iterations=self.iterations(planned, executed=3))
+        with self.assertRaisesRegex(ValueError, 'full-suite evidence did not pass'):
+            self.record(shard='1/4', exit_code=1)
+        record = json.loads(self.output.read_text())
+        self.assertEqual(record['classification'], 'test-failure')
+        self.assertEqual(record['executed_iterations'], 3)
+
+    def test_the_lincheck_lane_refuses_an_empty_shard(self):
+        for shard in [None, '', '   ']:
+            with self.subTest(shard=shard):
+                self.write_inputs(marker=self.marker('1/4'))
+                with self.assertRaisesRegex(ValueError, 'full-suite evidence did not pass'):
+                    self.record(shard=shard)
+                self.assertIn('shard', json.loads(self.output.read_text())['evidence_error'])
+                self.append_outputs.assert_not_called()
+
     def test_a_cached_shard_is_refused(self):
         self.write_inputs(marker=self.marker('1/4'))
-        self.log.write_text('> Task :mutations:lincheckTest FROM-CACHE\n    ' + self.marker('1/4') + '\n')
+        self.log.write_text('> Task :mutations:lincheckTest FROM-CACHE\n    ' + self.marker('1/4') + '\n' +
+                            self.iterations(len(CONTROL.shard_indices('1/4'))))
         with self.assertRaisesRegex(ValueError, 'full-suite evidence did not pass'):
             self.record(shard='1/4')
         record = json.loads(self.output.read_text())
@@ -820,6 +895,8 @@ class FullSuiteShardCensusFixtures(unittest.TestCase):
     def write_shard(self, index, **fields):
         shard = f'{index}/{self.SHARDS}'
         fields.setdefault('scenario_indices', CONTROL.shard_indices(shard))
+        fields.setdefault('scenario_digest', CONTROL.LINCHECK_SCENARIO_DIGEST)
+        fields.setdefault('executed_iterations', len(CONTROL.shard_indices(shard)))
         fields.setdefault('executed_classes', [CONTROL.LINCHECK_CLASS])
         fields.setdefault('test_identifiers', [
             dict(id=CONTROL.LINCHECK_CLASS + '#inMemoryJournalTransactions_areLinearizable', outcome='passed')])
@@ -837,6 +914,7 @@ class FullSuiteShardCensusFixtures(unittest.TestCase):
         self.assertEqual(record['checks'], self.needs)
         self.assertEqual(record['lincheck_shards'], ['1/4', '2/4', '3/4', '4/4'])
         self.assertEqual(record['scenario_count'], CONTROL.LINCHECK_SCENARIO_COUNT)
+        self.assertEqual(record['scenario_digest'], CONTROL.LINCHECK_SCENARIO_DIGEST)
         self.assertEqual(len(record['executions']), self.SHARDS + 1)
 
     def test_two_digit_shard_counts_are_compared_by_shard_not_by_string_order(self):
@@ -863,7 +941,7 @@ class FullSuiteShardCensusFixtures(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'execution'):
             self.validate()
 
-    def test_a_cached_or_up_to_date_shard_is_refused(self):
+    def test_a_shard_not_classified_passed_is_refused(self):
         for classification in ['unexecuted', 'infrastructure-or-incomplete', 'test-failure']:
             with self.subTest(classification=classification):
                 self.write_shard(2, classification=classification)
@@ -880,6 +958,25 @@ class FullSuiteShardCensusFixtures(unittest.TestCase):
     def test_overlapping_scenario_indices_are_refused(self):
         self.write_shard(4, scenario_indices=CONTROL.shard_indices('3/4'))
         with self.assertRaisesRegex(ValueError, 'scenario'):
+            self.validate()
+
+    def test_shards_that_do_not_all_carry_the_pinned_plan_digest_are_refused(self):
+        for digest in ['f' * 16, None, '']:
+            with self.subTest(digest=digest):
+                self.write_shard(2, scenario_digest=digest)
+                with self.assertRaisesRegex(ValueError, CONTROL.LINCHECK_SCENARIO_DIGEST):
+                    self.validate()
+        self.write_shard(2)
+        self.validate()
+
+    def test_a_record_from_an_unknown_task_is_refused(self):
+        self.write_execution('stray', task=':mutations:someOtherTest', shard=None)
+        with self.assertRaisesRegex(ValueError, 'someOtherTest'):
+            self.validate()
+
+    def test_a_record_with_no_task_at_all_is_refused(self):
+        self.write_execution('stray', shard=None)
+        with self.assertRaisesRegex(ValueError, 'lane|task'):
             self.validate()
 
     def test_jvm_results_containing_the_lincheck_class_are_refused(self):
