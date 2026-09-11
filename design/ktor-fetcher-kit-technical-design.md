@@ -485,7 +485,7 @@ Default table, applied when `errorMapper` returns `Defer`:
 | 200/2xx with a body the decoder accepts | `Success(value, token)` | token per [§5.4](#54-response-side-validator-selection-and-the-no-flip-rule); `decode` runs here |
 | `206 Partial Content` | `Error(KtorFetchException(206, …))` | a partial body is not a complete representation; the kit is not range-aware |
 | `204`/`205` (no content) | delegated to `decode` | `V` is non-null, so an empty body has no value; `decode` throws and the kit maps to `Error` |
-| `304` **after a conditional request** | `NotModified(token or null)` | see [§3.4](#34-the-not-modified-path); no-flip rule in [§5.4](#54-response-side-validator-selection-and-the-no-flip-rule) |
+| `304` **after a conditional request** | `NotModified(token or null)` | only when the request actually carried exactly the validator the kit wrote, else `Error(KtorFetchException(304, …))` naming the validators it did not set; see [§3.4](#34-the-not-modified-path); no-flip rule in [§5.4](#54-response-side-validator-selection-and-the-no-flip-rule) |
 | `304` with **no** conditional request sent | `Error(KtorFetchException(304, …))` | the kit sent no validator, so a 304 is a protocol violation |
 | `404`/`410`, `KtorNotFoundPolicy.Error` (default) | `Error(KtorFetchException(status, …))` | preserves residence, recorded validator, success time, and stale state; bookkeeping records the fetch failure (`KeyEngine.kt` lines ~1949–1964) |
 | `404`/`410`, `KtorNotFoundPolicy.Delete` | `Deleted` | opt-in destructive clear ([§3.2](#32-fetcherresult)) |

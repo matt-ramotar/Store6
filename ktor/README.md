@@ -108,7 +108,7 @@ This table applies when `KtorErrorMapper` returns `KtorOutcome.Defer`.
 | 2xx other than 204, 205, and 206 with a body accepted by `decode` | `Success(value, validatorToken)` | `decode` runs. The validator selection is described below. |
 | `206 Partial Content` | `Error(KtorFetchException)` | A partial body is not adopted as a complete representation. |
 | `204 No Content` or `205 Reset Content` | `Error(KtorFetchException)` | Neither status carries a representation, so `decode` never runs. Handle them in a `KtorErrorMapper`. |
-| `304 Not Modified` after a conditional request | `NotModified(newEtagOrNull)` | A response ETag replaces the recorded token. Null keeps the previous token. |
+| `304 Not Modified` after a conditional request | `NotModified(newEtagOrNull)` | Adopted only when the request actually carried exactly the validator the kit wrote: a response ETag then replaces the recorded token, and null keeps the previous token. Otherwise the kit refuses with `Error(KtorFetchException)` naming the validators it did not set. |
 | `304 Not Modified` without a conditional request | `Error(KtorFetchException)` | The status is treated as a protocol anomaly. |
 | `KtorOutcome.NotModified` from a mapper without a conditional request | `Error(KtorFetchException)` | A mapper cannot refresh freshness for an exchange that sent no validator. |
 | 404 or 410 with `KtorNotFoundPolicy.Error` | `Error(KtorFetchException)` | This is the non-destructive default. |
@@ -189,7 +189,11 @@ builder and survives. Both outcomes are pinned by the suite on Ktor 3.5.2:
   the single header and value it wrote, and maps any difference to
   `Error(KtorFetchException)` — "the conditional request carried validators the kit did
   not set". It reads those headers from `HttpResponse.request`, the one place a plugin's
-  contribution is visible to the kit.
+  contribution is visible to the kit. That visibility ends at Ktor's own plugin pipeline:
+  the guard sees the request after Ktor's plugins ran and before the engine sends it, so a
+  header an engine-native interceptor injects there — an OkHttp interceptor, a Darwin
+  session header — is invisible to it and would still be trusted. Such interceptors must
+  not add conditional headers either.
 
 The refusal is the only way the kit can tell a 304 that answers its own validator from
 one that answers a foreign one, so it runs before `KtorErrorMapper`: the exchange is
