@@ -120,9 +120,10 @@ collapse onto a parent directory. Windows `MAX_PATH` (260 characters) can still 
 deep `directory` plus two encoded components. Choose a shallow root on Windows. This adapter does
 not detect that overflow.
 
-Malformed UTF-16 components are not rejected before UTF-8 encoding. Distinct strings containing
-unpaired surrogates can therefore map to the same on-disk name. Use well-formed Unicode keys;
-rejection and a Kotlin runtime collision regression remain required before this artifact ships.
+Components must also be well-formed UTF-16. A component holding an unpaired surrogate throws
+`IllegalArgumentException` naming the offending part and the index of that surrogate, before any
+file or mirror change: UTF-8 encoding replaces an unpaired surrogate with U+FFFD, so distinct
+malformed strings would otherwise map to one on-disk name while staying distinct Store identities.
 
 **Cold bookkeeping recovery.** Typed status-failure and recovery behavior with real filesystem
 faults has not been verified. The in-memory fault-kit diagnostics do not establish that boundary.
