@@ -310,6 +310,63 @@ class MutationConflictsPackIntegrationTest {
     }
 
     @Test
+    fun mergeFields_mergedValuePushedOnRetry() = runTest {
+        val storage = InMemoryMutationJournalStorage()
+        val server = ConflictsPackBackend<Stamped>()
+        val clock = TestWallClock()
+        val store =
+            openStampedStore(storage, server, clock) {
+                mergeFields {
+                    field(Stamped::text, { value, text -> value.copy(text = text) })
+                    field(
+                        Stamped::writtenAtEpochMillis,
+                        { value, writtenAt -> value.copy(writtenAtEpochMillis = writtenAt) },
+                        combine = { _, mine, theirs -> maxOf(mine, theirs) },
+                    )
+                }
+            }
+        val key = ConflictsPackKey("fields-merged")
+        try {
+            server.seed(key, Stamped("base", 100L))
+            store.get(key, Freshness.MustBeFresh)
+            val mutationId = store.mutate(key, stampedUpsert, Stamped("mine", 300L))
+            val acknowledge = server.pushBehavior
+            server.pushBehavior = { push ->
+                if (push.generation == 1) {
+                    throw conflictException(ConflictsPackMeta(95L, "merge-fields"))
+                }
+                acknowledge(push)
+            }
+
+            store.drain(key)
+            server.seed(key, Stamped("theirs", 200L))
+            clock.advanceBy(2.seconds)
+            store.drain(key)
+
+            // text is contested (mine="mine" != base="base" != theirs="theirs") with no combiner
+            // registered, so the default THEIRS bias keeps the canvas's initial "theirs" text.
+            // writtenAtEpochMillis is contested (300 != 100 != 200) with a maxOf combiner, so it
+            // resolves to 300.
+            val merged = Stamped("theirs", 300L)
+            val clientId = capturedClientId(server, storage)
+            val state = storage.integrationState(clientId, mutationId)
+            val generationTwo = state.attempts.single { it.generation == 2 }
+            assertEquals(
+                merged,
+                ConflictsPackStampedCodec.decode(1, assertNotNull(generationTwo.mineBlob)),
+            )
+            assertEquals(
+                merged,
+                assertIs<MutationPresence.Present<Stamped>>(server.receivedPushes[1].mine).value,
+            )
+            assertEquals(2, server.receivedPushes.size)
+            assertEquals(MutationExecutionPhase.RETIRED, state.execution.phase)
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test
     fun unchangedConflictBound_parksClientWinsOnThirdIdenticalReceipt() = runTest {
         val storage = InMemoryMutationJournalStorage()
         val server = ConflictsPackBackend<String>()

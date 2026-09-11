@@ -173,6 +173,52 @@ class MutationConflictsPackRestartTest {
         )
         assertEquals(control, restarted)
     }
+
+    @Test
+    fun restart_fields_matchesUninterruptedOutcome() = runTest {
+        val configurer: MutationConflictBuilder<ConflictsPackKey, Stamped>.() -> Unit = {
+            mergeFields {
+                field(Stamped::text, { value, text -> value.copy(text = text) })
+                field(
+                    Stamped::writtenAtEpochMillis,
+                    { value, writtenAt -> value.copy(writtenAtEpochMillis = writtenAt) },
+                    combine = { _, mine, theirs -> maxOf(mine, theirs) },
+                )
+            }
+        }
+        val control =
+            runStampedRestartCase(
+                keyId = "restart-fields",
+                configurer = configurer,
+                seed = Stamped("base", 100L),
+                mutateValue = Stamped("mine", 300L),
+                reseed = Stamped("theirs", 200L),
+                restart = false,
+            )
+        val restarted =
+            runStampedRestartCase(
+                keyId = "restart-fields",
+                configurer = configurer,
+                seed = Stamped("base", 100L),
+                mutateValue = Stamped("mine", 300L),
+                reseed = Stamped("theirs", 200L),
+                restart = true,
+            )
+        // Same field-by-field trace as mergeFields_mergedValuePushedOnRetry: text keeps the
+        // default-THEIRS contested resolution, writtenAtEpochMillis combines via maxOf.
+        val merged = Stamped("theirs", 300L)
+        assertEquals(
+            RestartFingerprint(
+                phase = MutationExecutionPhase.RETIRED,
+                generations = listOf(1, 2),
+                generationTwo = Stamped("theirs", 200L) to merged,
+                generationIdempotencyKeys = control.generationIdempotencyKeys,
+                pushCount = 2,
+            ),
+            control,
+        )
+        assertEquals(control, restarted)
+    }
 }
 
 private data class RestartFingerprint<V>(
