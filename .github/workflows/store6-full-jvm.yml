@@ -1,9 +1,23 @@
 name: Store6 full mutations JVM suite
 
+# One forced execution of the whole mutations JVM suite, split into lanes that fit a hosted
+# runner: :mutations:jvmTest carries every test class except the Lincheck model-checking one,
+# which runs alone in :mutations:lincheckTest over a quarter of its deterministic scenario plan.
+# validation-evidence proves no lane and no scenario was lost.
+
 on:
   schedule:
     - cron: '17 5 * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      lincheck_runner:
+        description: 'Runner for the Lincheck shard jobs only.'
+        type: choice
+        required: false
+        default: ubuntu-latest
+        options:
+          - ubuntu-latest
+          - macos-latest
   workflow_call:
     outputs:
       source_sha:
@@ -19,21 +33,31 @@ permissions:
   contents: read
 
 jobs:
-  first-execution:
+  full-mutations-jvm:
     uses: ./.github/workflows/store6-full-jvm-run.yml
     with:
-      sequence: 1
+      task: jvmTest
+      lane: jvmTest
+      timeout_minutes: 60
 
-  second-execution:
-    needs: first-execution
+  lincheck:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     uses: ./.github/workflows/store6-full-jvm-run.yml
     with:
-      sequence: 2
+      task: lincheckTest
+      shard: ${{ matrix.shard }}/4
+      lane: lincheck-${{ matrix.shard }}
+      runner: ${{ inputs.lincheck_runner || 'ubuntu-latest' }}
+      timeout_minutes: 150
 
   validation-evidence:
     if: ${{ always() }}
-    needs: [first-execution, second-execution]
+    needs: [full-mutations-jvm, lincheck]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       source_sha: ${{ steps.evidence.outputs.source_sha }}
       run_id: ${{ steps.evidence.outputs.run_id }}
@@ -43,11 +67,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Require two executions with matching provenance
+      - name: Collect every lane's execution record
+        uses: actions/download-artifact@v4
+        with:
+          pattern: full-jvm-results-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: full-suite-artifacts
+      - name: Require one forced execution of every lane and every scenario
         id: evidence
         env:
           VALIDATION_NEEDS: ${{ toJSON(needs) }}
-        run: python3 .github/scripts/release_control.py full-suite-pair --output full-suite-validation.json
+          FULL_SUITE_EXECUTIONS: full-suite-artifacts
+          FULL_SUITE_SHARDS: '4'
+        run: python3 .github/scripts/release_control.py full-suite --output full-suite-validation.json
       - name: Archive the full-suite validation record
         uses: actions/upload-artifact@v4
         with:

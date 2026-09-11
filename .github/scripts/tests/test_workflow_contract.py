@@ -40,14 +40,17 @@ class WorkflowContract(unittest.TestCase):
         self.assertNotIn('second-execution', self.full)
         self.assertIn('shard: [1, 2, 3, 4]', self.full)
         self.assertIn('fail-fast: false', self.full)
-        self.assertIn('-Pstore6.lincheckShard=${{ matrix.shard }}/4', self.full)
+        self.assertIn('shard: ${{ matrix.shard }}/4', self.full)
         self.assertEqual(self.full.count('uses: ./.github/workflows/store6-full-jvm-run.yml'), 2)
-        for name, minutes in [('full-mutations-jvm', 60), ('lincheck', 150), ('validation-evidence', 10)]:
+        for name, timeout in [('full-mutations-jvm', 'timeout_minutes: 60'),
+                              ('lincheck', 'timeout_minutes: 150'),
+                              ('validation-evidence', 'timeout-minutes: 10')]:
             with self.subTest(job=name):
-                self.assertIn(f'{name}:', self.full)
-                self.assertIn(str(minutes), self.full)
+                self.assertIn(f'  {name}:\n', self.full)
+                self.assertIn(timeout, self.full)
         self.assertIn('lincheck_runner', self.full)
         self.assertIn('macos-latest', self.full)
+        self.assertIn("runner: ${{ inputs.lincheck_runner || 'ubuntu-latest' }}", self.full)
         config = (ROOT / 'mutations/build.gradle.kts').read_text()
         self.assertIn('outputs.upToDateWhen { false }', config)
         self.assertIn('outputs.doNotCacheIf(', config)
@@ -58,6 +61,11 @@ class WorkflowContract(unittest.TestCase):
         run = runner.read_text()
         self.assertIn('--console=plain', run)
         self.assertIn('release_control.py full-suite-execution', run)
+        self.assertIn('./gradlew ":mutations:${LANE_TASK}"', run)
+        self.assertIn('arguments="-Pstore6.lincheckShard=${LANE_SHARD}"', run)
+        self.assertIn("arguments='-Pstore6.fullJvmSuite'", run)
+        self.assertIn('runs-on: ${{ inputs.runner }}', run)
+        self.assertIn('timeout-minutes: ${{ inputs.timeout_minutes }}', run)
         self.assertIn('if: ${{ always() }}', run)
         self.assertNotIn('docs/v6', run + self.full)
         self.assertNotIn('gh issue', run + self.full)

@@ -10,6 +10,18 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# The full mutations JVM suite is two Gradle tasks: every other test class in :mutations:jvmTest,
+# and the Lincheck model-checking class alone in :mutations:lincheckTest, sharded across jobs.
+LINCHECK_CLASS = 'org.mobilenativefoundation.store6.mutations.MutationJournalLincheckTest'
+JVM_SUITE_TASK = ':mutations:jvmTest'
+LINCHECK_TASK = ':mutations:lincheckTest'
+# Mirrors LincheckScenarioPlan.SCENARIO_COUNT and .SCENARIO_MARKER; test_workflow_contract pins
+# these to the Kotlin source so the two cannot drift apart silently.
+LINCHECK_SCENARIO_COUNT = 100
+SCENARIO_MARKER = 'store6-lincheck-scenarios'
+SCENARIO_MARKER_FORM = re.compile(
+    r'[ \t]*' + re.escape(SCENARIO_MARKER) + r' shard=(\d+/\d+) count=(\d+) indices=([0-9,]*)')
+
 
 def write_json(path, value):
     path = Path(path)
@@ -211,12 +223,68 @@ def publication_versions(repository, version, group, modules, artifacts, expecte
     return count
 
 
-def task_outcome(log):
-    matches = re.findall(r'^> Task :mutations:jvmTest(?:[ \t]+([^\r\n]*))?\r?$', log, re.MULTILINE)
+def task_outcome(log, task):
+    matches = re.findall(r'^> Task ' + re.escape(task) + r'(?:[ \t]+([^\r\n]*))?\r?$', log, re.MULTILINE)
     outcomes = [match.strip() for match in matches]
     if not outcomes or any(outcome not in ['', 'FAILED'] for outcome in outcomes):
-        raise ValueError('expected an actually executed :mutations:jvmTest task')
+        raise ValueError(f'expected an actually executed {task} task')
     return 'failed' if 'FAILED' in outcomes else 'executed'
+
+
+def shard_indices(shard):
+    match = re.fullmatch(r'(\d+)/(\d+)', shard or '')
+    index, count = (int(match[1]), int(match[2])) if match else (0, 0)
+    if not 1 <= index <= count <= LINCHECK_SCENARIO_COUNT:
+        raise ValueError(f"a Lincheck shard must be k/N with 1 <= k <= N <= {LINCHECK_SCENARIO_COUNT}; "
+                         f"got '{shard}'")
+    return [value for value in range(LINCHECK_SCENARIO_COUNT) if value % count == index - 1]
+
+
+def scenario_indices(log, results, shard, log_path):
+    """The shard prints its plan; both the console log and the result XML must agree with it."""
+    reported = set()
+    sources = [(log, str(log_path))]
+    for path in sorted(results.glob('TEST-*.xml')):
+        for stream in ET.parse(path).getroot().iter('system-out'):
+            sources.append((''.join(stream.itertext()), path.name))
+    for text, _ in sources:
+        for line in text.split('\n'):
+            match = SCENARIO_MARKER_FORM.fullmatch(line.rstrip('\r'))
+            if match:
+                reported.add(match.group(1, 2, 3))
+    if not reported:
+        raise ValueError(f'no {SCENARIO_MARKER} evidence for {shard}; the shard did not report its plan')
+    if len(reported) != 1:
+        raise ValueError(f'conflicting {SCENARIO_MARKER} evidence: ' + '; '.join(sorted(str(x) for x in reported)))
+    executed, count, joined = reported.pop()
+    indices = [int(value) for value in joined.split(',')] if joined else []
+    if executed != shard:
+        raise ValueError(f'shard {shard} reported scenarios for {executed}')
+    if int(count) != len(indices) or sorted(set(indices)) != indices:
+        raise ValueError(f'shard {shard} reported {count} scenarios as {joined}')
+    if indices != shard_indices(shard):
+        raise ValueError(f'shard {shard} executed scenarios outside its partition of the plan')
+    return indices
+
+
+def suite_classes(root):
+    """Every mutations test class the sources declare, taken as the census of the full suite."""
+    expected = []
+    for source in sorted((root / 'mutations/src').glob('**/*Test.kt')):
+        if '/commonTest/' in str(source) or '/jvmTest/' in str(source):
+            package = re.search(r'(?m)^package (\S+)', source.read_text())
+            if package:
+                expected.append(package[1] + '.' + source.stem)
+    return expected
+
+
+def executed_classes(results):
+    executed = set()
+    for path in sorted(results.glob('TEST-*.xml')):
+        for testcase in ET.parse(path).getroot().iter('testcase'):
+            if testcase.find('skipped') is None:
+                executed.add(testcase.get('classname', ''))
+    return executed
 
 
 def test_identifiers(results, expected):
@@ -278,32 +346,42 @@ def full_suite_record(args, context, manifest):
     output = Path(args.output)
     log = Path(args.log).read_text()
     version = root_version(ROOT)
+    lincheck = args.task == 'lincheckTest'
+    task = LINCHECK_TASK if lincheck else JVM_SUITE_TASK
+    shard = (args.shard or '1/1') if lincheck else None
     record = dict(schema_version=1, source_sha=context['sha'], checked_out_sha=context['checked_out_sha'], version=version,
                   repository=context['repository'], run_id=context['run_id'], run_attempt=context['run_attempt'],
-                  sequence=args.sequence, task=':mutations:jvmTest', gradle_exit_code=args.exit_code,
+                  task=task, shard=shard, gradle_exit_code=args.exit_code,
                   classification='unexecuted', log_sha256=hashlib.sha256(log.encode()).hexdigest())
     try:
-        record['task_outcome'] = task_outcome(log)
+        if not lincheck and args.shard:
+            raise ValueError(f'{JVM_SUITE_TASK} does not take a Lincheck shard')
+        record['task_outcome'] = task_outcome(log, task)
         record['classification'] = 'infrastructure-or-incomplete'
-        expected = []
-        for source in sorted((ROOT / 'mutations/src').glob('**/*Test.kt')):
-            if '/commonTest/' in str(source) or '/jvmTest/' in str(source):
-                package = re.search(r'(?m)^package (\S+)', source.read_text())
-                if package:
-                    expected.append(package[1] + '.' + source.stem)
+        suite = [name for name in suite_classes(ROOT) if name != LINCHECK_CLASS]
+        expected = [LINCHECK_CLASS] if lincheck else suite
+        forbidden = suite if lincheck else [LINCHECK_CLASS]
         record['expected_classes'] = expected
         results = Path(args.results)
         record['xml_files'] = {path.name: hashlib.sha256(path.read_bytes()).hexdigest()
                                for path in sorted(results.glob('TEST-*.xml'))}
         record['test_identifiers'] = test_identifiers(results, [])
+        if any(item['outcome'] == 'failed' for item in record['test_identifiers']):
+            record['classification'] = 'test-failure'
         test_identifiers(results, expected)
+        record['executed_classes'] = sorted(executed_classes(results))
+        trespassing = sorted(set(forbidden) & set(record['executed_classes']))
+        if trespassing:
+            raise ValueError(f'{task} executed {", ".join(trespassing)}, which belongs to the other lane')
+        if lincheck:
+            record['scenario_indices'] = scenario_indices(log, results, shard, args.log)
         record['instrumentation_failures'] = instrumentation_failures(log, results, args.log)
         if record['instrumentation_failures']:
             record['evidence_error'] = 'Lincheck reported a bytecode transformation failure'
         if context['sha'] != context['checked_out_sha']:
             raise ValueError('source SHA changed during test execution')
-        if any(item['outcome'] == 'failed' for item in record['test_identifiers']):
-            record['classification'] = 'test-failure'
+        if record['classification'] == 'test-failure':
+            pass
         elif record['instrumentation_failures']:
             raise ValueError(record['evidence_error'])
         elif args.exit_code == 0 and record['task_outcome'] == 'executed':
@@ -316,7 +394,7 @@ def full_suite_record(args, context, manifest):
     summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:
         with open(summary, 'a') as handle:
-            handle.write(f"### Full mutations JVM execution {args.sequence}\n\n"
+            handle.write(f"### Full mutations JVM execution: {task}{' shard ' + shard if shard else ''}\n\n"
                          f"Classification: **{record['classification']}**. Source: `{context['sha']}`. "
                          f"Run: `{context['run_id']}`, attempt: `{context['run_attempt']}`.\n\n"
                          f"Task outcome: `{record.get('task_outcome', 'unexecuted')}`. "
@@ -329,14 +407,74 @@ def full_suite_record(args, context, manifest):
     append_outputs(context, version)
 
 
+def full_suite_validation(context, version, manifest, needs, executions, shards):
+    """Prove that one forced execution of the whole suite happened, with no lane and no scenario lost."""
+    validate_job_provenance(context, version, needs, manifest['full_suite_jobs'])
+    if not isinstance(shards, int) or shards < 1:
+        raise ValueError('the Lincheck shard count must be a positive integer')
+    records = [json.loads(path.read_text())
+               for path in sorted(Path(executions).glob('**/execution.json'))]
+    if not records:
+        raise ValueError(f'no full-suite execution record was archived under {executions}')
+    for record in records:
+        name = str(record.get('task')) + (' shard ' + str(record['shard']) if record.get('shard') else '')
+        if record.get('classification') != 'passed':
+            raise ValueError(f"{name} is classified {record.get('classification')}, not passed")
+        if record.get('source_sha') != context['sha'] or record.get('checked_out_sha') != context['sha']:
+            raise ValueError(f'{name} validated a different SHA')
+        if any(str(record.get(key)) != str(context[key]) for key in ['run_id', 'run_attempt']):
+            raise ValueError(f'{name} has different run provenance')
+        if record.get('version') != version:
+            raise ValueError(f'{name} validated a different version')
+
+    suite = [name for name in suite_classes(ROOT) if name != LINCHECK_CLASS]
+    jvm = [record for record in records if record.get('task') == JVM_SUITE_TASK]
+    if len(jvm) != 1:
+        raise ValueError(f'expected exactly one {JVM_SUITE_TASK} execution, found {len(jvm)}')
+    executed = set(jvm[0].get('executed_classes') or [])
+    missing = sorted(set(suite) - executed)
+    if missing:
+        raise ValueError(f'{JVM_SUITE_TASK} lost test classes: ' + ', '.join(missing))
+    if LINCHECK_CLASS in executed:
+        raise ValueError(f'{JVM_SUITE_TASK} executed {LINCHECK_CLASS}; the Lincheck lane owns it')
+
+    lincheck = [record for record in records if record.get('task') == LINCHECK_TASK]
+    expected_shards = [f'{index}/{shards}' for index in range(1, shards + 1)]
+    observed = sorted(str(record.get('shard')) for record in lincheck)
+    if observed != expected_shards:
+        raise ValueError('expected Lincheck shards ' + ', '.join(expected_shards) +
+                         '; found ' + (', '.join(observed) or 'none'))
+    union = []
+    for record in lincheck:
+        shard = record['shard']
+        if LINCHECK_CLASS not in set(record.get('executed_classes') or []):
+            raise ValueError(f'shard {shard} did not execute {LINCHECK_CLASS}')
+        if not any(item.get('id', '').startswith(LINCHECK_CLASS + '#') and item.get('outcome') == 'passed'
+                   for item in record.get('test_identifiers') or []):
+            raise ValueError(f'shard {shard} has no passed {LINCHECK_CLASS} testcase')
+        union += record.get('scenario_indices') or []
+    if sorted(union) != list(range(LINCHECK_SCENARIO_COUNT)):
+        raise ValueError(f'the Lincheck shards must cover scenario 0..{LINCHECK_SCENARIO_COUNT - 1} '
+                         f'exactly once; they covered {len(union)} with {len(set(union))} distinct')
+    return dict(context, version=version, checks=needs, classification='validated',
+                lincheck_shards=expected_shards, scenario_count=LINCHECK_SCENARIO_COUNT,
+                executions=[dict(task=record['task'], shard=record.get('shard'),
+                                 classification=record['classification'],
+                                 task_outcome=record.get('task_outcome'),
+                                 log_sha256=record.get('log_sha256'),
+                                 executed_classes=len(record.get('executed_classes') or []),
+                                 scenario_indices=record.get('scenario_indices'))
+                            for record in sorted(records, key=lambda item: (item['task'], item.get('shard') or ''))])
+
+
 def gh(*args, **kwargs):
     return subprocess.run(['gh', *args], check=True, text=True, **kwargs)
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('command', choices=['version', 'provenance', 'matrix', 'full-suite-pair', 'gate', 'reserve',
-                                           'publish', 'record', 'full-suite', 'publication-versions'])
+    parser.add_argument('command', choices=['version', 'provenance', 'matrix', 'full-suite', 'gate', 'reserve',
+                                           'publish', 'record', 'full-suite-execution', 'publication-versions'])
     parser.add_argument('--output', default='release-evidence.json')
     parser.add_argument('--receipt', default='publication-receipt.json')
     parser.add_argument('--repository')
@@ -344,7 +482,8 @@ def main():
     parser.add_argument('--publications', nargs='+')
     parser.add_argument('--log')
     parser.add_argument('--results')
-    parser.add_argument('--sequence', type=int)
+    parser.add_argument('--task', choices=['jvmTest', 'lincheckTest'])
+    parser.add_argument('--shard')
     parser.add_argument('--exit-code', type=int)
     args = parser.parse_args()
     version = root_version(ROOT)
@@ -361,12 +500,16 @@ def main():
     if args.command == 'provenance':
         append_outputs(context, version)
         write_json(args.output, dict(context, version=version, classification='validated'))
-    elif args.command in ['matrix', 'full-suite-pair']:
+    elif args.command == 'matrix':
         needs = json.loads(os.environ['VALIDATION_NEEDS'])
-        required = manifest['matrix_jobs' if args.command == 'matrix' else 'full_suite_jobs']
-        validate_job_provenance(context, version, needs, required)
+        validate_job_provenance(context, version, needs, manifest['matrix_jobs'])
         append_outputs(context, version)
         write_json(args.output, dict(context, version=version, checks=needs, classification='validated'))
+    elif args.command == 'full-suite':
+        record = full_suite_validation(context, version, manifest, json.loads(os.environ['VALIDATION_NEEDS']),
+                                       os.environ['FULL_SUITE_EXECUTIONS'], int(os.environ['FULL_SUITE_SHARDS']))
+        append_outputs(context, version)
+        write_json(args.output, record)
     elif args.command == 'gate':
         record = release_evidence(context, version, manifest, json.loads(os.environ['VALIDATION_NEEDS']))
         if not version.endswith('-SNAPSHOT'):
@@ -410,7 +553,7 @@ def main():
                        '--notes-file', 'release-notes.md', '--prerelease=' + str('-' in version).lower()]
             gh(*command)
         repair_record(receipt, update)
-    elif args.command == 'full-suite':
+    elif args.command == 'full-suite-execution':
         full_suite_record(args, context, manifest)
 
 

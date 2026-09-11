@@ -3,9 +3,27 @@ name: Store6 full mutations JVM execution
 on:
   workflow_call:
     inputs:
-      sequence:
-        type: number
+      task:
+        description: 'jvmTest for the rest of the suite, lincheckTest for one Lincheck shard.'
+        type: string
         required: true
+      shard:
+        description: 'Lincheck shard as k/N. Empty for the jvmTest lane.'
+        type: string
+        required: false
+        default: ''
+      lane:
+        description: 'Filename-safe label for this lane; it names the evidence artifact.'
+        type: string
+        required: true
+      runner:
+        type: string
+        required: false
+        default: ubuntu-latest
+      timeout_minutes:
+        type: number
+        required: false
+        default: 60
     outputs:
       source_sha:
         value: ${{ jobs.full-mutations-jvm.outputs.source_sha }}
@@ -21,8 +39,8 @@ permissions:
 
 jobs:
   full-mutations-jvm:
-    runs-on: ubuntu-latest
-    timeout-minutes: 360
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
     outputs:
       source_sha: ${{ steps.evidence.outputs.source_sha }}
       run_id: ${{ steps.evidence.outputs.run_id }}
@@ -46,17 +64,25 @@ jobs:
       - name: Grant execute permission for Gradlew
         run: chmod +x gradlew
 
-      - name: Run the full mutations JVM suite
+      - name: Run this lane of the full mutations JVM suite
         id: tests
         continue-on-error: true
         shell: bash
+        env:
+          LANE_TASK: ${{ inputs.task }}
+          LANE_SHARD: ${{ inputs.shard }}
         run: |
           set -uo pipefail
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}" || exit 1
           mkdir -p full-suite-evidence
-          rm -rf mutations/build/test-results/jvmTest
+          rm -rf "mutations/build/test-results/${LANE_TASK}"
+          if [ "${LANE_TASK}" = 'lincheckTest' ]; then
+            arguments="-Pstore6.lincheckShard=${LANE_SHARD}"
+          else
+            arguments='-Pstore6.fullJvmSuite'
+          fi
           set +e
-          ./gradlew :mutations:jvmTest -Pstore6.fullJvmSuite --stacktrace --console=plain 2>&1 | tee full-suite-evidence/gradle.log
+          ./gradlew ":mutations:${LANE_TASK}" "${arguments}" --stacktrace --console=plain 2>&1 | tee full-suite-evidence/gradle.log
           result=${PIPESTATUS[0]}
           echo "exit_code=${result}" >> "${GITHUB_OUTPUT}"
           exit "${result}"
@@ -66,20 +92,22 @@ jobs:
         if: ${{ always() && steps.tests.outputs.exit_code != '' }}
         env:
           GRADLE_EXIT_CODE: ${{ steps.tests.outputs.exit_code }}
-          EXECUTION_SEQUENCE: ${{ inputs.sequence }}
+          LANE_TASK: ${{ inputs.task }}
+          LANE_SHARD: ${{ inputs.shard }}
         run: >-
-          python3 .github/scripts/release_control.py full-suite
+          python3 .github/scripts/release_control.py full-suite-execution
           --log full-suite-evidence/gradle.log
-          --results mutations/build/test-results/jvmTest
+          --results "mutations/build/test-results/${LANE_TASK}"
           --exit-code "${GRADLE_EXIT_CODE}"
-          --sequence "${EXECUTION_SEQUENCE}"
+          --task "${LANE_TASK}"
+          --shard "${LANE_SHARD}"
           --output full-suite-evidence/execution.json
 
-      - name: Archive the first result and its run provenance
+      - name: Archive this lane's result and its run provenance
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: full-jvm-results-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.sequence }}
+          name: full-jvm-results-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.lane }}
           path: |
             full-suite-evidence/**
             mutations/build/test-results/**/*.xml

@@ -813,20 +813,18 @@ class FullSuiteShardCensusFixtures(unittest.TestCase):
         return path
 
     def write_jvm(self, **fields):
-        return self.write_execution('full-jvm-results-jvmTest', task=':mutations:jvmTest', shard=None,
-                                    executed_classes=['example.ExampleTest'],
-                                    test_identifiers=[dict(id='example.ExampleTest#works', outcome='passed')],
-                                    **fields)
+        fields.setdefault('executed_classes', ['example.ExampleTest'])
+        fields.setdefault('test_identifiers', [dict(id='example.ExampleTest#works', outcome='passed')])
+        return self.write_execution('full-jvm-results-jvmTest', task=':mutations:jvmTest', shard=None, **fields)
 
     def write_shard(self, index, **fields):
         shard = f'{index}/{self.SHARDS}'
         fields.setdefault('scenario_indices', CONTROL.shard_indices(shard))
-        return self.write_execution(
-            'full-jvm-results-lincheck-' + str(index), task=':mutations:lincheckTest', shard=shard,
-            executed_classes=[CONTROL.LINCHECK_CLASS],
-            test_identifiers=[dict(id=CONTROL.LINCHECK_CLASS + '#inMemoryJournalTransactions_areLinearizable',
-                                   outcome='passed')],
-            **fields)
+        fields.setdefault('executed_classes', [CONTROL.LINCHECK_CLASS])
+        fields.setdefault('test_identifiers', [
+            dict(id=CONTROL.LINCHECK_CLASS + '#inMemoryJournalTransactions_areLinearizable', outcome='passed')])
+        return self.write_execution('full-jvm-results-lincheck-' + str(index),
+                                    task=':mutations:lincheckTest', shard=shard, **fields)
 
     def validate(self):
         return CONTROL.full_suite_validation(self.context, '6.0.0-alpha01', self.manifest, self.needs,
@@ -835,7 +833,7 @@ class FullSuiteShardCensusFixtures(unittest.TestCase):
     def test_a_complete_census_validates_the_single_forced_execution(self):
         record = self.validate()
         self.assertEqual(record['classification'], 'validated')
-        self.assertEqual(record['source_sha'], self.sha)
+        self.assertEqual(record['sha'], self.sha)
         self.assertEqual(record['checks'], self.needs)
         self.assertEqual(record['lincheck_shards'], ['1/4', '2/4', '3/4', '4/4'])
         self.assertEqual(record['scenario_count'], CONTROL.LINCHECK_SCENARIO_COUNT)
