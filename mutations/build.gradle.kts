@@ -1,3 +1,5 @@
+import java.util.concurrent.Callable
+
 plugins {
     id("org.mobilenativefoundation.store.store6.multiplatform")
 }
@@ -66,9 +68,13 @@ tasks.register("lincheckTest", Test::class) {
     description =
         "Runs $lincheckTestClass in its own JVM. -Pstore6.lincheckShard=k/N runs one shard of the scenario plan."
 
+    // Reuse jvmTest's compiled classes and runtime classpath without depending on the jvmTest
+    // TASK: a provider derived from a TaskProvider carries that task as a dependency, which would
+    // drag the whole 35-class suite into every shard job. A Callable defers to the resolved file
+    // collections, whose only producers are the compile and resource tasks.
     val jvmTest = tasks.named("jvmTest", Test::class)
-    testClassesDirs = files(jvmTest.map { task -> task.testClassesDirs })
-    classpath = files(jvmTest.map { task -> task.classpath })
+    testClassesDirs = files(Callable { jvmTest.get().testClassesDirs })
+    classpath = files(Callable { jvmTest.get().classpath })
     dependsOn("jvmTestClasses")
 
     filter {
