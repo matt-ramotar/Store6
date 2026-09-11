@@ -377,14 +377,23 @@ class KtorStoreIntegrationTest {
             val key = IntegrationKey("validator-lifetime")
             try {
                 assertEquals("v1", store.get(key))
-                while (true) {
-                    var origin: Origin? = null
+                var origin: Origin? = null
+                var polls = 0
+                while (origin != Origin.SOT) {
+                    // Bounded: yield() does not advance virtual time, so an unbounded spin would
+                    // turn a residence regression into a 25-second runTest timeout instead of a
+                    // legible failure.
+                    if (polls++ == MAX_EVICTION_POLLS) {
+                        fail(
+                            "the value never left residence: after $MAX_EVICTION_POLLS polls its " +
+                                "origin was still $origin, expected ${Origin.SOT}",
+                        )
+                    }
                     store.stream(key, Freshness.LocalOnly).test {
                         origin = assertIs<StoreResult.Data<String>>(awaitItem()).origin
                         cancelAndIgnoreRemainingEvents()
                     }
-                    if (origin == Origin.SOT) break
-                    yield()
+                    if (origin != Origin.SOT) yield()
                 }
                 assertEquals("v2", store.get(key, Freshness.MustBeFresh))
                 val expectedHeaders =
@@ -396,6 +405,10 @@ class KtorStoreIntegrationTest {
         }
     }
 }
+
+// Generous: eviction normally lands on the first poll. This only has to beat the 25s shadow with
+// a readable message.
+private const val MAX_EVICTION_POLLS = 1_000
 
 private val UnconditionalNotModifiedOverride =
     KtorErrorMapper { exchange ->

@@ -10,6 +10,11 @@ The kit does not create or close the client, install `ContentNegotiation`, or se
 serialization format. Configure those concerns on the client and decode each adopted
 response in the supplied `decode` function.
 
+**Conditional revalidation is residence-scoped in alpha01.** A validator saves a round trip
+only while its value stays resident. A cold start issues one unconditional request per key
+even with durable persistence, because core does not restore the durable ETag into resident
+metadata on hydration. See [Validator lifetime](#validator-lifetime).
+
 ## Install
 
 Until the snapshot is published remotely, publish `core` and `ktor` to Maven Local:

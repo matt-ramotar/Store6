@@ -231,8 +231,6 @@ private class KtorFetcher<K : StoreKey, V : Any>(
                 FetcherResult.NotModified(
                     selectNotModifiedValidatorToken(
                         etagHeader = exchange.response.headers[HttpHeaders.ETag],
-                        lastModifiedHeader = exchange.response.headers[HttpHeaders.LastModified],
-                        lastModifiedFallback = lastModifiedFallback,
                     ),
                 )
 
