@@ -1,5 +1,7 @@
 package org.mobilenativefoundation.store6.mutations
 
+import java.security.MessageDigest
+import java.util.Collections
 import kotlin.random.Random
 
 /**
@@ -39,34 +41,89 @@ internal data class LincheckScenarioSpec(
  * The plan is therefore generated here from [SCENARIO_SEED] and registered with
  * `Options.addCustomScenario`, with `iterations(0)` suppressing Lincheck's own random scenarios.
  *
+ * The plan has [SCENARIO_COUNT] entries: [GENERATED_SCENARIO_COUNT] drawn from the seed, followed
+ * by the curated regression scenario at [CURATED_SCENARIO_INDEX]. **Index [CURATED_SCENARIO_INDEX]
+ * is hand-written and must never be regenerated**: it has pinned a cross-slot retirement ordering
+ * (`appendA/retireB` against `appendB/retireA`, with `confirmTwo/prune` racing both) since this
+ * module was created, and a random draw is not guaranteed to reproduce it.
+ *
  * Scenario `i` belongs to shard `k` of `N` exactly when `i % N == k - 1`, so the shards partition
  * `0 until SCENARIO_COUNT` no matter how many jobs the release owner runs.
+ *
+ * [SCENARIO_DIGEST] is the golden hash of the whole plan. `LincheckScenarioPlanTest` fails if the
+ * generated plan stops matching it, and every shard prints it in its [marker] so the release gate
+ * can prove the shards validated one and the same plan. That makes [SCENARIO_SEED] a guarded
+ * lever: changing it — or an operation, a shape constant, or the curated scenario — fails the
+ * golden test and the release gate rather than silently revalidating a different plan.
  */
 internal object LincheckScenarioPlan {
-    /** Changing this reshuffles every scenario; it is part of the release evidence. */
+    /** Changing this reshuffles every generated scenario and breaks [SCENARIO_DIGEST]. */
     const val SCENARIO_SEED: Long = 20260911L
-    const val SCENARIO_COUNT: Int = 100
+
+    /** Scenarios drawn from [SCENARIO_SEED]; the curated scenario follows them. */
+    const val GENERATED_SCENARIO_COUNT: Int = 100
+
+    /** Index of the hand-written regression scenario. Never regenerate it. */
+    const val CURATED_SCENARIO_INDEX: Int = 100
+
+    /** [GENERATED_SCENARIO_COUNT] generated scenarios plus the curated one. */
+    const val SCENARIO_COUNT: Int = 101
+
     const val THREAD_COUNT: Int = 3
     const val ACTORS_PER_THREAD: Int = 3
+
+    /** SHA-256 over the plan's canonical form, truncated. See the class KDoc. */
+    const val SCENARIO_DIGEST: String = "353a057d5f715bc8"
 
     /** JVM system property carrying `k/N`; absent means the whole plan. */
     const val SHARD_PROPERTY: String = "store6.lincheckShard"
 
-    /** Log token the release evidence recorder parses the executed indices from. */
+    /** Log token the release evidence recorder parses the executed indices and digest from. */
     const val SCENARIO_MARKER: String = "store6-lincheck-scenarios"
 
     /** The shard that selects every scenario, used when [SHARD_PROPERTY] is absent. */
     val WHOLE_PLAN: LincheckShard = LincheckShard(index = 1, count = 1)
 
-    private val PLAN: List<LincheckScenarioSpec> by lazy {
-        val random = Random(SCENARIO_SEED)
-        List(SCENARIO_COUNT) { index -> LincheckScenarioSpec(index, threads(random)) }
+    /**
+     * The regression scenario pinned at [CURATED_SCENARIO_INDEX]: each thread appends one slot and
+     * retires the other, while a third thread confirms and prunes underneath them.
+     */
+    val CURATED_SCENARIO: LincheckScenarioSpec =
+        scenario(
+            index = CURATED_SCENARIO_INDEX,
+            threads =
+                listOf(
+                    listOf(LincheckOperation.APPEND_A, LincheckOperation.RETIRE_B, LincheckOperation.HYDRATE),
+                    listOf(LincheckOperation.APPEND_B, LincheckOperation.RETIRE_A, LincheckOperation.HYDRATE),
+                    listOf(LincheckOperation.CONFIRM_TWO, LincheckOperation.PRUNE, LincheckOperation.HYDRATE),
+                ),
+        )
+
+    /**
+     * The whole plan for [seed]: a pure function, so two calls are structurally equal and the
+     * determinism test cannot pass by comparing one cached list to itself.
+     */
+    fun generate(seed: Long): List<LincheckScenarioSpec> {
+        val random = Random(seed)
+        val generated = List(GENERATED_SCENARIO_COUNT) { index -> scenario(index, threads(random)) }
+        return readOnly(generated + CURATED_SCENARIO)
     }
+
+    /**
+     * A stable hash over the ordered operation names of every scenario. Neither the enum's ordinals
+     * nor Kotlin's `hashCode` take part, so the value survives a JVM upgrade and a reordering of
+     * [LincheckOperation] that leaves the plan itself alone.
+     */
+    fun digest(scenarios: List<LincheckScenarioSpec>): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(canonicalForm(scenarios).toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte -> "%02x".format(byte) }
+            .take(DIGEST_LENGTH)
 
     fun scenarios(): List<LincheckScenarioSpec> = PLAN
 
     fun scenarios(shard: LincheckShard): List<LincheckScenarioSpec> =
-        indices(shard).map { index -> PLAN[index] }
+        readOnly(indices(shard).map { index -> PLAN[index] })
 
     fun indices(shard: LincheckShard): List<Int> =
         (0 until SCENARIO_COUNT).filter { index -> index % shard.count == shard.index - 1 }
@@ -84,10 +141,32 @@ internal object LincheckScenarioPlan {
         return LincheckShard(index, count)
     }
 
+    /**
+     * The evidence line. `digest` covers the whole plan, not the shard, so the release gate can
+     * refuse a census whose shards disagree about which plan they validated.
+     */
     fun marker(
         shard: LincheckShard,
         indices: List<Int>,
-    ): String = "$SCENARIO_MARKER shard=$shard count=${indices.size} indices=${indices.joinToString(",")}"
+    ): String =
+        "$SCENARIO_MARKER shard=$shard count=${indices.size} " +
+            "indices=${indices.joinToString(",")} digest=${digest(PLAN)}"
+
+    private val PLAN: List<LincheckScenarioSpec> by lazy { generate(SCENARIO_SEED) }
+
+    /** `index threads`, threads separated by `|` and actors by `,`, one scenario per line. */
+    private fun canonicalForm(scenarios: List<LincheckScenarioSpec>): String =
+        scenarios.joinToString("\n") { scenario ->
+            "${scenario.index} " +
+                scenario.threads.joinToString("|") { thread ->
+                    thread.joinToString(",") { operation -> operation.name }
+                }
+        }
+
+    private fun scenario(
+        index: Int,
+        threads: List<List<LincheckOperation>>,
+    ): LincheckScenarioSpec = LincheckScenarioSpec(index, readOnly(threads.map(::readOnly)))
 
     private fun threads(random: Random): List<List<LincheckOperation>> {
         val allowed = LincheckOperation.entries.toMutableList()
@@ -99,6 +178,11 @@ internal object LincheckScenarioPlan {
             }
         }
     }
+
+    /** Callers get the plan, never the list it was built in. */
+    private fun <T> readOnly(values: List<T>): List<T> = Collections.unmodifiableList(values.toList())
+
+    private const val DIGEST_LENGTH: Int = 16
 
     private val SHARD_FORM = Regex("""(\d+)/(\d+)""")
 }

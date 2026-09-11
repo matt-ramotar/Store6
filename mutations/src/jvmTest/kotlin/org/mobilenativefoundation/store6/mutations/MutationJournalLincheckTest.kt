@@ -10,6 +10,7 @@ import org.jetbrains.kotlinx.lincheck.annotations.Operation
 import org.jetbrains.kotlinx.lincheck.check
 import org.jetbrains.kotlinx.lincheck.strategy.managed.forClasses
 import org.jetbrains.kotlinx.lincheck.strategy.managed.modelchecking.ModelCheckingOptions
+import org.jetbrains.kotlinx.lincheck.util.LoggingLevel
 import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJournalStorage
 import org.mobilenativefoundation.store6.mutations.storage.MutationAckRecord
 import org.mobilenativefoundation.store6.mutations.storage.MutationAttemptRecord
@@ -81,8 +82,8 @@ class MutationJournalLincheckTest {
     fun inMemoryJournalTransactions_areLinearizable() {
         val shard = LincheckScenarioPlan.shard(System.getProperty(LincheckScenarioPlan.SHARD_PROPERTY))
         val scenarios = LincheckScenarioPlan.scenarios(shard)
-        // The release evidence recorder parses the executed indices out of this line, so the
-        // union across shards can be proved equal to the whole plan.
+        // The release evidence recorder parses the executed indices and the whole plan's digest out
+        // of this line, so the union across shards can be proved equal to one and the same plan.
         println(LincheckScenarioPlan.marker(shard, scenarios.map(LincheckScenarioSpec::index)))
 
         val options =
@@ -90,6 +91,10 @@ class MutationJournalLincheckTest {
                 // Lincheck seeds its own generator with a constant, so random scenarios would be
                 // identical in every shard. Only the custom scenarios below run.
                 .iterations(0)
+                // Reporter.logIteration prints "= Iteration k / n =" per scenario at INFO. The
+                // marker above states the plan; these lines are what Lincheck actually executed,
+                // and the release recorder requires as many of them as the shard planned.
+                .logLevel(LoggingLevel.INFO)
                 .threads(LincheckScenarioPlan.THREAD_COUNT)
                 .actorsPerThread(LincheckScenarioPlan.ACTORS_PER_THREAD)
                 .actorsBefore(0)

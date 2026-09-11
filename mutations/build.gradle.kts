@@ -70,8 +70,17 @@ tasks.register("lincheckTest", Test::class) {
 
     // Reuse jvmTest's compiled classes and runtime classpath without depending on the jvmTest
     // TASK: a provider derived from a TaskProvider carries that task as a dependency, which would
-    // drag the whole 35-class suite into every shard job. A Callable defers to the resolved file
+    // drag the whole suite into every shard job. A Callable defers to the resolved file
     // collections, whose only producers are the compile and resource tasks.
+    //
+    // Trade-off, deliberate: resolving the TaskProvider inside the Callable is a Task-at-execution
+    // reference, which the Gradle configuration cache forbids — it would report "invocation of
+    // Task.project/another task at execution time". That costs nothing today, because this build
+    // does not set org.gradle.configuration-cache (see gradle.properties) and the release lanes run
+    // without it. Whoever turns the configuration cache on must replace both lines with the
+    // configuration-time values (e.g. the jvmTest compilation's output and runtimeDependencyFiles
+    // from the Kotlin JVM target) rather than reintroducing jvmTest.map { … }, which would put the
+    // whole suite back into every shard.
     val jvmTest = tasks.named("jvmTest", Test::class)
     testClassesDirs = files(Callable { jvmTest.get().testClassesDirs })
     classpath = files(Callable { jvmTest.get().classpath })
