@@ -8,6 +8,7 @@ public final class org/mobilenativefoundation/store6/ktor/KtorErrorMapper$Compan
 }
 
 public final class org/mobilenativefoundation/store6/ktor/KtorExchange {
+	public fun <init> (Lio/ktor/http/HttpStatusCode;Lio/ktor/http/HttpMethod;Ljava/lang/String;ZLio/ktor/client/statement/HttpResponse;)V
 	public final fun getConditional ()Z
 	public final fun getMethod ()Lio/ktor/http/HttpMethod;
 	public final fun getResponse ()Lio/ktor/client/statement/HttpResponse;
