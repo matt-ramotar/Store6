@@ -285,7 +285,10 @@ private class KtorFetcher<K : StoreKey, V : Any>(
         val matches =
             when (sentValidator.name) {
                 HttpHeaders.IfNoneMatch -> ifNoneMatch == expected && ifModifiedSince.isEmpty()
-                else -> ifModifiedSince == expected && ifNoneMatch.isEmpty()
+                HttpHeaders.IfModifiedSince -> ifModifiedSince == expected && ifNoneMatch.isEmpty()
+                // Fail closed: a validator header this function does not know how to compare is
+                // one it cannot clear, so the 304 stays unattributable.
+                else -> false
             }
         if (matches) return null
 
