@@ -79,8 +79,10 @@ class WorkflowContract(unittest.TestCase):
                          re.search(r'(?m)^ *const val SCENARIO_COUNT: Int = (\d+)$', plan)[1])
         self.assertEqual(re.search(r"(?m)^LINCHECK_SCENARIO_DIGEST = '([0-9a-f]+)'$", control)[1],
                          re.search(r'(?m)^ *const val SCENARIO_DIGEST: String = "([0-9a-f]+)"$', plan)[1])
-        self.assertIn('digest=', re.search(r'(?m)^SCENARIO_MARKER_FORM = re\.compile\(\n(.*\n)+?\)',
-                                          control)[0])
+        self.assertIn(r' digest=([0-9a-f]+)', control)
+        self.assertIn(r'= Iteration (\d+) / (\d+) =', control)
+        self.assertIn('LoggingLevel.INFO', (ROOT / 'mutations/src/jvmTest/kotlin/org/mobilenativefoundation'
+                                                   '/store6/mutations/MutationJournalLincheckTest.kt').read_text())
         self.assertIn('CURATED_SCENARIO_INDEX', plan)
         self.assertIn('must never be regenerated', plan)
         self.assertEqual(re.search(r"(?m)^SCENARIO_MARKER = '([^']+)'$", control)[1],

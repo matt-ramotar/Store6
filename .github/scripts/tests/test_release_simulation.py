@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -7,6 +8,9 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
+SPEC = importlib.util.spec_from_file_location('release_control', ROOT / '.github/scripts/release_control.py')
+CONTROL = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(CONTROL)
 
 
 class ReleaseSimulation(unittest.TestCase):
@@ -141,10 +145,14 @@ if os.environ.get('STUB_FAIL_MODULE') and sys.argv[1].startswith(':' + os.enviro
                              executed_classes=['example.ExampleTest'],
                              test_identifiers=[dict(id='example.ExampleTest#works', outcome='passed')])
         for index in range(1, shards + 1):
+            indices = [value for value in range(CONTROL.LINCHECK_SCENARIO_COUNT)
+                       if value % shards == index - 1]
             self.write_execution(
                 'results-lincheck-' + str(index), task=':mutations:lincheckTest',
                 shard=f'{index}/{shards}',
-                scenario_indices=[value for value in range(100) if value % shards == index - 1],
+                scenario_indices=indices,
+                scenario_digest=CONTROL.LINCHECK_SCENARIO_DIGEST,
+                executed_iterations=len(indices),
                 executed_classes=[lincheck],
                 test_identifiers=[dict(id=lincheck + '#inMemoryJournalTransactions_areLinearizable',
                                        outcome='passed')])

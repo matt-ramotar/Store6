@@ -15,12 +15,20 @@ ROOT = Path(__file__).resolve().parents[2]
 LINCHECK_CLASS = 'org.mobilenativefoundation.store6.mutations.MutationJournalLincheckTest'
 JVM_SUITE_TASK = ':mutations:jvmTest'
 LINCHECK_TASK = ':mutations:lincheckTest'
-# Mirrors LincheckScenarioPlan.SCENARIO_COUNT and .SCENARIO_MARKER; test_workflow_contract pins
-# these to the Kotlin source so the two cannot drift apart silently.
-LINCHECK_SCENARIO_COUNT = 100
+# Mirrors LincheckScenarioPlan.SCENARIO_COUNT, .SCENARIO_DIGEST and .SCENARIO_MARKER;
+# test_workflow_contract pins these to the Kotlin source so the two cannot drift apart silently.
+# The digest is the golden hash of the whole scenario plan: every shard prints it, and a release
+# is refused unless all of them validated this exact plan. That is what makes the Kotlin
+# SCENARIO_SEED a guarded lever rather than a silent one.
+LINCHECK_SCENARIO_COUNT = 101
+LINCHECK_SCENARIO_DIGEST = '353a057d5f715bc8'
 SCENARIO_MARKER = 'store6-lincheck-scenarios'
 SCENARIO_MARKER_FORM = re.compile(
-    r'[ \t]*' + re.escape(SCENARIO_MARKER) + r' shard=(\d+/\d+) count=(\d+) indices=([0-9,]*)')
+    r'[ \t]*' + re.escape(SCENARIO_MARKER) +
+    r' shard=(\d+/\d+) count=(\d+) indices=([0-9,]*) digest=([0-9a-f]+)')
+# Lincheck's own Reporter.logIteration prints this once per scenario at LoggingLevel.INFO. The
+# marker states the plan; these lines are what the model checker actually ran.
+ITERATION_FORM = re.compile(r'[ \t]*= Iteration (\d+) / (\d+) =')
 
 
 def write_json(path, value):
@@ -240,23 +248,28 @@ def shard_indices(shard):
     return [value for value in range(LINCHECK_SCENARIO_COUNT) if value % count == index - 1]
 
 
-def scenario_indices(log, results, shard, log_path):
-    """The shard prints its plan; both the console log and the result XML must agree with it."""
-    reported = set()
+def standard_output(log, results, log_path):
+    """Everything the shard printed: the Gradle console log and every result XML's system-out."""
     sources = [(log, str(log_path))]
     for path in sorted(results.glob('TEST-*.xml')):
         for stream in ET.parse(path).getroot().iter('system-out'):
             sources.append((''.join(stream.itertext()), path.name))
-    for text, _ in sources:
+    return sources
+
+
+def scenario_indices(log, results, shard, log_path):
+    """The shard prints its plan; both the console log and the result XML must agree with it."""
+    reported = set()
+    for text, _ in standard_output(log, results, log_path):
         for line in text.split('\n'):
             match = SCENARIO_MARKER_FORM.fullmatch(line.rstrip('\r'))
             if match:
-                reported.add(match.group(1, 2, 3))
+                reported.add(match.group(1, 2, 3, 4))
     if not reported:
         raise ValueError(f'no {SCENARIO_MARKER} evidence for {shard}; the shard did not report its plan')
     if len(reported) != 1:
         raise ValueError(f'conflicting {SCENARIO_MARKER} evidence: ' + '; '.join(sorted(str(x) for x in reported)))
-    executed, count, joined = reported.pop()
+    executed, count, joined, digest = reported.pop()
     indices = [int(value) for value in joined.split(',')] if joined else []
     if executed != shard:
         raise ValueError(f'shard {shard} reported scenarios for {executed}')
@@ -264,7 +277,32 @@ def scenario_indices(log, results, shard, log_path):
         raise ValueError(f'shard {shard} reported {count} scenarios as {joined}')
     if indices != shard_indices(shard):
         raise ValueError(f'shard {shard} executed scenarios outside its partition of the plan')
-    return indices
+    if digest != LINCHECK_SCENARIO_DIGEST:
+        raise ValueError(f'shard {shard} validated plan digest {digest}, not the pinned '
+                         f'{LINCHECK_SCENARIO_DIGEST}; the scenario plan changed')
+    return indices, digest
+
+
+def executed_iterations(log, results, shard, log_path):
+    """How many scenarios Lincheck reported running, and how many it was configured to run."""
+    reported = set()
+    for text, _ in standard_output(log, results, log_path):
+        for line in text.split('\n'):
+            match = ITERATION_FORM.fullmatch(line.rstrip('\r'))
+            if match:
+                reported.add((int(match[1]), int(match[2])))
+    if not reported:
+        raise ValueError(f'no Lincheck iteration evidence for shard {shard}; the model checker did '
+                         f'not report the scenarios it ran')
+    planned = {total for _, total in reported}
+    if len(planned) != 1:
+        raise ValueError(f'shard {shard} reported conflicting Lincheck iteration totals: ' +
+                         ', '.join(str(total) for total in sorted(planned)))
+    executed = sorted(index for index, _ in reported)
+    if executed != list(range(1, len(executed) + 1)):
+        raise ValueError(f'shard {shard} reported Lincheck iterations that are not a prefix of its '
+                         f'plan: {", ".join(str(index) for index in executed)}')
+    return len(executed), planned.pop()
 
 
 def suite_classes(root):
@@ -348,7 +386,10 @@ def full_suite_record(args, context, manifest):
     version = root_version(ROOT)
     lincheck = args.task == 'lincheckTest'
     task = LINCHECK_TASK if lincheck else JVM_SUITE_TASK
-    shard = (args.shard or '1/1') if lincheck else None
+    # No implicit whole-plan default here: on this lane "no shard" would be a third meaning next to
+    # the absent Gradle property and an explicit 1/1, and a shard job that lost its matrix value
+    # would silently claim the whole plan. The workflow always passes k/N.
+    shard = (args.shard or '').strip() if lincheck else None
     record = dict(schema_version=1, source_sha=context['sha'], checked_out_sha=context['checked_out_sha'], version=version,
                   repository=context['repository'], run_id=context['run_id'], run_attempt=context['run_attempt'],
                   task=task, shard=shard, gradle_exit_code=args.exit_code,
@@ -356,6 +397,8 @@ def full_suite_record(args, context, manifest):
     try:
         if not lincheck and args.shard:
             raise ValueError(f'{JVM_SUITE_TASK} does not take a Lincheck shard')
+        if lincheck and not shard:
+            raise ValueError(f'{LINCHECK_TASK} requires an explicit --shard of the form k/N')
         record['task_outcome'] = task_outcome(log, task)
         record['classification'] = 'infrastructure-or-incomplete'
         suite = [name for name in suite_classes(ROOT) if name != LINCHECK_CLASS]
@@ -374,20 +417,31 @@ def full_suite_record(args, context, manifest):
         if trespassing:
             raise ValueError(f'{task} executed {", ".join(trespassing)}, which belongs to the other lane')
         if lincheck:
-            record['scenario_indices'] = scenario_indices(log, results, shard, args.log)
+            record['scenario_indices'], record['scenario_digest'] = \
+                scenario_indices(log, results, shard, args.log)
+            executed, planned = executed_iterations(log, results, shard, args.log)
+            record['executed_iterations'] = executed
+            if planned != len(record['scenario_indices']):
+                raise ValueError(f'shard {shard} planned {len(record["scenario_indices"])} scenarios '
+                                 f'but Lincheck was configured for {planned} iterations')
+            # A failing shard stops at the failure, so a short count is expected there and the
+            # recorded number is diagnostic rather than a second, misleading error.
+            if record['classification'] != 'test-failure' and executed != planned:
+                raise ValueError(f'shard {shard} planned {planned} scenarios but Lincheck reported '
+                                 f'{executed} iterations')
         record['instrumentation_failures'] = instrumentation_failures(log, results, args.log)
         if record['instrumentation_failures']:
             record['evidence_error'] = 'Lincheck reported a bytecode transformation failure'
         if context['sha'] != context['checked_out_sha']:
             raise ValueError('source SHA changed during test execution')
-        if record['classification'] == 'test-failure':
-            pass
-        elif record['instrumentation_failures']:
-            raise ValueError(record['evidence_error'])
-        elif args.exit_code == 0 and record['task_outcome'] == 'executed':
+        # A real test failure keeps its own classification; the guards below distinguish the ways a
+        # run can fail to be evidence at all.
+        if record['classification'] != 'test-failure':
+            if record['instrumentation_failures']:
+                raise ValueError(record['evidence_error'])
+            if args.exit_code != 0 or record['task_outcome'] != 'executed':
+                raise ValueError('Gradle failed without test failure evidence')
             record['classification'] = 'passed'
-        else:
-            raise ValueError('Gradle failed without test failure evidence')
     except (ValueError, OSError, ET.ParseError) as error:
         record['evidence_error'] = str(error)
     write_json(output, record)
@@ -418,6 +472,11 @@ def full_suite_validation(context, version, manifest, needs, executions, shards)
         raise ValueError(f'no full-suite execution record was archived under {executions}')
     for record in records:
         name = str(record.get('task')) + (' shard ' + str(record['shard']) if record.get('shard') else '')
+        # argparse cannot produce a third lane today, but an archived record is a file: refuse an
+        # unknown one rather than letting it sit uncounted in the census.
+        if record.get('task') not in [JVM_SUITE_TASK, LINCHECK_TASK]:
+            raise ValueError(f'{name} is not a full-suite lane; expected {JVM_SUITE_TASK} '
+                             f'or {LINCHECK_TASK}')
         if record.get('classification') != 'passed':
             raise ValueError(f"{name} is classified {record.get('classification')}, not passed")
         if record.get('source_sha') != context['sha'] or record.get('checked_out_sha') != context['sha']:
@@ -444,6 +503,10 @@ def full_suite_validation(context, version, manifest, needs, executions, shards)
     if observed != sorted(expected_shards):
         raise ValueError('expected Lincheck shards ' + ', '.join(expected_shards) +
                          '; found ' + (', '.join(observed) or 'none'))
+    digests = {record.get('scenario_digest') for record in lincheck}
+    if digests != {LINCHECK_SCENARIO_DIGEST}:
+        raise ValueError(f'every Lincheck shard must report plan digest {LINCHECK_SCENARIO_DIGEST}; '
+                         'found ' + ', '.join(sorted(str(digest) for digest in digests)))
     union = []
     for record in lincheck:
         shard = record['shard']
@@ -458,11 +521,13 @@ def full_suite_validation(context, version, manifest, needs, executions, shards)
                          f'exactly once; they covered {len(union)} with {len(set(union))} distinct')
     return dict(context, version=version, checks=needs, classification='validated',
                 lincheck_shards=expected_shards, scenario_count=LINCHECK_SCENARIO_COUNT,
+                scenario_digest=LINCHECK_SCENARIO_DIGEST,
                 executions=[dict(task=record['task'], shard=record.get('shard'),
                                  classification=record['classification'],
                                  task_outcome=record.get('task_outcome'),
                                  log_sha256=record.get('log_sha256'),
                                  executed_classes=len(record.get('executed_classes') or []),
+                                 executed_iterations=record.get('executed_iterations'),
                                  scenario_indices=record.get('scenario_indices'))
                             for record in sorted(records, key=lambda item: (item['task'], item.get('shard') or ''))])
 
@@ -486,6 +551,10 @@ def main():
     parser.add_argument('--shard')
     parser.add_argument('--exit-code', type=int)
     args = parser.parse_args()
+    # --task is shared with the commands that ignore it, so argparse cannot mark it required; the
+    # lane that decides which census a record is measured against must never be inferred.
+    if args.command == 'full-suite-execution' and args.task is None:
+        parser.error('full-suite-execution requires --task')
     version = root_version(ROOT)
     manifest = json.loads((ROOT / '.github/release-manifest.json').read_text())
     if args.command == 'version':
