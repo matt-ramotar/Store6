@@ -215,6 +215,11 @@ private fun itemStore(
  * of how the scene observes the store, not of the kit. `KtorStoreIntegrationTest` pins the exact
  * count under virtual time, gated on Turbine's `expectNoEvents()`, and that is where a regression
  * that adds a request per revalidation gets caught.
+ *
+ * Only the Last-Modified scene has ever been observed taking the extra request — twice in ten
+ * runs, and never once in the ETag scene. Its 304 carries no ETag, so it produces
+ * `NotModified(null)`, the "keep the previous token" path. Both scenes share this helper because
+ * the tolerance costs nothing in the ETag scene, not because both have needed it.
  */
 private fun checkRevalidationShape(
     validators: List<String?>,

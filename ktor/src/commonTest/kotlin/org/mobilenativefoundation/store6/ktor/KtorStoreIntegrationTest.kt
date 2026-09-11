@@ -20,6 +20,7 @@ import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
+import org.mobilenativefoundation.store6.core.Store
 import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreKey
@@ -144,17 +145,7 @@ class KtorStoreIntegrationTest {
                     )
                 }
             try {
-                val failure =
-                    assertFailsWith<StoreException> {
-                        store.get(IntegrationKey("cold-304"))
-                    }
-                val fetchError =
-                    failure.error as? StoreError.Fetch
-                        ?: fail("expected StoreError.Fetch, was ${failure.error}")
-                val cause =
-                    fetchError.cause as? KtorFetchException
-                        ?: fail("expected KtorFetchException, was ${fetchError.cause}")
-                assertEquals(HttpStatusCode.NotModified, cause.status)
+                assertFetchStatus(store, IntegrationKey("cold-304"), HttpStatusCode.NotModified)
             } finally {
                 store.close()
             }
@@ -191,17 +182,7 @@ class KtorStoreIntegrationTest {
                 assertEquals("v1", store.get(key))
                 store.invalidate(key)
 
-                val failure =
-                    assertFailsWith<StoreException> {
-                        store.get(key, Freshness.MustBeFresh)
-                    }
-                val fetchError =
-                    failure.error as? StoreError.Fetch
-                        ?: fail("expected StoreError.Fetch, was ${failure.error}")
-                val cause =
-                    fetchError.cause as? KtorFetchException
-                        ?: fail("expected KtorFetchException, was ${fetchError.cause}")
-                assertEquals(HttpStatusCode.NotModified, cause.status)
+                assertFetchStatus(store, key, HttpStatusCode.NotModified, Freshness.MustBeFresh)
 
                 store.stream(key, Freshness.LocalOnly).test {
                     val data = assertIs<StoreResult.Data<String>>(awaitItem())
@@ -251,17 +232,7 @@ class KtorStoreIntegrationTest {
                 assertEquals("v1", store.get(key))
                 store.invalidate(key)
 
-                val failure =
-                    assertFailsWith<StoreException> {
-                        store.get(key, Freshness.MustBeFresh)
-                    }
-                val fetchError =
-                    failure.error as? StoreError.Fetch
-                        ?: fail("expected StoreError.Fetch, was ${failure.error}")
-                val cause =
-                    fetchError.cause as? KtorFetchException
-                        ?: fail("expected KtorFetchException, was ${fetchError.cause}")
-                assertEquals(HttpStatusCode.NoContent, cause.status)
+                assertFetchStatus(store, key, HttpStatusCode.NoContent, Freshness.MustBeFresh)
 
                 store.stream(key, Freshness.LocalOnly).test {
                     val data = assertIs<StoreResult.Data<String>>(awaitItem())
@@ -325,18 +296,13 @@ class KtorStoreIntegrationTest {
                     )
                 }
             try {
-                val failure =
-                    assertFailsWith<StoreException> {
-                        store.get(IntegrationKey("typed-error"))
-                    }
-                val fetchError =
-                    failure.error as? StoreError.Fetch
-                        ?: fail("expected StoreError.Fetch, was ${failure.error}")
                 val cause =
-                    fetchError.cause as? KtorFetchException
-                        ?: fail("expected KtorFetchException, was ${fetchError.cause}")
+                    assertFetchStatus(
+                        store,
+                        IntegrationKey("typed-error"),
+                        HttpStatusCode.InternalServerError,
+                    )
 
-                assertEquals(HttpStatusCode.InternalServerError, cause.status)
                 assertEquals(HttpMethod.Get, cause.method)
                 assertEquals("https://example.test/items/typed-error", cause.url)
             } finally {
@@ -423,6 +389,31 @@ private class IntegrationKey(private val id: String) : StoreKey {
     override val namespace: StoreNamespace = StoreNamespace("ktor-integration")
 
     override fun canonicalId(): String = id
+}
+
+/**
+ * Asserts that reading [key] fails with HTTP [status], unwrapping the whole refusal chain:
+ * `StoreException` to `StoreError.Fetch` to `KtorFetchException`.
+ *
+ * The transport suite's `assertStatusError` does the same for a raw `FetcherResult`; this is the
+ * store-level counterpart, and like that one it returns the typed exception so a caller that needs
+ * more than the status can go on asserting.
+ */
+private suspend fun assertFetchStatus(
+    store: Store<IntegrationKey, String>,
+    key: IntegrationKey,
+    status: HttpStatusCode,
+    freshness: Freshness = Freshness.CachedOrFetch,
+): KtorFetchException {
+    val failure = assertFailsWith<StoreException> { store.get(key, freshness) }
+    val fetchError =
+        failure.error as? StoreError.Fetch
+            ?: fail("expected StoreError.Fetch, was ${failure.error}")
+    val cause =
+        fetchError.cause as? KtorFetchException
+            ?: fail("expected KtorFetchException, was ${fetchError.cause}")
+    assertEquals(status, cause.status)
+    return cause
 }
 
 // Turbine's 3s default would nest inside the 25s shadow. Raising the Turbine deadline above

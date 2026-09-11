@@ -215,7 +215,7 @@ class KtorFetcherTransportTest {
         }
 
     @Test
-    fun noContent_errorMapperMayStillAdoptAnEmptyRepresentation() =
+    fun noContent_errorMapperMayStillOverrideTheRefusal() =
         runTest {
             val engine =
                 MockEngine {
@@ -568,8 +568,16 @@ class KtorFetcherTransportTest {
         }
 
     @Test
-    fun cancellationSurfacedAsAnotherExceptionType_rethrowsAsCancellation() =
+    fun engineSurfacedCancellation_producesNoFetcherResult() =
         runTest {
+            // Documents the scenario; it is NOT the control for the `ensureActive()` call in the
+            // kit's broad catch arm, and the name no longer claims to be. MockEngine's throw
+            // crosses a suspension point in the request pipeline with the job already cancelled,
+            // so the pipeline converts it to a CancellationException before the kit's catch arms
+            // see it — this passes with or without `ensureActive()`. The real control is
+            // `nonCancellationFailureAfterCancellation_isNotRecordedAsFetchError` below, which
+            // raises the failure synchronously inside `configureRequest` so it reaches the broad
+            // arm as its own type.
             var returned: FetcherResult<String>? = null
             var thrown: Throwable? = null
             lateinit var deferred: Deferred<Unit>
