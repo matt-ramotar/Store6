@@ -104,10 +104,11 @@ class KtorStoreIntegrationTest {
                     cancelAndIgnoreRemainingEvents()
                 }
 
-                // Documented core-owned nondeterminism (see the classification in
-                // docs/superpowers/reviews/2026-09-05-store6-alpha-evidence/pr77-ci-reds-2026-09-11.md):
-                // an obsolete cold-baseline launch was observed self-healing on linuxX64,
-                // iosSimulatorArm64, and the Android unit lane.
+                // Documented core-owned nondeterminism: the engine may issue one obsolete
+                // cold-baseline launch that the 304 cycle then self-heals. An exact count of
+                // two held on JVM, macOS, JS, and wasm but was observed as three on linuxX64,
+                // iosSimulatorArm64, and the Android unit lane (PR #77, first CI attempt), so
+                // the count is tolerated and the guarantees below are asserted instead.
                 assertTrue(
                     revalidationHeaders.isNotEmpty() &&
                         revalidationHeaders.size <= 2 &&
