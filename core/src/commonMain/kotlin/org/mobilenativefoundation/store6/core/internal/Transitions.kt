@@ -1,9 +1,12 @@
 package org.mobilenativefoundation.store6.core.internal
 
+import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreMeta
+import org.mobilenativefoundation.store6.core.seam.SourceAdoption
 
 /** An input applied to the immutable state for a canonical key. */
+@OptIn(ExperimentalStoreApi::class)
 internal sealed interface KeyEvent {
     /** Requests a fetch, offering [fresh] as the ticket if no fetch is active. */
     class EnsureFetch(
@@ -30,6 +33,8 @@ internal sealed interface KeyEvent {
         val ticket: FetchTicket,
         val value: Any,
         val meta: StoreMeta,
+        val sourceAdoption: SourceAdoption? = null,
+        val fresh: Boolean = true,
     ) : KeyEvent
 
     /** Reports that the fetch represented by [ticket] observed a server-side deletion. */
@@ -120,6 +125,7 @@ internal data class KeyTransition(
  * mutations and the settled ticket's disposition preserves exact attribution until its outcome is
  * published. Epoch fields are monotone and are never reset by any event.
  */
+@OptIn(ExperimentalStoreApi::class)
 internal fun transition(
     state: KeyState,
     event: KeyEvent,
@@ -204,7 +210,8 @@ internal fun transition(
                         value = event.value,
                         origin = Origin.SOT,
                         meta = event.meta,
-                        staleEpochAtCommit = state.staleEpoch,
+                        staleEpochAtCommit = if (event.fresh) state.staleEpoch else state.staleEpoch - 1L,
+                        sourceAdoption = event.sourceAdoption,
                     ),
                 ),
                 effect = KeyEffect.CommitWrite,

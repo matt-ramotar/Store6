@@ -1,71 +1,88 @@
 name: Store6 full mutations JVM suite
 
+# One forced execution of the whole mutations JVM suite, split into lanes that fit a hosted
+# runner: :mutations:jvmTest carries every test class except the Lincheck model-checking one,
+# which runs alone in :mutations:lincheckTest over a quarter of its deterministic scenario plan.
+# validation-evidence proves no lane and no scenario was lost.
+
 on:
   schedule:
     - cron: '17 5 * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      lincheck_runner:
+        description: "Runner for the Lincheck shard jobs only. Result as of 2026-09-11: macos-latest hit Lincheck's 20-second invocation deadline on three of four shards (run 34566978279) and is not adopted for the gate; the option stays for experiments only."
+        type: choice
+        required: false
+        default: ubuntu-latest
+        options:
+          - ubuntu-latest
+          - macos-latest
+  workflow_call:
+    outputs:
+      source_sha:
+        value: ${{ jobs.validation-evidence.outputs.source_sha }}
+      run_id:
+        value: ${{ jobs.validation-evidence.outputs.run_id }}
+      run_attempt:
+        value: ${{ jobs.validation-evidence.outputs.run_attempt }}
+      version:
+        value: ${{ jobs.validation-evidence.outputs.version }}
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   full-mutations-jvm:
+    uses: ./.github/workflows/store6-full-jvm-run.yml
+    with:
+      task: jvmTest
+      lane: jvmTest
+      timeout_minutes: 60
+
+  lincheck:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    uses: ./.github/workflows/store6-full-jvm-run.yml
+    with:
+      task: lincheckTest
+      shard: ${{ matrix.shard }}/4
+      lane: lincheck-${{ matrix.shard }}
+      runner: ${{ inputs.lincheck_runner || 'ubuntu-latest' }}
+      timeout_minutes: 150
+
+  validation-evidence:
+    if: ${{ always() }}
+    needs: [full-mutations-jvm, lincheck]
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 10
+    outputs:
+      source_sha: ${{ steps.evidence.outputs.source_sha }}
+      run_id: ${{ steps.evidence.outputs.run_id }}
+      run_attempt: ${{ steps.evidence.outputs.run_attempt }}
+      version: ${{ steps.evidence.outputs.version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - name: Collect every lane's execution record
+        uses: actions/download-artifact@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v6
-
-      - name: Grant execute permission for Gradlew
-        run: chmod +x gradlew
-
-      - name: Run the FULL mutations JVM suite (Lincheck included)
-        run: ./gradlew :mutations:jvmTest -Pstore6.fullJvmSuite --stacktrace
-
-      - name: Census — no suite may be lost
-        shell: bash
-        run: |
-          set -euo pipefail
-          expected=$(find mutations/src/commonTest mutations/src/jvmTest -name '*Test.kt' | wc -l | tr -d ' ')
-          executed=$(find mutations/build/test-results/jvmTest -name 'TEST-*.xml' | wc -l | tr -d ' ')
-          echo "expected=${expected} executed=${executed}"
-          [ "${expected}" -eq "${executed}" ]
-
-      - name: Upload test results
-        if: ${{ always() }}
+          pattern: full-jvm-results-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: full-suite-artifacts
+      - name: Require one forced execution of every lane and every scenario
+        id: evidence
+        env:
+          VALIDATION_NEEDS: ${{ toJSON(needs) }}
+          FULL_SUITE_EXECUTIONS: full-suite-artifacts
+          FULL_SUITE_SHARDS: '4'
+        run: python3 .github/scripts/release_control.py full-suite --output full-suite-validation.json
+      - name: Archive the full-suite validation record
         uses: actions/upload-artifact@v4
         with:
-          name: full-jvm-results-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            mutations/build/test-results/**/*.xml
-            mutations/build/reports/tests/**
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: File the classification duty on failure
-        if: ${{ failure() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh issue list -R "${GITHUB_REPOSITORY}" --state open \
-            --search "Scheduled full mutations JVM suite red in:title" --json number \
-            --jq '.[0].number' > /tmp/existing || true
-          body="Scheduled full-suite run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} failed. Classify per docs/v6 conduct (017 register / 031 job-cap class / novel). Never rerun for evidence."
-          if [ -s /tmp/existing ] && [ "$(cat /tmp/existing)" != "null" ] && [ -n "$(cat /tmp/existing)" ]; then
-            gh issue comment "$(cat /tmp/existing)" -R "${GITHUB_REPOSITORY}" --body "${body}"
-          else
-            gh issue create -R "${GITHUB_REPOSITORY}" \
-              --title "Scheduled full mutations JVM suite red (${GITHUB_RUN_ID})" --body "${body}"
-          fi
+          name: full-jvm-validation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: full-suite-validation.json
+          if-no-files-found: error
+          retention-days: 90

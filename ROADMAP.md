@@ -45,16 +45,21 @@ under principle 1. The confidence range above is real: treat Q1 2027 as the hone
 | `mutations` | The write path: journal, drain, rebase, conflict stack, restart replay. Experimental artifact, in the floor rather than the may-slip list. |
 | `graphql`, `realtime` | Experimental integration artifacts: GraphQL fetcher integration and server-message bindings onto stores. |
 | `mutations-sqldelight`, `mutations-testing` | Experimental companions to `mutations`: SQLDelight-backed journal storage and the journal and mutator contract kits. |
+| `sqldelight`, `room`, `compose` | Experimental persistence and UI adapters in the alpha shipping roster. |
+| `paging-androidx`, `opentelemetry`, `ktor`, `file`, `mutations-conflicts` | Experimental extension artifacts: Paging 3 interop, an OpenTelemetry sink for JVM and Android, a Ktor fetcher kit, file-backed persistence, and a conflict-strategy pack. |
+| `bom` | Version alignment for the fifteen shipping libraries. |
 | STABILITY.md + this roadmap | The published policy: tiers, deprecation cycle, cadence commitment. |
 | Quickstart + Important Defaults | The mental model before the API reference. |
 
-**May slip one alpha:** the SQLDelight, Room, and Compose adapters, the devtools MVP, and the
-remaining documentation pages. Anything that slips gets its target alpha named in the release notes.
+**Deferred from alpha01:** the devtools MVP (`devtools`, `devtools-inspector`), the drain
+scheduler (`mutations-drain`, `mutations-drain-meeseeks`), the Swift facade, and the remaining
+documentation pages. Passing a build does not add an artifact to that roster; the publication
+allowlist, BOM, and [stability table](STABILITY.md) must agree before it ships.
 
 ### Mutations beta train + 6.0.0-beta01 (Q1–Q2 2027)
 
-Ack-path atomicity and its crash matrix, the Paging 3 interop adapter, the Swift SPM facade against
-the freeze-candidate core, the outbox inspector demo, and Store 5 interop with migration lint.
+Ack-path atomicity and its crash matrix, the Swift SPM facade against the freeze-candidate core,
+the outbox inspector demo, and Store 5 interop with migration lint.
 
 beta01 is the **core API freeze candidate**. From beta01 forward, no source-breaking core change
 without an RC reset.
@@ -70,9 +75,10 @@ stated, neither skipped.
 ### 6.0.0 GA — target Q3 2027 (confidence range Q3 – Q4 2027)
 
 Core, testing, the adapters, Store 5 interop, and the BOM in the stable tier, the adapters having
-run the contract kit throughout the alpha line. Paging ships alongside as a supported experimental
-artifact with the tier on the tin. The 5→6 and "Store 4 → 6 in an afternoon" migration guides both
-block GA. Store 5 moves to fixes-only maintenance with a dated end-of-life published at GA.
+run the contract kit throughout the alpha line. Paging, experimental since alpha01, stays alongside
+GA as a supported experimental artifact with the tier on the tin. The 5→6 and "Store 4 → 6 in an
+afternoon" migration guides both block GA. Store 5 moves to fixes-only maintenance with a dated
+end-of-life published at GA.
 
 ### After GA
 

@@ -247,20 +247,28 @@ class MutationOverlayTest {
         val firstKey = MutationsTestKey("retire-signal-blocker")
         val retiredKey = MutationsTestKey("retire-signal-cancelled")
         val firstObserved = CompletableDeferred<StoreKey>()
+        val acknowledgedObserved = CompletableDeferred<StoreKey>()
         val retiredObserved = CompletableDeferred<StoreKey>()
+        val releaseFirst = CompletableDeferred<Unit>()
         val collector =
             backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
                 var observed = 0
                 engine.changes.collect { key ->
                     when (observed++) {
-                        0 -> firstObserved.complete(key)
-                        1 -> retiredObserved.complete(key)
+                        0 -> {
+                            firstObserved.complete(key)
+                            releaseFirst.await()
+                        }
+                        1 -> acknowledgedObserved.complete(key)
+                        2 -> retiredObserved.complete(key)
                     }
                 }
             }
 
         try {
             engine.mutate(firstKey, rename, "first")
+            testScheduler.runCurrent()
+            firstObserved.await()
             journal.append(
                 retiredKey.identity(),
                 JournalEntry(
@@ -277,17 +285,20 @@ class MutationOverlayTest {
             assertEquals(emptyList(), engine.pending(retiredKey))
 
             cancelledDrain.cancel()
+            releaseFirst.complete(Unit)
             testScheduler.runCurrent()
             cancelledDrain.join()
 
             assertSame(firstKey, firstObserved.await())
             assertTrue(cancelledDrain.isCancelled)
+            assertSame(retiredKey, acknowledgedObserved.await())
             assertTrue(
                 retiredObserved.isCompleted,
                 "a completed retirement must retain its key-change handoff across cancellation",
             )
             assertSame(retiredKey, retiredObserved.await())
         } finally {
+            releaseFirst.complete(Unit)
             collector.cancelAndJoin()
         }
     }

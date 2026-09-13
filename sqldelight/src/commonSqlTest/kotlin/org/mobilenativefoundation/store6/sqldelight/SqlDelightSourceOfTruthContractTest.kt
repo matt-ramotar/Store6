@@ -30,6 +30,25 @@ internal class SqlDelightSourceOfTruthContractTest : SourceOfTruthContractKit<Sq
     override fun value(index: Int): String = "value-$index"
 
     @Test
+    fun cancelledCallerOutcome() = mutations_cancelledCaller_obeyOutcome()
+
+    @Test
+    fun mutationRollback() = mutations_throwBeforeCommit_preserveRowsAndNotifications(::sqlContractSourceFaultFixture)
+
+    @Test
+    fun mutationCallerCancellation() = mutations_externalCancellationAtCommit_obeyOutcome(
+        ::sqlContractSourceFaultFixture,
+    )
+
+    @Test
+    fun transactionRollback() = transactions_throw_preserveRowsAndNotifications()
+
+    @Test
+    fun transactionCallerCancellation() = transactions_externalCancellationAtCommit_obeyOutcome(
+        ::sqlContractSourceFaultFixture,
+    )
+
+    @Test
     fun nestedTransactionKeepsNotificationsKeyScoped(): TestResult = runTest {
         val sourceOfTruth = createSourceOfTruth()
         val matchingValue = value(1)

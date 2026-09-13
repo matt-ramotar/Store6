@@ -6,6 +6,7 @@ import kotlinx.io.files.Path
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.testing.BookkeeperContractKit
 import kotlin.test.AfterTest
+import kotlin.test.Test
 
 internal class FileBookkeeperContractTest : BookkeeperContractKit() {
     private val directories = mutableListOf<Path>()
@@ -14,6 +15,24 @@ internal class FileBookkeeperContractTest : BookkeeperContractKit() {
         val directory = createTempDirectory("store6-file-bookkeeper-kit").also { directories += it }
         return FileBookkeeper(directory)
     }
+
+    @Test
+    fun globalWatermarkCoverage() = globalWatermark_coversNeverSeenKeys()
+
+    @Test
+    fun laterSuccessCoverage() = laterSuccess_clearsOnlyEarlierStalenessForItsKey()
+
+    @Test
+    fun sharedMonotoneSequence() = marksAndSuccesses_shareOneMonotoneSequence()
+
+    @Test
+    fun forgetCoverage() = forget_removesRecordAndPreservesWatermarks()
+
+    @Test
+    fun forgetNamespaceCoverage() = forgetNamespace_removesOnlyMatchingRecordsAndPreservesWatermarks()
+
+    @Test
+    fun forgetAllCoverage() = forgetAll_removesRecordsAndPreservesWatermarks()
 
     @AfterTest
     fun cleanupDirectories() {

@@ -6,7 +6,7 @@
 #import <Foundation/NSString.h>
 #import <Foundation/NSValue.h>
 
-@class Store6CoreFetchPlanSkip, Store6CoreFetcherResultDeleted, Store6CoreFreshnessCachedOrFetch, Store6CoreFreshnessContext, Store6CoreFreshnessLocalOnly, Store6CoreFreshnessMustBeFresh, Store6CoreFreshnessStaleIfError, Store6CoreKeyEvents, Store6CoreKeyStatus, Store6CoreKotlinArray<T>, Store6CoreKotlinEnum<E>, Store6CoreKotlinEnumCompanion, Store6CoreKotlinException, Store6CoreKotlinIllegalStateException, Store6CoreKotlinRuntimeException, Store6CoreKotlinThrowable, Store6CoreOrigin, Store6CoreStoreBuilder<K, V>, Store6CoreStoreError, Store6CoreStoreErrorConflict, Store6CoreStoreErrorConversion, Store6CoreStoreErrorFetch, Store6CoreStoreErrorFreshnessUnsatisfiable, Store6CoreStoreErrorMissing, Store6CoreStoreErrorPersistence, Store6CoreStoreException, Store6CoreStoreNamespace, Store6CoreStoreResultData<V>, Store6CoreStoreResultError, Store6CoreStoreResultLoading, Store6CoreStoreResultRevalidated, Store6CoreStoreResults;
+@class Store6CoreFetchPlanSkip, Store6CoreFetcherResultDeleted, Store6CoreFreshnessCachedOrFetch, Store6CoreFreshnessContext, Store6CoreFreshnessEvidence, Store6CoreFreshnessLocalOnly, Store6CoreFreshnessMustBeFresh, Store6CoreFreshnessStaleIfError, Store6CoreKeyEvents, Store6CoreKeyStatus, Store6CoreKotlinArray<T>, Store6CoreKotlinEnum<E>, Store6CoreKotlinEnumCompanion, Store6CoreKotlinException, Store6CoreKotlinIllegalStateException, Store6CoreKotlinRuntimeException, Store6CoreKotlinThrowable, Store6CoreOrigin, Store6CoreSourceAdoption, Store6CoreStoreBuilder<K, V>, Store6CoreStoreError, Store6CoreStoreErrorConflict, Store6CoreStoreErrorConversion, Store6CoreStoreErrorFetch, Store6CoreStoreErrorFreshnessUnsatisfiable, Store6CoreStoreErrorMissing, Store6CoreStoreErrorPersistence, Store6CoreStoreException, Store6CoreStoreNamespace, Store6CoreStoreResultData<V>, Store6CoreStoreResultError, Store6CoreStoreResultLoading, Store6CoreStoreResultRevalidated, Store6CoreStoreResults;
 
 @protocol Store6CoreBookkeeper, Store6CoreFetchPlan, Store6CoreFetcher, Store6CoreFetcherResult, Store6CoreFreshness, Store6CoreFreshnessValidator, Store6CoreKotlinComparable, Store6CoreKotlinFunction, Store6CoreKotlinIterator, Store6CoreKotlinSuspendFunction0, Store6CoreKotlinSuspendFunction1, Store6CoreKotlinx_coroutines_coreFlow, Store6CoreKotlinx_coroutines_coreFlowCollector, Store6CoreOverlay, Store6CoreSourceOfTruth, Store6CoreStore, Store6CoreStoreKey, Store6CoreStoreMeta, Store6CoreStoreResult, Store6CoreStoreRuntime, Store6CoreStoreTelemetry, Store6CoreStoreWriteHandle, Store6CoreWallClock;
 
@@ -672,6 +672,16 @@ __attribute__((swift_name("FreshnessContext")))
 /**
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FreshnessEvidence")))
+@interface Store6CoreFreshnessEvidence : Store6CoreBase
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
 __attribute__((swift_name("FreshnessValidator")))
@@ -735,7 +745,20 @@ __attribute__((swift_name("Overlay")))
 @protocol Store6CoreOverlay
 @required
 - (id _Nullable)applyKey:(id<Store6CoreStoreKey>)key base:(id _Nullable)base __attribute__((swift_name("apply(key:base:)")));
+- (id _Nullable)applyKey:(id<Store6CoreStoreKey>)key base:(id _Nullable)base adoption:(Store6CoreSourceAdoption * _Nullable)adoption __attribute__((swift_name("apply(key:base:adoption:)")));
 @property (readonly) id<Store6CoreKotlinx_coroutines_coreFlow> changes __attribute__((swift_name("changes")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("SourceAdoption")))
+@interface Store6CoreSourceAdoption : Store6CoreBase
+- (instancetype)init __attribute__((swift_name("init()"))) __attribute__((objc_designated_initializer));
++ (instancetype)new __attribute__((availability(swift, unavailable, message="use object initializers instead")));
 @end
 
 
@@ -845,6 +868,18 @@ __attribute__((swift_name("StoreWriteHandle")))
  * Other uncaught Kotlin exceptions are fatal.
 */
 - (void)applyKey:(id<Store6CoreStoreKey>)key value:(id)value completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("apply(key:value:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)applyAcknowledgementKey:(id<Store6CoreStoreKey>)key value:(id)value etag:(NSString * _Nullable)etag freshnessEvidence:(Store6CoreFreshnessEvidence * _Nullable)freshnessEvidence adoption:(Store6CoreSourceAdoption * _Nullable)adoption completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("applyAcknowledgement(key:value:etag:freshnessEvidence:adoption:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)captureFreshnessKey:(id<Store6CoreStoreKey>)key completionHandler:(void (^)(Store6CoreFreshnessEvidence * _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("captureFreshness(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.

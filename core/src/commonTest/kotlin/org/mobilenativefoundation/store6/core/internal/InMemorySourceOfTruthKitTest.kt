@@ -28,6 +28,9 @@ class InMemorySourceOfTruthKitTest : SourceOfTruthContractKit<NamespacedTestKey,
         NamespacedTestKey(ns = "other", id = "a")
 
     override fun value(index: Int): String = "value-$index"
+
+    @Test
+    fun cancelledCallerOutcome() = mutations_cancelledCaller_obeyOutcome()
 }
 
 @OptIn(DelicateStoreApi::class, ExperimentalStoreApi::class)
@@ -41,6 +44,9 @@ class SharedFlowSourceOfTruthKitTest : SourceOfTruthContractKit<NamespacedTestKe
         NamespacedTestKey(ns = "other", id = "a")
 
     override fun value(index: Int): String = "value-$index"
+
+    @Test
+    fun cancelledCallerOutcome() = mutations_cancelledCaller_obeyOutcome()
 }
 
 @OptIn(

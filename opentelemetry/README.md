@@ -7,6 +7,33 @@ The seam is a freeze candidate, not frozen.
 
 ## Install
 
+This artifact ships in 6.0.0-alpha01, which is not released yet. The coordinates below are
+for a local publication from this source tree; nothing reaches Maven Central before that
+release.
+
+Use JDK 17 and configure an Android SDK containing platform 36 through `sdk.dir` in
+`local.properties` or `ANDROID_HOME`. The commands below enable Native KLIB cross-compilation;
+`:core` publishes Native KLIBs while this module is JVM and Android only, and publication of
+those files does not establish Native execution. Apple execution and linking require macOS with
+Xcode.
+
+From the repository root, publish the module and its Store6 dependencies locally:
+
+```bash
+./gradlew :core:publishToMavenLocal :opentelemetry:publishToMavenLocal -Pkotlin.native.enableKlibsCrossCompilation=true
+```
+
+Use the version in `gradle.properties` (currently `6.0.0-SNAPSHOT`) and add the local repository
+to the consuming build's dependency repositories:
+
+```kotlin
+repositories {
+    mavenLocal()
+    mavenCentral()
+    google()
+}
+```
+
 ```kotlin
 dependencies {
     implementation("org.mobilenativefoundation.store:opentelemetry:6.0.0-SNAPSHOT")

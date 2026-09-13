@@ -50,8 +50,9 @@ import kotlin.coroutines.CoroutineContext
  * This class is not a `TransactionalSourceOfTruth`, so integrations that engage only over that
  * interface treat it as non-transactional.
  *
- * `namespace.value` and `canonicalId()` each must be at most 159 UTF-8 bytes. A longer
- * component throws [IllegalArgumentException] and applies nothing. Empty strings are valid.
+ * `namespace.value` and `canonicalId()` each must be well-formed UTF-16 and at most 159 UTF-8
+ * bytes. A component holding an unpaired surrogate, or a longer component, throws
+ * [IllegalArgumentException] and applies nothing. Empty strings are valid.
  *
  * @param K the key type used to locate a row
  * @param V the non-null row type
@@ -149,7 +150,7 @@ public class FileSourceOfTruth<K : StoreKey, V : Any> internal constructor(
 
     public override suspend fun deleteNamespace(namespace: StoreNamespace) {
         val namespaceValue = namespace.value
-        FileNames.requireComponentLengths(namespaceValue, "")
+        FileNames.requireValidComponents(namespaceValue, "")
 
         beforeAdmissionTestGate()
         mutex.withLock {
@@ -314,7 +315,7 @@ public class FileSourceOfTruth<K : StoreKey, V : Any> internal constructor(
         FileNames.keyPath(valuesDirectory, identity.namespace, identity.canonicalId)
 
     private fun requireValid(identity: KeyIdentity) {
-        FileNames.requireComponentLengths(identity.namespace, identity.canonicalId)
+        FileNames.requireValidComponents(identity.namespace, identity.canonicalId)
     }
 
     private fun acquireReader(key: KeyIdentity): MutableStateFlow<Long> {

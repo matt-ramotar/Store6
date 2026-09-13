@@ -7,8 +7,10 @@ import androidx.room3.deferredTransaction
 import androidx.room3.immediateTransaction
 import androidx.room3.useReaderConnection
 import androidx.room3.useWriterConnection
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import org.mobilenativefoundation.store6.core.DelicateStoreApi
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
@@ -31,9 +33,11 @@ import kotlin.coroutines.cancellation.CancellationException
  * without durable freshness metadata. Rehydration conservatively treats that value as
  * age-unknown/stale.
  *
- * [recordSuccess], [recordFailure], and [forget] absorb storage failures; [status] returns null for
- * unavailable storage or invalid sidecar data. Cooperative caller cancellation and virtual-machine
- * failures (kotlin.Error) always propagate. A Room-internal cancellation from unavailable or closed
+ * [recordSuccess], [recordFailure], and [forget] absorb storage failures; [status] propagates
+ * unavailable storage or invalid sidecar data as failures. Status reads remain cancellable.
+ * Bookkeeping transactions check caller cancellation on entry, then protect connection acquisition and settlement
+ * from external cancellation. Explicitly thrown cancellation and virtual-machine failures
+ * (kotlin.Error) propagate from maintenance. A Room-internal cancellation from unavailable or closed
  * storage is classified using the active caller context and treated as the corresponding storage
  * failure. Maintenance methods propagate storage failures and remain transaction-atomic.
  */
@@ -142,15 +146,9 @@ public class RoomBookkeeper(
                     }
                 }
             }
-        } catch (_: CancellationException) {
+        } catch (failure: CancellationException) {
             currentCoroutineContext().ensureActive()
-            null
-        } catch (failure: Throwable) {
-            // Storage failures stay absorbed — a custom SQLiteDriver may surface exceptions
-            // outside RuntimeException; kotlin.Error propagates so virtual-machine failures
-            // are never reported as stale-unknown.
-            if (failure is Error) throw failure
-            null
+            throw IllegalStateException("Room bookkeeping status read was cancelled by storage", failure)
         }
     }
 
@@ -222,12 +220,16 @@ public class RoomBookkeeper(
         dao.upsertWatermark(Store6WatermarkEntity(scope, sequence))
     }
 
-    private suspend fun <T> inWriteTransaction(block: suspend () -> T): T =
-        database.useWriterConnection { transactor ->
-            transactor.immediateTransaction {
-                block()
+    private suspend fun <T> inWriteTransaction(block: suspend () -> T): T {
+        currentCoroutineContext().ensureActive()
+        return withContext(NonCancellable) {
+            database.useWriterConnection { transactor ->
+                transactor.immediateTransaction {
+                    block()
+                }
             }
         }
+    }
 
     private suspend inline fun infallibly(crossinline block: suspend () -> Unit) {
         try {

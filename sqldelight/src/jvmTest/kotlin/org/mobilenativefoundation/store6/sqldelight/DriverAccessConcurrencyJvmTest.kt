@@ -9,18 +9,22 @@ import app.cash.sqldelight.Query
 import app.cash.sqldelight.db.QueryResult
 import app.cash.sqldelight.db.SqlCursor
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest as coroutineRunTest
 import kotlinx.coroutines.withContext
+import org.mobilenativefoundation.store6.testing.TestStoreMeta
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlin.coroutines.resume
@@ -34,6 +38,75 @@ import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.seconds
 
 internal class DriverAccessConcurrencyJvmTest {
+    @Test
+    fun cancelledQueuedAccess_doesNotApplyMutationsOrExecuteReaderQuery() = runTest {
+        withHarness { harness ->
+            val holdingWriteEntered = CountDownLatch(1)
+            val releaseHoldingWrite = CountDownLatch(1)
+            val queryExecuted = CountDownLatch(1)
+            val sourceOfTruth = sourceOfTruth(
+                harness,
+                readQuery = { key -> ProbedQuery(harness.selectRow(key.ns, key.id), queryExecuted) },
+            ) { key, value ->
+                harness.upsertRow(key.ns, key.id, value)
+                if (key == KEY_A) {
+                    holdingWriteEntered.countDown()
+                    assertTrue(releaseHoldingWrite.await(TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                }
+            }
+            val bookkeeper = SqlDelightBookkeeper(harness.driver, harness.transacter)
+            sourceOfTruth.write(KEY_B, "before")
+            bookkeeper.recordSuccess(KEY_B, TestStoreMeta(1L, "original"))
+            val originalMeta = harness.metaRow(KEY_B.ns, KEY_B.id)
+            val operations: List<suspend () -> Unit> = listOf(
+                { sourceOfTruth.write(KEY_B, "cancelled") },
+                { sourceOfTruth.delete(KEY_B) },
+                { sourceOfTruth.deleteNamespace(KEY_B.namespace) },
+                { sourceOfTruth.deleteAll() },
+                { sourceOfTruth.withTransaction { sourceOfTruth.write(KEY_B, "cancelled") } },
+                { bookkeeper.recordSuccess(KEY_B, TestStoreMeta(42L, "cancelled")) },
+                { bookkeeper.recordFailure(KEY_B, 42L) },
+                { bookkeeper.forget(KEY_B) },
+                { bookkeeper.markStale(KEY_B) },
+                { bookkeeper.advanceStaleWatermark(KEY_B.namespace) },
+                { bookkeeper.advanceGlobalStaleWatermark() },
+                { bookkeeper.forgetNamespace(KEY_B.namespace) },
+                { bookkeeper.forgetAll() },
+                { bookkeeper.status(KEY_B); Unit },
+                { sourceOfTruth.reader(KEY_B).first(); Unit },
+            )
+
+            val holdingWrite = async(Dispatchers.Default) { sourceOfTruth.write(KEY_A, "holding") }
+            try {
+                assertTrue(holdingWriteEntered.await(TIMEOUT_SECONDS, TimeUnit.SECONDS))
+                operations.forEachIndexed { index, operation ->
+                    var completion: Result<Unit>? = null
+                    val queued = launch(start = CoroutineStart.UNDISPATCHED) {
+                        completion = runCatching { operation() }
+                    }
+                    assertFalse(queued.isCompleted, "operation $index must wait for the held driver")
+                    queued.cancel()
+                    queued.join()
+                    assertTrue(queued.isCancelled, "operation $index")
+                    assertTrue(
+                        assertNotNull(completion).exceptionOrNull() is CancellationException,
+                        "operation $index",
+                    )
+                }
+                assertEquals(1L, queryExecuted.count)
+            } finally {
+                releaseHoldingWrite.countDown()
+                holdingWrite.await()
+            }
+
+            assertEquals("holding", harness.selectRow(KEY_A.ns, KEY_A.id).executeAsOneOrNull())
+            assertEquals("before", harness.selectRow(KEY_B.ns, KEY_B.id).executeAsOneOrNull())
+            assertEquals(originalMeta, harness.metaRow(KEY_B.ns, KEY_B.id))
+            assertNull(harness.watermark("ns:${KEY_B.ns}"))
+            assertNull(harness.watermark("global"))
+        }
+    }
+
     @Test
     fun concurrentCrossKeyWrites_shareOneDriverGate() = runTest {
         withHarness { harness ->

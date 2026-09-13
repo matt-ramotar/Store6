@@ -505,16 +505,36 @@ extension Store6CoreSkie.StoreWriteHandle {
     }
 
     @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
+    public func applyAcknowledgement(
+        key: Store6CoreSkie.StoreKey,
+        value: Any,
+        etag: Swift.String?,
+        freshnessEvidence: Store6CoreSkie.FreshnessEvidence?,
+        adoption: Store6CoreSkie.SourceAdoption?
+    ) async throws -> Swift.Void {
+        return try await SwiftCoroutineDispatcher.dispatch {
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__25__applyAcknowledgement(dispatchReceiver: self, key: key, value: value, etag: etag, freshnessEvidence: freshnessEvidence, adoption: adoption, suspendHandler: $0)
+        }
+    }
+
+    @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
+    public func captureFreshness(key: Store6CoreSkie.StoreKey) async throws -> Store6CoreSkie.FreshnessEvidence? {
+        return try await SwiftCoroutineDispatcher.dispatch {
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__26__captureFreshness(dispatchReceiver: self, key: key, suspendHandler: $0)
+        }
+    }
+
+    @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
     public func confirmFresh(key: Store6CoreSkie.StoreKey, etag: Swift.String?) async throws -> Swift.Void {
         return try await SwiftCoroutineDispatcher.dispatch {
-            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__25__confirmFresh(dispatchReceiver: self, key: key, etag: etag, suspendHandler: $0)
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__27__confirmFresh(dispatchReceiver: self, key: key, etag: etag, suspendHandler: $0)
         }
     }
 
     @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
     public func markStale(key: Store6CoreSkie.StoreKey) async throws -> Swift.Void {
         return try await SwiftCoroutineDispatcher.dispatch {
-            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__26__markStale(dispatchReceiver: self, key: key, suspendHandler: $0)
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__28__markStale(dispatchReceiver: self, key: key, suspendHandler: $0)
         }
     }
 
@@ -530,7 +550,7 @@ extension Store6CoreSkie.TransactionalSourceOfTruth {
     @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
     public func withTransaction(block: Store6CoreSkie.KotlinSuspendFunction0) async throws -> Any? {
         return try await SwiftCoroutineDispatcher.dispatch {
-            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__27__withTransaction(dispatchReceiver: self, block: block, suspendHandler: $0)
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__29__withTransaction(dispatchReceiver: self, block: block, suspendHandler: $0)
         }
     }
 
@@ -1990,7 +2010,7 @@ extension Store6CoreSkie.Skie.RuntimeKotlin.SkieColdFlowIterator.__Suspend {
     @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
     public func hasNext() async throws -> Store6CoreSkie.KotlinBoolean {
         return try await SwiftCoroutineDispatcher.dispatch {
-            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__29__hasNext(dispatchReceiver: __kotlinObject as! Store6CoreSkie.SkieColdFlowIterator<Swift.AnyObject>, suspendHandler: $0)
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__31__hasNext(dispatchReceiver: __kotlinObject as! Store6CoreSkie.SkieColdFlowIterator<Swift.AnyObject>, suspendHandler: $0)
         }
     }
 
@@ -2872,7 +2892,7 @@ extension Store6CoreSkie.KotlinSuspendFunction0 {
     @available(iOS 13, macOS 10.15, watchOS 6, tvOS 13, *)
     public func invoke() async throws -> Any? {
         return try await SwiftCoroutineDispatcher.dispatch {
-            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__28__invoke(dispatchReceiver: self, suspendHandler: $0)
+            Store6CoreSkie.__SkieSuspendWrappersKt.Skie_Suspend__30__invoke(dispatchReceiver: self, suspendHandler: $0)
         }
     }
 

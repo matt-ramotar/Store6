@@ -10,6 +10,31 @@ candidates, not frozen — see [STABILITY.md](../STABILITY.md).
 
 ## Install
 
+The alpha artifacts are not yet available from Maven Central. The coordinates below are for a
+local publication from this source tree.
+
+Use JDK 17 and configure an Android SDK containing platform 36 through `sdk.dir` in
+`local.properties` or `ANDROID_HOME`. The commands below enable Native KLIB cross-compilation;
+publication of those files does not establish Native execution. Apple execution and linking
+require macOS with Xcode.
+
+From the repository root, publish the module and its Store6 dependencies locally:
+
+```bash
+./gradlew :core:publishToMavenLocal :realtime:publishToMavenLocal -Pkotlin.native.enableKlibsCrossCompilation=true
+```
+
+Use the version in `gradle.properties` (currently `6.0.0-SNAPSHOT`) and add the local repository
+to the consuming build's dependency repositories:
+
+```kotlin
+repositories {
+    mavenLocal()
+    mavenCentral()
+    google()
+}
+```
+
 ```kotlin
 kotlin {
     sourceSets {
@@ -31,7 +56,8 @@ The module uses Store6's full 12-target convention: Android, JVM, `iosArm64`,
 ## Entry points
 
 - `realtimeBinding(store)` — adopting mode. Requires `store.runtime()`. `Upsert` commits
-  through `StoreWriteHandle.apply` then `confirmFresh`. `Unchanged` calls `confirmFresh`.
+  through `StoreWriteHandle.applyAcknowledgement` using captured freshness evidence.
+  `Unchanged` calls `confirmFresh`.
 - `invalidatingRealtimeBinding(store)` — works on any `Store`, including `FakeStore` and
   `MutationStore`. `Upsert` becomes `Store.invalidate(key)`. `Unchanged` is ignored.
 - `RealtimeBinding.apply(message)` — one frame, serialized per binding.
@@ -50,7 +76,7 @@ when the store itself should stop.
 
 | Message | Adopting binding | Invalidating binding |
 | --- | --- | --- |
-| `Upsert(key, value, etag)` | `writeHandle.apply` then `confirmFresh` | `Store.invalidate(key)` |
+| `Upsert(key, value, etag)` | `writeHandle.captureFreshness`, then `applyAcknowledgement` | `Store.invalidate(key)` |
 | `Unchanged(key, etag)` | `writeHandle.confirmFresh` | no-op |
 | `Changed(key)` | `writeHandle.markStale` (`Store.invalidate`) | `Store.invalidate(key)` |
 | `ChangedNamespace(namespace)` | `Store.invalidateNamespace` | `Store.invalidateNamespace` |
@@ -84,10 +110,14 @@ operation is in flight. Cross-key order is preserved. Failures propagate as thro
 `StoreException` or `IllegalStateException` (`Store is closed.`); already-applied messages
 stay applied.
 
-An adopting `Upsert` pair is not atomic. Cancelling `apply` after `StoreWriteHandle.apply`
-and before `confirmFresh` can leave the value committed without bookkeeping success. A fetch
-already in flight is not cancelled; a fetch commit that runs after `apply` is later
-source-of-truth authority.
+An adopting `Upsert` commits the value and resident ETag under one engine writer lock. Freshness
+depends on evidence captured before that operation; a later key, namespace, or global invalidation
+remains stale. A fetch already in flight is not cancelled. If it commits afterward, its value
+and metadata become the later source-of-truth authority.
+
+A custom write handle that inherits the default `applyAcknowledgement` marks the key stale and
+applies the value without claiming freshness. Implementations need their own writer and freshness
+fences to provide the engine's stronger acknowledgement behavior.
 
 ## MutationStore
 
@@ -99,7 +129,8 @@ separate passes.
 ## Telemetry
 
 `Store.invalidate*` and `Store.clear` produce `KeyEvents` and, when telemetry is configured,
-`StoreTelemetry` callbacks. `StoreWriteHandle.apply` emits `KeyEvents.Written(origin = SOT)`.
+`StoreTelemetry` callbacks. Engine `StoreWriteHandle.applyAcknowledgement` emits
+`KeyEvents.Written(origin = SOT)`.
 `confirmFresh` emits no events. An active stream that re-emits after either fires
 `StoreTelemetry.onServe` when telemetry is configured. This artifact adds no event vocabulary
 and does not decide a wire format.

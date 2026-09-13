@@ -48,25 +48,15 @@ class ValidatorTokenTest {
     }
 
     @Test
-    fun notModifiedWithOnlyLastModified_keepsPriorToken() {
-        assertNull(
-            selectNotModifiedValidatorToken(
-                etagHeader = null,
-                lastModifiedHeader = "Sun, 06 Nov 1994 08:49:37 GMT",
-                lastModifiedFallback = true,
-            ),
-        )
+    fun notModifiedWithoutEtag_keepsPriorToken() {
+        assertNull(selectNotModifiedValidatorToken(etagHeader = null))
     }
 
     @Test
     fun notModifiedWithEtag_adoptsEtagVerbatim() {
         assertEquals(
             "W/\"updated\"",
-            selectNotModifiedValidatorToken(
-                etagHeader = "W/\"updated\"",
-                lastModifiedHeader = "Sun, 06 Nov 1994 08:49:37 GMT",
-                lastModifiedFallback = true,
-            ),
+            selectNotModifiedValidatorToken(etagHeader = "W/\"updated\""),
         )
     }
 

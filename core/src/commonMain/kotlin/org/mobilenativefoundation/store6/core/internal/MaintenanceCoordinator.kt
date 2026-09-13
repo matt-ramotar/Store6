@@ -4,6 +4,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -36,6 +37,26 @@ internal class MaintenanceCoordinator {
     private val activeCommits = mutableMapOf<String, Int>()
     private val blockedNamespaces = mutableSetOf<String>()
     private var globalMaintenance = false
+    private val freshnessVersions = MutableStateFlow(FreshnessVersions())
+
+    private data class FreshnessVersions(
+        val namespaces: Map<String, Any> = emptyMap(),
+        val global: Any = Any(),
+    )
+
+    fun freshnessVersions(namespace: String): Pair<Any?, Any> =
+        freshnessVersions.value.let { it.namespaces[namespace] to it.global }
+
+    /** Called after a durable watermark while its matching maintenance fence is held. */
+    fun advanceNamespaceFreshness(namespace: String) {
+        freshnessVersions.update { it.copy(namespaces = it.namespaces + (namespace to Any())) }
+    }
+
+    /** Called after a durable watermark while the global maintenance fence is held. */
+    fun advanceGlobalFreshness() {
+        freshnessVersions.update { it.copy(global = Any()) }
+    }
+
 
     suspend fun <T> withCommit(
         namespace: String,

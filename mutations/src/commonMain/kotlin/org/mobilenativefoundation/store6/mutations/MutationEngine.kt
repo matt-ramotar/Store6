@@ -26,7 +26,9 @@ import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreMeta
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
+import org.mobilenativefoundation.store6.core.seam.FreshnessEvidence
 import org.mobilenativefoundation.store6.core.seam.Overlay
+import org.mobilenativefoundation.store6.core.seam.SourceAdoption
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
 import org.mobilenativefoundation.store6.core.seam.StoreResults
 import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
@@ -192,6 +194,8 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     private val deadLettersByMutationId = AtomicMutableMap<String, DeadLetter>()
     private val codecBlockedMutationIds = AtomicMutableSet<String>()
     private val preAckParkCandidates = AtomicMutableMap<String, PreAckParkCandidate>()
+    private val preparedAcknowledgements = AtomicMutableMap<String, PreparedAcknowledgement<V>>()
+    private val acknowledgedProjections = AtomicMutableMap<String, PreparedAcknowledgement<V>>()
     private val legacyPendingPresentAcks =
         AtomicMutableMap<String, LegacyPendingPresentAck<K, V>>()
 
@@ -263,7 +267,10 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     internal val eventBus = MutationEventBus()
 
     /**
-     * Projects confirmed residence through the current pending intents.
+     * Projects confirmed residence through the current pending intents. An acknowledged head
+     * uses observed residence only when its exact source-adoption identity is present. Otherwise
+     * its immutable attempted result remains the pending projection basis, including after
+     * restart or engine eviction; queued siblings still project over that basis.
      *
      * Store stamps a changed projection with `OVERLAY` origin, zero age, and no staleness.
      * `OVERLAY` is therefore the pending-write affordance; staleness is not. The shared [changes]
@@ -278,11 +285,17 @@ internal class MutationEngine<K : StoreKey, V : Any>(
             override fun apply(
                 key: K,
                 base: V?,
+            ): V? = apply(key, base, adoption = null)
+
+            override fun apply(
+                key: K,
+                base: V?,
+                adoption: SourceAdoption?,
             ): V? {
                 val writer = key.identity()
                 val terminal = terminalIdentityOf(writer)
                 val observedAtEntry = emittedProjectionStampSignal(terminal).value
-                val projected = projectAll(key, base)
+                val projected = projectAll(key, base, adoption)
                 appliedProjectionStampSignal(writer).update { current ->
                     maxOf(current, observedAtEntry)
                 }
@@ -343,6 +356,8 @@ internal class MutationEngine<K : StoreKey, V : Any>(
             codecBlockedMutationIds.clear()
             preAckParkCandidates.clear()
             legacyPendingPresentAcks.clear()
+            preparedAcknowledgements.clear()
+            acknowledgedProjections.clear()
             effectSnapshots.clear()
             durableEffectRows.clear()
             drainFailures.clear()
@@ -423,6 +438,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     if (intent.clientSequence > client.retiredThroughSequence) {
                         retiredSequences += intent.clientSequence
                     }
+                    releaseCompletedEntry(intent.mutationId)
                     continue
                 }
                 if (
@@ -536,6 +552,17 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     }
                 }
                 if (blocked) codecBlockedMutationIds += intent.mutationId
+                durableAttempts[intent.mutationId]?.let { attempt ->
+                    // A reopened generation cannot recover the authority of its original send.
+                    val prepared = restoredAcknowledgement(attempt)
+                    preparedAcknowledgements[intent.mutationId] = prepared
+                    if (
+                        (phase == MutationExecutionPhase.ACKED || phase == MutationExecutionPhase.EFFECTS_PENDING) &&
+                        durableAcks[intent.mutationId]?.authoritativePresence == MutationPresenceState.PRESENT
+                    ) {
+                        acknowledgedProjections[intent.mutationId] = prepared
+                    }
+                }
                 entriesByIdentity
                     .getOrPut(effectiveIdentity) { mutableListOf() }
                     .add(
@@ -982,15 +1009,35 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     internal fun projectAll(
         key: K,
         base: V?,
+        adoption: SourceAdoption? = null,
     ): V? {
         val identity = key.identity()
         val tombstones = hydratedTombstones.toList()
+        // Retirement removes journal membership before releasing its projection snapshot.
+        val acknowledged = acknowledgedProjections.snapshot()
         val snapshot = journal.runtimeSnapshot()
         val entries = snapshot.entries[identity].orEmpty()
-        val aliases = snapshot.aliases
-        var projected: MutationPresence<V> = presenceOf(base)
-        for (entry in orderedPending(identity, entries, aliases, tombstones)) {
-            projected = project(projected, entry).value
+        val pending = orderedPending(identity, entries, snapshot.aliases, tombstones)
+        val head =
+            pending.firstOrNull { entry ->
+                adoption != null && acknowledged[entry.mutationId]?.adoption === adoption
+            } ?: pending.firstOrNull { entry -> entry.mutationId in acknowledged }
+        val headProjection = head?.let { acknowledged[it.mutationId] }
+        var projected =
+            if (headProjection == null || headProjection.adoption === adoption) {
+                presenceOf(base)
+            } else {
+                try {
+                    headProjection.readPending()
+                } catch (_: Throwable) {
+                    // Undecodable pending bytes cannot authorize replay against ambiguous residence.
+                    return null
+                }
+            }
+        for (entry in pending) {
+            if (entry.mutationId != head?.mutationId) {
+                projected = project(projected, entry).value
+            }
         }
         return (projected as? MutationPresence.Present)?.value
     }
@@ -1785,6 +1832,10 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     mine,
                     currentBase.meta,
                 )
+            if (preparedAcknowledgements[entry.mutationId]?.idempotencyKey != push.idempotencyKey) {
+                val pending = copiedPresence(mine)
+                prepareAcknowledgement(currentKey, entry, push.idempotencyKey) { copiedPresence(pending) }
+            }
             phases[entry.mutationId] = MutationExecutionPhase.INFLIGHT
             val ack =
                 try {
@@ -1804,6 +1855,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     val staged =
                         stageLegacyPresentAck(currentKey, entry, push.idempotencyKey, ack)
                             ?: return null
+                    withContext(NonCancellable) { signalChange(currentKey) }
                     val terminalTarget = aliasRouter.terminalOf(staged.targetKey.identity())
                     if (terminalTarget != lockIdentity) {
                         return DrainRehome(
@@ -1967,6 +2019,9 @@ internal class MutationEngine<K : StoreKey, V : Any>(
 
             val attempt = requireNotNull(durableAttempts[entry.mutationId])
             val push = buildPushFromDurableAttempt(currentKey, entry, attempt)
+            prepareAcknowledgement(currentKey, entry, push.idempotencyKey) {
+                attempt.decodeMine(checkNotNull(valueCodec))
+            }
             val execution = requireNotNull(durableExecutions[entry.mutationId])
             // Completed durable attempts + 1; an INFLIGHT replay re-emits the same ordinal.
             eventBus.tryEmit(
@@ -2044,6 +2099,10 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     )
             ) {
                 is PreconditionSelection.Selected -> selection.meta
+                is PreconditionSelection.CodecFailed -> {
+                    parkPreparationCodecFailure(key, entry, selection.failure)
+                    return DurablePreparationOutcome.PARKED
+                }
                 is PreconditionSelection.Failed -> {
                     parkDurableConflictFailure(
                         identity = key.identity(),
@@ -2076,6 +2135,8 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                 is EffectsEvaluation.Effects -> evaluated.effects
             }
         val preparedAt = wallClock.nowEpochMillis()
+        val encoded = encodeAttemptPresences(key, entry, captured.presence, projected.value)
+            ?: return DurablePreparationOutcome.PARKED
         val attempt =
             buildDurableAttempt(
                 key = key,
@@ -2085,6 +2146,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                 mine = projected.value,
                 preconditionMeta = preconditionMeta,
                 preparedAt = preparedAt,
+                encoded = encoded,
             )
         val storedEffects =
             effects.mapIndexed { index, effect ->
@@ -2138,14 +2200,21 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     ): PreconditionSelection {
         val selector = conflicts?.precondition
             ?: return PreconditionSelection.Selected(snapshotMeta(capturedMeta))
+        val copied =
+            try {
+                copiedPresence(base) to copiedPresence(mine)
+            } catch (failure: Throwable) {
+                if (failure is CancellationException) throw failure
+                return PreconditionSelection.CodecFailed(failure)
+            }
         val candidate =
             MutationPreconditionCandidate(
                 identity = MutationKeyIdentity(key.namespace.value, key.canonicalId()),
                 key = key,
                 mutationId = entry.mutationId,
                 generation = generation,
-                base = copiedPresence(base),
-                mine = copiedPresence(mine),
+                base = copied.first,
+                mine = copied.second,
                 capturedMeta = snapshotMeta(capturedMeta),
             )
         return try {
@@ -2165,8 +2234,8 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         mine: MutationPresence<V>,
         preconditionMeta: StoreMeta?,
         preparedAt: Long,
+        encoded: Pair<ByteArray?, ByteArray?>,
     ): MutationAttemptRecord {
-        val codec = checkNotNull(valueCodec)
         return MutationAttemptRecord(
             clientId = clientId,
             clientSequence = entry.durableClientSequence,
@@ -2175,9 +2244,9 @@ internal class MutationEngine<K : StoreKey, V : Any>(
             effectiveCanonicalId = key.canonicalId(),
             valueCodecVersion = valueCodecVersion,
             basePresence = base.toPresenceState(),
-            baseBlob = base.encodePresentOrNull(codec),
+            baseBlob = encoded.first,
             minePresence = mine.toPresenceState(),
-            mineBlob = mine.encodePresentOrNull(codec),
+            mineBlob = encoded.second,
             preconditionMetaPresent = preconditionMeta != null,
             preconditionWrittenAt = preconditionMeta?.writtenAtEpochMillis,
             preconditionEtag = preconditionMeta?.etag,
@@ -2189,6 +2258,36 @@ internal class MutationEngine<K : StoreKey, V : Any>(
             conflictWrittenAt = null,
             conflictEtag = null,
             conflictReceivedAt = null,
+        )
+    }
+
+    private suspend fun encodeAttemptPresences(
+        key: K,
+        entry: JournalEntry<V>,
+        base: MutationPresence<V>,
+        mine: MutationPresence<V>,
+    ): Pair<ByteArray?, ByteArray?>? {
+        val codec = checkNotNull(valueCodec)
+        return try {
+            base.encodePresentOrNull(codec) to mine.encodePresentOrNull(codec)
+        } catch (failure: Throwable) {
+            if (failure is CancellationException) throw failure
+            parkPreparationCodecFailure(key, entry, failure)
+            null
+        }
+    }
+
+    private suspend fun parkPreparationCodecFailure(
+        key: K,
+        entry: JournalEntry<V>,
+        failure: Throwable,
+    ) {
+        parkDurablePreAck(
+            identity = key.identity(),
+            entry = entry,
+            kind = MutationFailureKind.CODEC,
+            detail = "value-codec-preparation",
+            message = failure.message ?: "Mutation value codec failed without a message.",
         )
     }
 
@@ -2464,6 +2563,10 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     )
             ) {
                 is PreconditionSelection.Selected -> selection.meta
+                is PreconditionSelection.CodecFailed -> {
+                    parkPreparationCodecFailure(key, entry, selection.failure)
+                    return DurablePreparationOutcome.PARKED
+                }
                 is PreconditionSelection.Failed -> {
                     parkDurableConflictFailure(
                         identity =
@@ -2481,6 +2584,8 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                 }
             }
         val preparedAt = wallClock.nowEpochMillis()
+        val encoded = encodeAttemptPresences(key, entry, theirs.presence, mine)
+            ?: return DurablePreparationOutcome.PARKED
         val nextAttempt =
             buildDurableAttempt(
                 key = key,
@@ -2490,6 +2595,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                 mine = mine,
                 preconditionMeta = preconditionMeta,
                 preparedAt = preparedAt,
+                encoded = encoded,
             )
         val durable = requireNotNull(durableJournal)
         val previousExecution = requireNotNull(durableExecutions[entry.mutationId])
@@ -2632,6 +2738,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         preAckParkCandidates.remove(entry.mutationId)
         codecBlockedMutationIds.remove(entry.mutationId)
         journal.retire(identity, entry.mutationId)
+        releaseAcknowledgement(entry.mutationId)
         signalSink.emit(ProjectionRevisionKey(identity))
         val eventIdentity =
             durableAttempts[entry.mutationId]?.toEventIdentity()
@@ -2935,11 +3042,22 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         if (aliasAdmission != null) {
             publishDurableAliasAdmission(aliasAdmission)
         }
+        if (ack is MutationPresentAck) {
+            acknowledgedProjections[entry.mutationId] =
+                requireNotNull(preparedAcknowledgements[entry.mutationId])
+        }
         durableAcks[entry.mutationId] = record
         durableExecutions[entry.mutationId] = acknowledged
         phases[entry.mutationId] = MutationExecutionPhase.ACKED
         completedAttempts[entry.mutationId] = acknowledged.attempt
         tombstone?.let { hydratedTombstones += it }
+        if (ack is MutationPresentAck) {
+            withContext(NonCancellable) {
+                signalSink.emit(
+                    ProjectionRevisionKey(KeyIdentity(attempt.effectiveNamespace, attempt.effectiveCanonicalId)),
+                )
+            }
+        }
         return record
     }
 
@@ -3034,8 +3152,14 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                             ack.valueCodecVersion,
                             checkNotNull(ack.authoritativeBlob),
                         )
-                    handle.apply(effectiveKey, authoritative)
-                    handle.confirmFresh(effectiveKey, ack.etag)
+                    val prepared = requireNotNull(acknowledgedProjections[entry.mutationId])
+                    handle.applyAcknowledgement(
+                        effectiveKey,
+                        authoritative,
+                        ack.etag,
+                        prepared.freshnessEvidence,
+                        prepared.adoption,
+                    )
                 } catch (failure: Throwable) {
                     if (failure is CancellationException) throw failure
                     throwPostAckFailureWithEvidence(
@@ -3501,6 +3625,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     retiredThroughSequence = commit.retiredThroughSequence,
                 ),
             )
+            releaseCompletedEntry(entry.mutationId)
         }
     }
 
@@ -3529,6 +3654,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
             }
             signalSink.emit(key)
             publishRetiredEvent(entry, commit)
+            releaseCompletedEntry(entry.mutationId)
             true
         }
 
@@ -3578,6 +3704,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
             signalSink.emit(sourceKey)
             signalSink.emit(targetKey)
             publishRetiredEvent(entry, commit)
+            releaseCompletedEntry(entry.mutationId)
             true
         }
     }
@@ -3749,6 +3876,26 @@ internal class MutationEngine<K : StoreKey, V : Any>(
     }
 
     /**
+     * Releases completed payloads after retirement publication, or when hydrating retired
+     * history whose events are not replayed. Retirement prefixes and gaps remain independent
+     * of these caches. Remove executions before attempts because owner enumeration snapshots
+     * attempts first and must never observe an owner whose attempt has been removed.
+     */
+    private fun releaseCompletedEntry(mutationId: String) {
+        check(durableExecutions[mutationId]?.phase == StoredExecutionPhase.RETIRED) {
+            "Only a retired mutation may release its completed payloads."
+        }
+        durableExecutions.remove(mutationId)
+        durableAttempts.remove(mutationId)
+        durableAcks.remove(mutationId)
+        durableEffectRows.remove(mutationId)
+        effectSnapshots.remove(mutationId)
+        phases.remove(mutationId)
+        completedAttempts.remove(mutationId)
+        releaseAcknowledgement(mutationId)
+    }
+
+    /**
      * The lowest pending durable client sequence at [identity] within this pass's enqueue bound:
      * the pass drains the prefix that existed when it started and never chases intents enqueued
      * behind it. Ties (direct journal appends in module tests use the default sequence)
@@ -3917,8 +4064,8 @@ internal class MutationEngine<K : StoreKey, V : Any>(
 
     /**
      * The in-memory present adoption: validate the acknowledgement and its optional canonical
-     * target, then `apply -> confirmFresh` at the EFFECTIVE canonical key, then retire — and for a
-     * redirect, activate the alias inside the same `NonCancellable` accepted-state handoff that
+     * target, then adopt value and metadata under one Store commit fence at that key, then retire.
+     * A redirect activates its alias inside the same `NonCancellable` accepted-state handoff that
      * advances the mutation-owned alias revision.
      *
      * The authoritative value is rebuilt through the codec's copy boundaries before adoption so a
@@ -3968,6 +4115,8 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                             authoritative = copiedValue(ack.authoritative),
                             etag = ack.etag,
                         )
+                    acknowledgedProjections[entry.mutationId] =
+                        requireNotNull(preparedAcknowledgements[entry.mutationId])
                     phases[entry.mutationId] = MutationExecutionPhase.ACKED
                     legacyPendingPresentAcks[entry.mutationId] = pending
                     pending
@@ -3980,8 +4129,14 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         pending: LegacyPendingPresentAck<K, V>,
     ): PresentAdoption<K, V> {
         try {
-            handle.apply(pending.targetKey, pending.authoritative)
-            handle.confirmFresh(pending.targetKey, pending.etag)
+            val prepared = requireNotNull(acknowledgedProjections[entry.mutationId])
+            handle.applyAcknowledgement(
+                pending.targetKey,
+                pending.authoritative,
+                pending.etag,
+                prepared.freshnessEvidence,
+                prepared.adoption,
+            )
             if (pending.sourceKey.identity() == pending.targetKey.identity()) {
                 retire(pending.sourceKey, entry)
             } else {
@@ -4025,6 +4180,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         entry: JournalEntry<V>,
     ) {
         journal.retire(key.identity(), entry.mutationId)
+        releaseAcknowledgement(entry.mutationId)
         phases.remove(entry.mutationId)
         completedAttempts.remove(entry.mutationId)
         recordRetiredSequence(entry.clientSequence)
@@ -4057,6 +4213,7 @@ internal class MutationEngine<K : StoreKey, V : Any>(
                     retiredMutationId = entry.mutationId,
                 )
                 cacheLiveKey(target, targetKey)
+                releaseAcknowledgement(entry.mutationId)
                 phases.remove(entry.mutationId)
                 completedAttempts.remove(entry.mutationId)
                 recordRetiredSequence(entry.clientSequence)
@@ -4128,6 +4285,37 @@ internal class MutationEngine<K : StoreKey, V : Any>(
         hydratedTombstones.filter { row ->
             row.namespace == identity.namespace && row.canonicalId == identity.canonicalId
         }
+
+    /** Transport and adoption retries retain the first send's authority for this generation. */
+    private suspend fun prepareAcknowledgement(
+        key: K,
+        entry: JournalEntry<V>,
+        idempotencyKey: String,
+        readPending: () -> MutationPresence<V>,
+    ): PreparedAcknowledgement<V> {
+        val previous = preparedAcknowledgements[entry.mutationId]
+        if (previous?.idempotencyKey == idempotencyKey) return previous
+        val prepared =
+            PreparedAcknowledgement(
+                idempotencyKey = idempotencyKey,
+                freshnessEvidence = handle.captureFreshness(key),
+                readPending = readPending,
+            )
+        preparedAcknowledgements[entry.mutationId] = prepared
+        return prepared
+    }
+
+    private fun restoredAcknowledgement(attempt: MutationAttemptRecord): PreparedAcknowledgement<V> =
+        PreparedAcknowledgement(
+            idempotencyKey = attempt.generationIdempotencyKey,
+            freshnessEvidence = null,
+            readPending = { attempt.decodeMine(checkNotNull(valueCodec)) },
+        )
+
+    private fun releaseAcknowledgement(mutationId: String) {
+        acknowledgedProjections.remove(mutationId)
+        preparedAcknowledgements.remove(mutationId)
+    }
 
     private fun copiedPresence(presence: MutationPresence<V>): MutationPresence<V> =
         when (presence) {
@@ -4206,6 +4394,10 @@ private sealed interface PreconditionSelection {
     ) : PreconditionSelection
 
     class Failed(
+        val failure: Throwable,
+    ) : PreconditionSelection
+
+    class CodecFailed(
         val failure: Throwable,
     ) : PreconditionSelection
 }
@@ -4566,6 +4758,8 @@ private class AtomicMutableMap<K, V> {
 
     val values: Collection<V>
         get() = state.value.values
+
+    fun snapshot(): Map<K, V> = state.value
 }
 
 /** Copy-on-write list used by cross-identity drain bookkeeping in common code. */
@@ -4627,6 +4821,14 @@ private data class RetirementState(
     val retiredThroughSequence: Long = 0L,
     val serverConfirmedRetiredThroughSequence: Long = 0L,
 )
+
+private class PreparedAcknowledgement<V : Any>(
+    val idempotencyKey: String,
+    val freshnessEvidence: FreshnessEvidence?,
+    val readPending: () -> MutationPresence<V>,
+) {
+    val adoption = SourceAdoption()
+}
 
 private class LegacyPendingPresentAck<K : StoreKey, V : Any>(
     val sourceKey: K,

@@ -6,7 +6,7 @@
 #import <Foundation/NSString.h>
 #import <Foundation/NSValue.h>
 
-@class Store6Kotlin__SkieSuspendWrappersKt, Store6KotlinUShort, Store6KotlinULong, Store6KotlinUInt, Store6KotlinUByte, Store6KotlinSwiftStoreKey, Store6KotlinSwiftInteropKt, Store6KotlinStoreStateKind, Store6KotlinStoreStateBridge, Store6KotlinStoreRuntimeKt, Store6KotlinStoreResults, Store6KotlinStoreResultRevalidated, Store6KotlinStoreResultLoading, Store6KotlinStoreResultError, Store6KotlinStoreResultData<V>, Store6KotlinStoreNamespace, Store6KotlinStoreException, Store6KotlinStoreErrorPersistence, Store6KotlinStoreErrorMissing, Store6KotlinStoreErrorFreshnessUnsatisfiable, Store6KotlinStoreErrorFetch, Store6KotlinStoreErrorConversion, Store6KotlinStoreErrorConflict, Store6KotlinStoreError, Store6KotlinStoreBuilderKt, Store6KotlinStoreBuilder<K, V>, Store6KotlinSkie_SuspendResultSuccess, Store6KotlinSkie_SuspendResultError, Store6KotlinSkie_SuspendResultCanceled, Store6KotlinSkie_SuspendResult, Store6KotlinSkie_SuspendHandler, Store6KotlinSkie_CancellationHandler, Store6KotlinSkieKotlinStateFlow<T>, Store6KotlinSkieKotlinSharedFlow<T>, Store6KotlinSkieKotlinOptionalStateFlow<T>, Store6KotlinSkieKotlinOptionalSharedFlow<T>, Store6KotlinSkieKotlinOptionalMutableStateFlow<T>, Store6KotlinSkieKotlinOptionalMutableSharedFlow<T>, Store6KotlinSkieKotlinOptionalFlow<T>, Store6KotlinSkieKotlinMutableStateFlow<T>, Store6KotlinSkieKotlinMutableSharedFlow<T>, Store6KotlinSkieKotlinFlow<T>, Store6KotlinSkieColdFlowIterator<E>, Store6KotlinShort, Store6KotlinOrigin, Store6KotlinNumber, Store6KotlinMutableSet<ObjectType>, Store6KotlinMutableDictionary<KeyType, ObjectType>, Store6KotlinLong, Store6KotlinKotlinUnit, Store6KotlinKotlinThrowable, Store6KotlinKotlinRuntimeException, Store6KotlinKotlinIllegalStateException, Store6KotlinKotlinException, Store6KotlinKotlinEnumCompanion, Store6KotlinKotlinEnum<E>, Store6KotlinKotlinCancellationException, Store6KotlinKotlinArray<T>, Store6KotlinKeyStatus, Store6KotlinKeyEventsWritten, Store6KotlinKeyEventsInvalidated, Store6KotlinKeyEventsDeleted, Store6KotlinKeyEvents, Store6KotlinInt, Store6KotlinFreshnessStaleIfError, Store6KotlinFreshnessMustBeFresh, Store6KotlinFreshnessMaxAge, Store6KotlinFreshnessLocalOnly, Store6KotlinFreshnessContext, Store6KotlinFreshnessCachedOrFetch, Store6KotlinFloat, Store6KotlinFetcherResultSuccess<V>, Store6KotlinFetcherResultNotModified, Store6KotlinFetcherResultError, Store6KotlinFetcherResultDeleted, Store6KotlinFetchPlanSkip, Store6KotlinFetchPlanFetch, Store6KotlinFetchPlanConditional, Store6KotlinDouble, Store6KotlinByte, Store6KotlinBoolean, Store6KotlinBase, NSString, NSSet<ObjectType>, NSObject, NSNumber, NSMutableSet<ObjectType>, NSMutableDictionary<KeyType, ObjectType>, NSMutableArray<ObjectType>, NSError, NSDictionary<KeyType, ObjectType>, NSArray<ObjectType>;
+@class Store6Kotlin__SkieSuspendWrappersKt, Store6KotlinUShort, Store6KotlinULong, Store6KotlinUInt, Store6KotlinUByte, Store6KotlinSwiftStoreKey, Store6KotlinSwiftInteropKt, Store6KotlinStoreStateKind, Store6KotlinStoreStateBridge, Store6KotlinStoreRuntimeKt, Store6KotlinStoreResults, Store6KotlinStoreResultRevalidated, Store6KotlinStoreResultLoading, Store6KotlinStoreResultError, Store6KotlinStoreResultData<V>, Store6KotlinStoreNamespace, Store6KotlinStoreException, Store6KotlinStoreErrorPersistence, Store6KotlinStoreErrorMissing, Store6KotlinStoreErrorFreshnessUnsatisfiable, Store6KotlinStoreErrorFetch, Store6KotlinStoreErrorConversion, Store6KotlinStoreErrorConflict, Store6KotlinStoreError, Store6KotlinStoreBuilderKt, Store6KotlinStoreBuilder<K, V>, Store6KotlinSourceAdoption, Store6KotlinSkie_SuspendResultSuccess, Store6KotlinSkie_SuspendResultError, Store6KotlinSkie_SuspendResultCanceled, Store6KotlinSkie_SuspendResult, Store6KotlinSkie_SuspendHandler, Store6KotlinSkie_CancellationHandler, Store6KotlinSkieKotlinStateFlow<T>, Store6KotlinSkieKotlinSharedFlow<T>, Store6KotlinSkieKotlinOptionalStateFlow<T>, Store6KotlinSkieKotlinOptionalSharedFlow<T>, Store6KotlinSkieKotlinOptionalMutableStateFlow<T>, Store6KotlinSkieKotlinOptionalMutableSharedFlow<T>, Store6KotlinSkieKotlinOptionalFlow<T>, Store6KotlinSkieKotlinMutableStateFlow<T>, Store6KotlinSkieKotlinMutableSharedFlow<T>, Store6KotlinSkieKotlinFlow<T>, Store6KotlinSkieColdFlowIterator<E>, Store6KotlinShort, Store6KotlinOrigin, Store6KotlinNumber, Store6KotlinMutableSet<ObjectType>, Store6KotlinMutableDictionary<KeyType, ObjectType>, Store6KotlinLong, Store6KotlinKotlinUnit, Store6KotlinKotlinThrowable, Store6KotlinKotlinRuntimeException, Store6KotlinKotlinIllegalStateException, Store6KotlinKotlinException, Store6KotlinKotlinEnumCompanion, Store6KotlinKotlinEnum<E>, Store6KotlinKotlinCancellationException, Store6KotlinKotlinArray<T>, Store6KotlinKeyStatus, Store6KotlinKeyEventsWritten, Store6KotlinKeyEventsInvalidated, Store6KotlinKeyEventsDeleted, Store6KotlinKeyEvents, Store6KotlinInt, Store6KotlinFreshnessStaleIfError, Store6KotlinFreshnessMustBeFresh, Store6KotlinFreshnessMaxAge, Store6KotlinFreshnessLocalOnly, Store6KotlinFreshnessEvidence, Store6KotlinFreshnessContext, Store6KotlinFreshnessCachedOrFetch, Store6KotlinFloat, Store6KotlinFetcherResultSuccess<V>, Store6KotlinFetcherResultNotModified, Store6KotlinFetcherResultError, Store6KotlinFetcherResultDeleted, Store6KotlinFetchPlanSkip, Store6KotlinFetchPlanFetch, Store6KotlinFetchPlanConditional, Store6KotlinDouble, Store6KotlinByte, Store6KotlinBoolean, Store6KotlinBase, NSString, NSSet<ObjectType>, NSObject, NSNumber, NSMutableSet<ObjectType>, NSMutableDictionary<KeyType, ObjectType>, NSMutableArray<ObjectType>, NSError, NSDictionary<KeyType, ObjectType>, NSArray<ObjectType>;
 
 @protocol Store6KotlinWallClock, Store6KotlinTransactionalSourceOfTruth, Store6KotlinStoreWriteHandle, Store6KotlinStoreTelemetry, Store6KotlinStoreRuntime, Store6KotlinStoreResult, Store6KotlinStoreMeta, Store6KotlinStoreKey, Store6KotlinStore, Store6KotlinSourceOfTruth, Store6KotlinSkie_DispatcherDelegate, Store6KotlinOverlay, Store6KotlinKotlinx_coroutines_coreStateFlow, Store6KotlinKotlinx_coroutines_coreSharedFlow, Store6KotlinKotlinx_coroutines_coreRunnable, Store6KotlinKotlinx_coroutines_coreMutableStateFlow, Store6KotlinKotlinx_coroutines_coreMutableSharedFlow, Store6KotlinKotlinx_coroutines_coreFlowCollector, Store6KotlinKotlinx_coroutines_coreFlow, Store6KotlinKotlinSuspendFunction1, Store6KotlinKotlinSuspendFunction0, Store6KotlinKotlinIterator, Store6KotlinKotlinFunction, Store6KotlinKotlinComparable, Store6KotlinFreshnessValidator, Store6KotlinFreshness, Store6KotlinFetcherResult, Store6KotlinFetcher, Store6KotlinFetchPlan, Store6KotlinBookkeeper, NSCopying;
 
@@ -1006,6 +1006,16 @@ __attribute__((swift_name("FreshnessContext")))
 /**
  * @note annotations
  *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("FreshnessEvidence")))
+@interface Store6KotlinFreshnessEvidence : Store6KotlinBase
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
  *   kotlin.SubclassOptInRequired(markerClass=[NormalClass(value=org/mobilenativefoundation/store6/core/DelicateStoreApi)])
 */
 __attribute__((swift_name("FreshnessValidator")))
@@ -1069,7 +1079,20 @@ __attribute__((swift_name("Overlay")))
 @protocol Store6KotlinOverlay
 @required
 - (id _Nullable)applyKey:(id<Store6KotlinStoreKey>)key base:(id _Nullable)base __attribute__((swift_name("apply(key:base:)")));
+- (id _Nullable)applyKey:(id<Store6KotlinStoreKey>)key base:(id _Nullable)base adoption:(Store6KotlinSourceAdoption * _Nullable)adoption __attribute__((swift_name("apply(key:base:adoption:)")));
 @property (readonly) id<Store6KotlinKotlinx_coroutines_coreFlow> changes __attribute__((swift_name("changes")));
+@end
+
+
+/**
+ * @note annotations
+ *   org.mobilenativefoundation.store6.core.ExperimentalStoreApi
+*/
+__attribute__((objc_subclassing_restricted))
+__attribute__((swift_name("SourceAdoption")))
+@interface Store6KotlinSourceAdoption : Store6KotlinBase
+- (instancetype)init __attribute__((swift_name("init()"))) __attribute__((objc_designated_initializer));
++ (instancetype)new __attribute__((availability(swift, unavailable, message="use object initializers instead")));
 @end
 
 
@@ -1179,6 +1202,18 @@ __attribute__((swift_name("StoreWriteHandle")))
  * Other uncaught Kotlin exceptions are fatal.
 */
 - (void)applyKey:(id<Store6KotlinStoreKey>)key value:(id)value completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("apply(key:value:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)applyAcknowledgementKey:(id<Store6KotlinStoreKey>)key value:(id)value etag:(NSString * _Nullable)etag freshnessEvidence:(Store6KotlinFreshnessEvidence * _Nullable)freshnessEvidence adoption:(Store6KotlinSourceAdoption * _Nullable)adoption completionHandler:(void (^)(NSError * _Nullable))completionHandler __attribute__((swift_name("applyAcknowledgement(key:value:etag:freshnessEvidence:adoption:completionHandler:)")));
+
+/**
+ * @note This method converts instances of CancellationException to errors.
+ * Other uncaught Kotlin exceptions are fatal.
+*/
+- (void)captureFreshnessKey:(id<Store6KotlinStoreKey>)key completionHandler:(void (^)(Store6KotlinFreshnessEvidence * _Nullable_result, NSError * _Nullable))completionHandler __attribute__((swift_name("captureFreshness(key:completionHandler:)")));
 
 /**
  * @note This method converts instances of CancellationException to errors.
@@ -1312,12 +1347,14 @@ __attribute__((swift_name("__SkieSuspendWrappersKt")))
 + (void)Skie_Suspend__23__recordSuccessDispatchReceiver:(id<Store6KotlinBookkeeper>)dispatchReceiver key:(id<Store6KotlinStoreKey>)key meta:(id<Store6KotlinStoreMeta>)meta suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__23__recordSuccess(dispatchReceiver:key:meta:suspendHandler:)")));
 + (void)Skie_Suspend__24__statusDispatchReceiver:(id<Store6KotlinBookkeeper>)dispatchReceiver key:(id<Store6KotlinStoreKey>)key suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__24__status(dispatchReceiver:key:suspendHandler:)")));
 + (void)Skie_Suspend__25__applyDispatchReceiver:(id<Store6KotlinStoreWriteHandle>)dispatchReceiver key:(id<Store6KotlinStoreKey>)key value:(id)value suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__25__apply(dispatchReceiver:key:value:suspendHandler:)")));
-+ (void)Skie_Suspend__26__confirmFreshDispatchReceiver:(id<Store6KotlinStoreWriteHandle>)dispatchReceiver key:(id<Store6KotlinStoreKey>)key etag:(NSString * _Nullable)etag suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__26__confirmFresh(dispatchReceiver:key:etag:suspendHandler:)")));
-+ (void)Skie_Suspend__27__markStaleDispatchReceiver:(id<Store6KotlinStoreWriteHandle>)dispatchReceiver key:(id<Store6KotlinStoreKey>)key suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__27__markStale(dispatchReceiver:key:suspendHandler:)")));
-+ (void)Skie_Suspend__28__withTransactionDispatchReceiver:(id<Store6KotlinTransactionalSourceOfTruth>)dispatchReceiver block:(id<Store6KotlinKotlinSuspendFunction0>)block suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__28__withTransaction(dispatchReceiver:block:suspendHandler:)")));
-+ (void)Skie_Suspend__29__invokeDispatchReceiver:(id<Store6KotlinKotlinSuspendFunction0>)dispatchReceiver suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__29__invoke(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__26__applyAcknowledgementDispatchReceiver:(id<Store6KotlinStoreWriteHandle>)dispatchReceiver key:(id<Store6KotlinStoreKey>)key value:(id)value etag:(NSString * _Nullable)etag freshnessEvidence:(Store6KotlinFreshnessEvidence * _Nullable)freshnessEvidence adoption:(Store6KotlinSourceAdoption * _Nullable)adoption suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__26__applyAcknowledgement(dispatchReceiver:key:value:etag:freshnessEvidence:adoption:suspendHandler:)")));
++ (void)Skie_Suspend__27__captureFreshnessDispatchReceiver:(id<Store6KotlinStoreWriteHandle>)dispatchReceiver key:(id<Store6KotlinStoreKey>)key suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__27__captureFreshness(dispatchReceiver:key:suspendHandler:)")));
++ (void)Skie_Suspend__28__confirmFreshDispatchReceiver:(id<Store6KotlinStoreWriteHandle>)dispatchReceiver key:(id<Store6KotlinStoreKey>)key etag:(NSString * _Nullable)etag suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__28__confirmFresh(dispatchReceiver:key:etag:suspendHandler:)")));
++ (void)Skie_Suspend__29__markStaleDispatchReceiver:(id<Store6KotlinStoreWriteHandle>)dispatchReceiver key:(id<Store6KotlinStoreKey>)key suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__29__markStale(dispatchReceiver:key:suspendHandler:)")));
 + (void)Skie_Suspend__2__clearAllDispatchReceiver:(id<Store6KotlinStore>)dispatchReceiver suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__2__clearAll(dispatchReceiver:suspendHandler:)")));
-+ (void)Skie_Suspend__30__hasNextDispatchReceiver:(Store6KotlinSkieColdFlowIterator<id> *)dispatchReceiver suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__30__hasNext(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__30__withTransactionDispatchReceiver:(id<Store6KotlinTransactionalSourceOfTruth>)dispatchReceiver block:(id<Store6KotlinKotlinSuspendFunction0>)block suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__30__withTransaction(dispatchReceiver:block:suspendHandler:)")));
++ (void)Skie_Suspend__31__invokeDispatchReceiver:(id<Store6KotlinKotlinSuspendFunction0>)dispatchReceiver suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__31__invoke(dispatchReceiver:suspendHandler:)")));
++ (void)Skie_Suspend__32__hasNextDispatchReceiver:(Store6KotlinSkieColdFlowIterator<id> *)dispatchReceiver suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__32__hasNext(dispatchReceiver:suspendHandler:)")));
 + (void)Skie_Suspend__3__clearNamespaceDispatchReceiver:(id<Store6KotlinStore>)dispatchReceiver namespace:(Store6KotlinStoreNamespace *)namespace_ suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__3__clearNamespace(dispatchReceiver:namespace:suspendHandler:)")));
 + (void)Skie_Suspend__4__getDispatchReceiver:(id<Store6KotlinStore>)dispatchReceiver key:(id<Store6KotlinStoreKey>)key freshness:(id<Store6KotlinFreshness>)freshness suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__4__get(dispatchReceiver:key:freshness:suspendHandler:)")));
 + (void)Skie_Suspend__5__invalidateDispatchReceiver:(id<Store6KotlinStore>)dispatchReceiver key:(id<Store6KotlinStoreKey>)key suspendHandler:(Store6KotlinSkie_SuspendHandler *)suspendHandler __attribute__((swift_name("Skie_Suspend__5__invalidate(dispatchReceiver:key:suspendHandler:)")));

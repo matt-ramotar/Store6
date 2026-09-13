@@ -38,8 +38,8 @@ public object MutationMerges {
 
     /**
      * The mutator's projector must assign a fresh stamp to every local write. A projector copying
-     * the base's stamp produces ties, and ties lose to the server, so the policy silently degrades
-     * to server-wins.
+     * the base's stamp produces stamps that never exceed the server's, and `mine` must be strictly
+     * newer to win, so the policy silently degrades to server-wins.
      *
      * Decision table (P = present, A = absent):
      * - mine P, theirs P: `writtenAt(mine) > writtenAt(theirs)` resolves `Retry(mine)`; otherwise
@@ -196,7 +196,9 @@ public object MutationMerges {
      * Field values compare with `==` (`Any.equals`). `Array` and `ByteArray` compare by identity,
      * not content, and `Double.NaN != NaN`. Registrations apply in order over one local canvas
      * initialized to `theirs`; the policy makes no additional copy. A later registration's `set`
-     * sees earlier results, and the later registration wins where overlapping lenses collide.
+     * sees earlier results; where overlapping lenses collide, the last registration that writes
+     * wins, and a later registration that keeps `theirs` leaves an earlier registration's write in
+     * place.
      *
      * A field's `combine` receives the whole base value as `V?`, not the baseline field as `F?`.
      * It receives the base value when base is `Present` and null when base is `Absent`. This

@@ -117,7 +117,9 @@ class MutationAliasFacadeTest {
         val users = aliasMutationStore(mutations.registry, backend)
 
         try {
-            users.stream(provisional).test {
+            assertEquals("base", users.get(provisional))
+            assertEquals(1, backend.fetchCount)
+            users.stream(provisional, Freshness.LocalOnly).test {
                 assertEquals("base", awaitData().value)
 
                 users.mutate(provisional, mutations.rename, "draft")
@@ -137,11 +139,13 @@ class MutationAliasFacadeTest {
                     confirmed.origin == Origin.SOT || confirmed.origin == Origin.MEMORY,
                     "expected canonical residence after switch, was ${confirmed.origin}",
                 )
+                assertEquals(1, backend.fetchCount)
                 cancelAndIgnoreRemainingEvents()
             }
 
             assertEquals(emptyList(), users.pending(provisional))
-            assertEquals("draft", users.get(canonical))
+            assertEquals("draft", users.get(canonical, Freshness.LocalOnly))
+            assertEquals(1, backend.fetchCount)
         } finally {
             users.close()
         }
@@ -161,7 +165,7 @@ class MutationAliasFacadeTest {
             users.drain(provisional)
 
             // get(P) serves the canonical residence.
-            assertEquals("draft", users.get(provisional))
+            assertEquals("draft", users.get(provisional, Freshness.LocalOnly))
 
             // invalidate(P) marks the CANONICAL identity stale: a MaxAge read at the canonical
             // key must now block for a qualifying fetch.
@@ -835,7 +839,7 @@ class MutationAliasFacadeTest {
             val boom = IllegalStateException("canonical lookup offline")
             resolverFailure = boom
 
-            users.stream(provisional).test {
+            users.stream(provisional, Freshness.LocalOnly).test {
                 // Exactly one sanctioned conversion error: live, no delegation to the stale
                 // source key, no completion.
                 val error = assertIs<StoreResult.Error>(awaitItem())
@@ -845,7 +849,7 @@ class MutationAliasFacadeTest {
                 expectNoEvents()
 
                 // A new collection attempts resolution immediately and fails independently.
-                users.stream(provisional).test {
+                users.stream(provisional, Freshness.LocalOnly).test {
                     val freshAttempt = assertIs<StoreResult.Error>(awaitItem())
                     assertIs<StoreError.Conversion>(freshAttempt.error)
                     cancelAndIgnoreRemainingEvents()
@@ -853,19 +857,20 @@ class MutationAliasFacadeTest {
 
                 // A failing non-stream facade attempt bumps the identity's revision: the waiting
                 // stream retries once and re-emits exactly one conversion error.
-                assertFailsWith<StoreException> { users.get(provisional) }
+                assertFailsWith<StoreException> { users.get(provisional, Freshness.LocalOnly) }
                 assertIs<StoreError.Conversion>(assertIs<StoreResult.Error>(awaitItem()).error)
                 expectNoEvents()
 
                 // A successful validated resolution wakes the stream: it resolves the terminal
                 // identity and collects the canonical delegate stream.
                 resolverFailure = null
-                assertEquals("draft", users.get(provisional))
+                assertEquals("draft", users.get(provisional, Freshness.LocalOnly))
                 val confirmed = awaitNonOverlayValue("draft")
                 assertTrue(
                     confirmed.origin == Origin.SOT || confirmed.origin == Origin.MEMORY,
                     "expected canonical residence after retry, was ${confirmed.origin}",
                 )
+                assertEquals(0, backend.fetchCount)
                 cancelAndIgnoreRemainingEvents()
             }
         } finally {
@@ -1025,12 +1030,18 @@ class MutationAliasFacadeTest {
         val blockerKey = MutationsTestKey("alias-signal-blocker")
         val provisional = MutationsTestKey("temp-1")
         val canonical = MutationsTestKey("real-1")
+        val releaseBlocker = CompletableDeferred<Unit>()
+        val blockerObserved = CompletableDeferred<Unit>()
         val provisionalObserved = CompletableDeferred<StoreKey>()
         val canonicalObserved = CompletableDeferred<StoreKey>()
         val collector =
             backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
                 engine.changes.collect { key ->
                     when {
+                        key === blockerKey -> {
+                            blockerObserved.complete(Unit)
+                            releaseBlocker.await()
+                        }
                         key === provisional -> provisionalObserved.complete(key)
                         key === canonical || key.canonicalId() == "real-1" ->
                             canonicalObserved.complete(key)
@@ -1042,12 +1053,11 @@ class MutationAliasFacadeTest {
             users.stream(provisional).test {
                 assertEquals("base", awaitData().value)
 
-                // The blocker's committed enqueue signal occupies the replay buffer so the
-                // drain's post-commit emission must suspend inside the NonCancellable handoff —
-                // the same staging as the two preserved accepted-state regressions,
-                // MutationOverlayTest.cancelledMutate_afterAppendStillPublishesKeyChange and
-                // cancelledDrain_afterRetireStillPublishesKeyChange.
+                // Hold the collector after enqueue so the acknowledgement fills its available
+                // slot and retirement suspends after publishing the alias revision.
                 users.mutate(blockerKey, mutations.rename, "first")
+                testScheduler.runCurrent()
+                blockerObserved.await()
                 // Stage the provisional intent without an enqueue signal.
                 journal.append(
                     provisional.identity(),
@@ -1058,10 +1068,15 @@ class MutationAliasFacadeTest {
                     ),
                 )
 
+                val aliasRevisions = engine.aliasRevision(provisional.identity())
+                val revisionBeforeDrain = aliasRevisions.value
                 val cancelledDrain =
                     backgroundScope.async(start = CoroutineStart.UNDISPATCHED) {
                         engine.drain(provisional)
                     }
+                // The acknowledgement signal can suspend before activation; wait for the commit
+                // revision while the held collector still blocks retirement notifications.
+                aliasRevisions.first { revision -> revision > revisionBeforeDrain }
                 assertFalse(cancelledDrain.isCompleted)
 
                 // The in-memory commit and the stateful revision handoff completed BEFORE the
@@ -1072,9 +1087,10 @@ class MutationAliasFacadeTest {
                     canonical.identity(),
                     engine.terminalIdentityOf(provisional.identity()),
                 )
-                assertTrue(engine.aliasRevision(provisional.identity()).value > 0L)
+                assertTrue(aliasRevisions.value > revisionBeforeDrain)
 
                 cancelledDrain.cancel()
+                releaseBlocker.complete(Unit)
                 testScheduler.runCurrent()
                 cancelledDrain.join()
                 assertTrue(cancelledDrain.isCancelled)
@@ -1094,6 +1110,7 @@ class MutationAliasFacadeTest {
 
             assertEquals(emptyList(), users.pending(provisional))
         } finally {
+            releaseBlocker.complete(Unit)
             try {
                 collector.cancelAndJoin()
             } finally {

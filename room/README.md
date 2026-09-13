@@ -216,6 +216,13 @@ iosArm64, watchosArm64, and tvosArm64 are compile-only in this repository. CI
 also exercises cross-module Room code generation, where user databases reference
 adapter entities and DAO types from a dependency KLIB.
 
-One conservative edge remains at the exact transaction commit boundary:
-cancellation can commit a Room mutation while surfacing cancellation to the
-caller. `RoomSourceOfTruth` documents the recovery behavior in its KDoc.
+Cancellation while suspended waiting for source-of-truth database admission aborts the operation.
+After admission, the root source transaction and its commit-critical notification or rollback
+settlement run under `NonCancellable`. An explicit cancellation exception thrown inside a source
+mutation rolls back and propagates. See `RoomSourceOfTruth` KDoc for notification and backpressure.
+
+Bookkeeping transactions reject an already-cancelled caller at entry and protect connection and
+transaction settlement after admission. Maintenance failures roll back and propagate. Operational
+`recordSuccess`, `recordFailure`, and `forget` retain the Bookkeeper contract's storage-failure
+containment; an internally thrown cancellation exception can be absorbed while the caller remains
+active. Status reads are fallible and remain cancellable.

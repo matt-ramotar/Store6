@@ -19,6 +19,18 @@ kotlin {
                 implementation(libs.turbine)
             }
         }
+
+        // The real-engine lane. MockEngine short-circuits the transport, so cancellation,
+        // timeouts, redirects, and retry composition can only be observed against a real client
+        // and a real server. JVM-only by choice: one hosted lane is enough to pin the behavior,
+        // and an in-process server is not available on every target.
+        val jvmTest by getting {
+            dependencies {
+                implementation(libs.ktor.client.cio)
+                implementation(libs.ktor.server.core)
+                implementation(libs.ktor.server.cio)
+            }
+        }
     }
 }
 

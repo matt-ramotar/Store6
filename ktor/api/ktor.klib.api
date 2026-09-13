@@ -55,6 +55,8 @@ sealed interface org.mobilenativefoundation.store6.ktor/KtorOutcome { // org.mob
 }
 
 final class org.mobilenativefoundation.store6.ktor/KtorExchange { // org.mobilenativefoundation.store6.ktor/KtorExchange|null[0]
+    constructor <init>(io.ktor.http/HttpStatusCode, io.ktor.http/HttpMethod, kotlin/String, kotlin/Boolean, io.ktor.client.statement/HttpResponse) // org.mobilenativefoundation.store6.ktor/KtorExchange.<init>|<init>(io.ktor.http.HttpStatusCode;io.ktor.http.HttpMethod;kotlin.String;kotlin.Boolean;io.ktor.client.statement.HttpResponse){}[0]
+
     final val conditional // org.mobilenativefoundation.store6.ktor/KtorExchange.conditional|{}conditional[0]
         final fun <get-conditional>(): kotlin/Boolean // org.mobilenativefoundation.store6.ktor/KtorExchange.conditional.<get-conditional>|<get-conditional>(){}[0]
     final val method // org.mobilenativefoundation.store6.ktor/KtorExchange.method|{}method[0]

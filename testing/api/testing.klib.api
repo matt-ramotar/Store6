@@ -7,6 +7,17 @@
 // - Show declarations: true
 
 // Library unique name: <Store6:testing>
+final enum class org.mobilenativefoundation.store6.testing/MutationFaultPoint : kotlin/Enum<org.mobilenativefoundation.store6.testing/MutationFaultPoint> { // org.mobilenativefoundation.store6.testing/MutationFaultPoint|null[0]
+    enum entry AfterCommit // org.mobilenativefoundation.store6.testing/MutationFaultPoint.AfterCommit|null[0]
+    enum entry BeforeCommit // org.mobilenativefoundation.store6.testing/MutationFaultPoint.BeforeCommit|null[0]
+
+    final val entries // org.mobilenativefoundation.store6.testing/MutationFaultPoint.entries|#static{}entries[0]
+        final fun <get-entries>(): kotlin.enums/EnumEntries<org.mobilenativefoundation.store6.testing/MutationFaultPoint> // org.mobilenativefoundation.store6.testing/MutationFaultPoint.entries.<get-entries>|<get-entries>#static(){}[0]
+
+    final fun valueOf(kotlin/String): org.mobilenativefoundation.store6.testing/MutationFaultPoint // org.mobilenativefoundation.store6.testing/MutationFaultPoint.valueOf|valueOf#static(kotlin.String){}[0]
+    final fun values(): kotlin/Array<org.mobilenativefoundation.store6.testing/MutationFaultPoint> // org.mobilenativefoundation.store6.testing/MutationFaultPoint.values|values#static(){}[0]
+}
+
 abstract class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit { // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit|null[0]
     constructor <init>() // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.<init>|<init>(){}[0]
 
@@ -42,6 +53,15 @@ abstract class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/
     final fun keysAreIsolated() // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.keysAreIsolated|keysAreIsolated(){}[0]
 
     // Targets: [native]
+    final fun mutations_cancelledCaller_obeyOutcome() // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.mutations_cancelledCaller_obeyOutcome|mutations_cancelledCaller_obeyOutcome(){}[0]
+
+    // Targets: [native]
+    final fun mutations_externalCancellationAtCommit_obeyOutcome(kotlin/Function0<org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture<#A, #B>>, kotlin.collections/Set<org.mobilenativefoundation.store6.testing/MutationFaultPoint> = ...) // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.mutations_externalCancellationAtCommit_obeyOutcome|mutations_externalCancellationAtCommit_obeyOutcome(kotlin.Function0<org.mobilenativefoundation.store6.testing.SourceOfTruthFaultFixture<1:0,1:1>>;kotlin.collections.Set<org.mobilenativefoundation.store6.testing.MutationFaultPoint>){}[0]
+
+    // Targets: [native]
+    final fun mutations_throwBeforeCommit_preserveRowsAndNotifications(kotlin/Function0<org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture<#A, #B>>) // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.mutations_throwBeforeCommit_preserveRowsAndNotifications|mutations_throwBeforeCommit_preserveRowsAndNotifications(kotlin.Function0<org.mobilenativefoundation.store6.testing.SourceOfTruthFaultFixture<1:0,1:1>>){}[0]
+
+    // Targets: [native]
     final fun readerFirstEmissionIsCurrentValue() // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.readerFirstEmissionIsCurrentValue|readerFirstEmissionIsCurrentValue(){}[0]
 
     // Targets: [native]
@@ -58,6 +78,12 @@ abstract class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/
 
     // Targets: [native]
     final fun readerStaysLiveAcrossThreeDeleteCycles() // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.readerStaysLiveAcrossThreeDeleteCycles|readerStaysLiveAcrossThreeDeleteCycles(){}[0]
+
+    // Targets: [native]
+    final fun transactions_externalCancellationAtCommit_obeyOutcome(kotlin/Function0<org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture<#A, #B>>, kotlin.collections/Set<org.mobilenativefoundation.store6.testing/MutationFaultPoint> = ...) // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.transactions_externalCancellationAtCommit_obeyOutcome|transactions_externalCancellationAtCommit_obeyOutcome(kotlin.Function0<org.mobilenativefoundation.store6.testing.SourceOfTruthFaultFixture<1:0,1:1>>;kotlin.collections.Set<org.mobilenativefoundation.store6.testing.MutationFaultPoint>){}[0]
+
+    // Targets: [native]
+    final fun transactions_throw_preserveRowsAndNotifications() // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.transactions_throw_preserveRowsAndNotifications|transactions_throw_preserveRowsAndNotifications(){}[0]
 
     // Targets: [native]
     final fun twoConcurrentReadersBothSeeWrite() // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.twoConcurrentReadersBothSeeWrite|twoConcurrentReadersBothSeeWrite(){}[0]
@@ -87,6 +113,15 @@ abstract class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/
     final fun keysAreIsolated(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.keysAreIsolated|keysAreIsolated(){}[0]
 
     // Targets: [js]
+    final fun mutations_cancelledCaller_obeyOutcome(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.mutations_cancelledCaller_obeyOutcome|mutations_cancelledCaller_obeyOutcome(){}[0]
+
+    // Targets: [js]
+    final fun mutations_externalCancellationAtCommit_obeyOutcome(kotlin/Function0<org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture<#A, #B>>, kotlin.collections/Set<org.mobilenativefoundation.store6.testing/MutationFaultPoint> = ...): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.mutations_externalCancellationAtCommit_obeyOutcome|mutations_externalCancellationAtCommit_obeyOutcome(kotlin.Function0<org.mobilenativefoundation.store6.testing.SourceOfTruthFaultFixture<1:0,1:1>>;kotlin.collections.Set<org.mobilenativefoundation.store6.testing.MutationFaultPoint>){}[0]
+
+    // Targets: [js]
+    final fun mutations_throwBeforeCommit_preserveRowsAndNotifications(kotlin/Function0<org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture<#A, #B>>): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.mutations_throwBeforeCommit_preserveRowsAndNotifications|mutations_throwBeforeCommit_preserveRowsAndNotifications(kotlin.Function0<org.mobilenativefoundation.store6.testing.SourceOfTruthFaultFixture<1:0,1:1>>){}[0]
+
+    // Targets: [js]
     final fun readerFirstEmissionIsCurrentValue(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.readerFirstEmissionIsCurrentValue|readerFirstEmissionIsCurrentValue(){}[0]
 
     // Targets: [js]
@@ -103,6 +138,12 @@ abstract class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/
 
     // Targets: [js]
     final fun readerStaysLiveAcrossThreeDeleteCycles(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.readerStaysLiveAcrossThreeDeleteCycles|readerStaysLiveAcrossThreeDeleteCycles(){}[0]
+
+    // Targets: [js]
+    final fun transactions_externalCancellationAtCommit_obeyOutcome(kotlin/Function0<org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture<#A, #B>>, kotlin.collections/Set<org.mobilenativefoundation.store6.testing/MutationFaultPoint> = ...): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.transactions_externalCancellationAtCommit_obeyOutcome|transactions_externalCancellationAtCommit_obeyOutcome(kotlin.Function0<org.mobilenativefoundation.store6.testing.SourceOfTruthFaultFixture<1:0,1:1>>;kotlin.collections.Set<org.mobilenativefoundation.store6.testing.MutationFaultPoint>){}[0]
+
+    // Targets: [js]
+    final fun transactions_throw_preserveRowsAndNotifications(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.transactions_throw_preserveRowsAndNotifications|transactions_throw_preserveRowsAndNotifications(){}[0]
 
     // Targets: [js]
     final fun twoConcurrentReadersBothSeeWrite(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.twoConcurrentReadersBothSeeWrite|twoConcurrentReadersBothSeeWrite(){}[0]
@@ -132,6 +173,15 @@ abstract class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/
     final fun keysAreIsolated(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.keysAreIsolated|keysAreIsolated(){}[0]
 
     // Targets: [wasmJs]
+    final fun mutations_cancelledCaller_obeyOutcome(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.mutations_cancelledCaller_obeyOutcome|mutations_cancelledCaller_obeyOutcome(){}[0]
+
+    // Targets: [wasmJs]
+    final fun mutations_externalCancellationAtCommit_obeyOutcome(kotlin/Function0<org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture<#A, #B>>, kotlin.collections/Set<org.mobilenativefoundation.store6.testing/MutationFaultPoint> = ...): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.mutations_externalCancellationAtCommit_obeyOutcome|mutations_externalCancellationAtCommit_obeyOutcome(kotlin.Function0<org.mobilenativefoundation.store6.testing.SourceOfTruthFaultFixture<1:0,1:1>>;kotlin.collections.Set<org.mobilenativefoundation.store6.testing.MutationFaultPoint>){}[0]
+
+    // Targets: [wasmJs]
+    final fun mutations_throwBeforeCommit_preserveRowsAndNotifications(kotlin/Function0<org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture<#A, #B>>): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.mutations_throwBeforeCommit_preserveRowsAndNotifications|mutations_throwBeforeCommit_preserveRowsAndNotifications(kotlin.Function0<org.mobilenativefoundation.store6.testing.SourceOfTruthFaultFixture<1:0,1:1>>){}[0]
+
+    // Targets: [wasmJs]
     final fun readerFirstEmissionIsCurrentValue(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.readerFirstEmissionIsCurrentValue|readerFirstEmissionIsCurrentValue(){}[0]
 
     // Targets: [wasmJs]
@@ -150,6 +200,12 @@ abstract class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/
     final fun readerStaysLiveAcrossThreeDeleteCycles(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.readerStaysLiveAcrossThreeDeleteCycles|readerStaysLiveAcrossThreeDeleteCycles(){}[0]
 
     // Targets: [wasmJs]
+    final fun transactions_externalCancellationAtCommit_obeyOutcome(kotlin/Function0<org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture<#A, #B>>, kotlin.collections/Set<org.mobilenativefoundation.store6.testing/MutationFaultPoint> = ...): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.transactions_externalCancellationAtCommit_obeyOutcome|transactions_externalCancellationAtCommit_obeyOutcome(kotlin.Function0<org.mobilenativefoundation.store6.testing.SourceOfTruthFaultFixture<1:0,1:1>>;kotlin.collections.Set<org.mobilenativefoundation.store6.testing.MutationFaultPoint>){}[0]
+
+    // Targets: [wasmJs]
+    final fun transactions_throw_preserveRowsAndNotifications(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.transactions_throw_preserveRowsAndNotifications|transactions_throw_preserveRowsAndNotifications(){}[0]
+
+    // Targets: [wasmJs]
     final fun twoConcurrentReadersBothSeeWrite(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/SourceOfTruthContractKit.twoConcurrentReadersBothSeeWrite|twoConcurrentReadersBothSeeWrite(){}[0]
 
     // Targets: [wasmJs]
@@ -165,10 +221,34 @@ abstract class org.mobilenativefoundation.store6.testing/BookkeeperContractKit {
     final fun failureOnlyRecord_isNotDurablyStale() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.failureOnlyRecord_isNotDurablyStale|failureOnlyRecord_isNotDurablyStale(){}[0]
 
     // Targets: [native]
+    final fun forgetAll_removesRecordsAndPreservesWatermarks() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.forgetAll_removesRecordsAndPreservesWatermarks|forgetAll_removesRecordsAndPreservesWatermarks(){}[0]
+
+    // Targets: [native]
+    final fun forgetNamespace_removesOnlyMatchingRecordsAndPreservesWatermarks() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.forgetNamespace_removesOnlyMatchingRecordsAndPreservesWatermarks|forgetNamespace_removesOnlyMatchingRecordsAndPreservesWatermarks(){}[0]
+
+    // Targets: [native]
+    final fun forget_removesRecordAndPreservesWatermarks() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.forget_removesRecordAndPreservesWatermarks|forget_removesRecordAndPreservesWatermarks(){}[0]
+
+    // Targets: [native]
+    final fun globalWatermark_coversNeverSeenKeys() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.globalWatermark_coversNeverSeenKeys|globalWatermark_coversNeverSeenKeys(){}[0]
+
+    // Targets: [native]
     final fun identityDerivation_differentCanonicalId_isolated() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.identityDerivation_differentCanonicalId_isolated|identityDerivation_differentCanonicalId_isolated(){}[0]
 
     // Targets: [native]
     final fun identityDerivation_equalCanonicalPair_sharesRecords() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.identityDerivation_equalCanonicalPair_sharesRecords|identityDerivation_equalCanonicalPair_sharesRecords(){}[0]
+
+    // Targets: [native]
+    final fun laterSuccess_clearsOnlyEarlierStalenessForItsKey() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.laterSuccess_clearsOnlyEarlierStalenessForItsKey|laterSuccess_clearsOnlyEarlierStalenessForItsKey(){}[0]
+
+    // Targets: [native]
+    final fun maintenance_externalCancellationAtCommit_obeysOutcome(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture>, kotlin.collections/Set<org.mobilenativefoundation.store6.testing/MutationFaultPoint> = ...) // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.maintenance_externalCancellationAtCommit_obeysOutcome|maintenance_externalCancellationAtCommit_obeysOutcome(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperFaultFixture>;kotlin.collections.Set<org.mobilenativefoundation.store6.testing.MutationFaultPoint>){}[0]
+
+    // Targets: [native]
+    final fun maintenance_throwBeforeCommit_preservesStatus(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture>) // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.maintenance_throwBeforeCommit_preservesStatus|maintenance_throwBeforeCommit_preservesStatus(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperFaultFixture>){}[0]
+
+    // Targets: [native]
+    final fun marksAndSuccesses_shareOneMonotoneSequence() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.marksAndSuccesses_shareOneMonotoneSequence|marksAndSuccesses_shareOneMonotoneSequence(){}[0]
 
     // Targets: [native]
     final fun namespaceWatermark_thenLaterSuccess_clearsDurableStaleness() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.namespaceWatermark_thenLaterSuccess_clearsDurableStaleness|namespaceWatermark_thenLaterSuccess_clearsDurableStaleness(){}[0]
@@ -177,10 +257,28 @@ abstract class org.mobilenativefoundation.store6.testing/BookkeeperContractKit {
     final fun recordSuccess_clearsFailureCountAndTimestamp() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.recordSuccess_clearsFailureCountAndTimestamp|recordSuccess_clearsFailureCountAndTimestamp(){}[0]
 
     // Targets: [native]
+    final fun status_externalCancellation_propagatesAndRecovers(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture>) // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.status_externalCancellation_propagatesAndRecovers|status_externalCancellation_propagatesAndRecovers(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperStatusFaultFixture>){}[0]
+
+    // Targets: [native]
+    final fun status_storageFailure_propagatesAndRecovers(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture>) // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.status_storageFailure_propagatesAndRecovers|status_storageFailure_propagatesAndRecovers(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperStatusFaultFixture>){}[0]
+
+    // Targets: [native]
     final fun watermarkOnlyKey_reportsDurablyStale() // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.watermarkOnlyKey_reportsDurablyStale|watermarkOnlyKey_reportsDurablyStale(){}[0]
 
     // Targets: [js]
     final fun failureOnlyRecord_isNotDurablyStale(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.failureOnlyRecord_isNotDurablyStale|failureOnlyRecord_isNotDurablyStale(){}[0]
+
+    // Targets: [js]
+    final fun forgetAll_removesRecordsAndPreservesWatermarks(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.forgetAll_removesRecordsAndPreservesWatermarks|forgetAll_removesRecordsAndPreservesWatermarks(){}[0]
+
+    // Targets: [js]
+    final fun forgetNamespace_removesOnlyMatchingRecordsAndPreservesWatermarks(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.forgetNamespace_removesOnlyMatchingRecordsAndPreservesWatermarks|forgetNamespace_removesOnlyMatchingRecordsAndPreservesWatermarks(){}[0]
+
+    // Targets: [js]
+    final fun forget_removesRecordAndPreservesWatermarks(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.forget_removesRecordAndPreservesWatermarks|forget_removesRecordAndPreservesWatermarks(){}[0]
+
+    // Targets: [js]
+    final fun globalWatermark_coversNeverSeenKeys(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.globalWatermark_coversNeverSeenKeys|globalWatermark_coversNeverSeenKeys(){}[0]
 
     // Targets: [js]
     final fun identityDerivation_differentCanonicalId_isolated(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.identityDerivation_differentCanonicalId_isolated|identityDerivation_differentCanonicalId_isolated(){}[0]
@@ -189,10 +287,28 @@ abstract class org.mobilenativefoundation.store6.testing/BookkeeperContractKit {
     final fun identityDerivation_equalCanonicalPair_sharesRecords(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.identityDerivation_equalCanonicalPair_sharesRecords|identityDerivation_equalCanonicalPair_sharesRecords(){}[0]
 
     // Targets: [js]
+    final fun laterSuccess_clearsOnlyEarlierStalenessForItsKey(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.laterSuccess_clearsOnlyEarlierStalenessForItsKey|laterSuccess_clearsOnlyEarlierStalenessForItsKey(){}[0]
+
+    // Targets: [js]
+    final fun maintenance_externalCancellationAtCommit_obeysOutcome(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture>, kotlin.collections/Set<org.mobilenativefoundation.store6.testing/MutationFaultPoint> = ...): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.maintenance_externalCancellationAtCommit_obeysOutcome|maintenance_externalCancellationAtCommit_obeysOutcome(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperFaultFixture>;kotlin.collections.Set<org.mobilenativefoundation.store6.testing.MutationFaultPoint>){}[0]
+
+    // Targets: [js]
+    final fun maintenance_throwBeforeCommit_preservesStatus(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture>): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.maintenance_throwBeforeCommit_preservesStatus|maintenance_throwBeforeCommit_preservesStatus(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperFaultFixture>){}[0]
+
+    // Targets: [js]
+    final fun marksAndSuccesses_shareOneMonotoneSequence(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.marksAndSuccesses_shareOneMonotoneSequence|marksAndSuccesses_shareOneMonotoneSequence(){}[0]
+
+    // Targets: [js]
     final fun namespaceWatermark_thenLaterSuccess_clearsDurableStaleness(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.namespaceWatermark_thenLaterSuccess_clearsDurableStaleness|namespaceWatermark_thenLaterSuccess_clearsDurableStaleness(){}[0]
 
     // Targets: [js]
     final fun recordSuccess_clearsFailureCountAndTimestamp(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.recordSuccess_clearsFailureCountAndTimestamp|recordSuccess_clearsFailureCountAndTimestamp(){}[0]
+
+    // Targets: [js]
+    final fun status_externalCancellation_propagatesAndRecovers(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture>): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.status_externalCancellation_propagatesAndRecovers|status_externalCancellation_propagatesAndRecovers(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperStatusFaultFixture>){}[0]
+
+    // Targets: [js]
+    final fun status_storageFailure_propagatesAndRecovers(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture>): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.status_storageFailure_propagatesAndRecovers|status_storageFailure_propagatesAndRecovers(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperStatusFaultFixture>){}[0]
 
     // Targets: [js]
     final fun watermarkOnlyKey_reportsDurablyStale(): kotlin.js/Promise<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.watermarkOnlyKey_reportsDurablyStale|watermarkOnlyKey_reportsDurablyStale(){}[0]
@@ -201,16 +317,46 @@ abstract class org.mobilenativefoundation.store6.testing/BookkeeperContractKit {
     final fun failureOnlyRecord_isNotDurablyStale(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.failureOnlyRecord_isNotDurablyStale|failureOnlyRecord_isNotDurablyStale(){}[0]
 
     // Targets: [wasmJs]
+    final fun forgetAll_removesRecordsAndPreservesWatermarks(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.forgetAll_removesRecordsAndPreservesWatermarks|forgetAll_removesRecordsAndPreservesWatermarks(){}[0]
+
+    // Targets: [wasmJs]
+    final fun forgetNamespace_removesOnlyMatchingRecordsAndPreservesWatermarks(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.forgetNamespace_removesOnlyMatchingRecordsAndPreservesWatermarks|forgetNamespace_removesOnlyMatchingRecordsAndPreservesWatermarks(){}[0]
+
+    // Targets: [wasmJs]
+    final fun forget_removesRecordAndPreservesWatermarks(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.forget_removesRecordAndPreservesWatermarks|forget_removesRecordAndPreservesWatermarks(){}[0]
+
+    // Targets: [wasmJs]
+    final fun globalWatermark_coversNeverSeenKeys(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.globalWatermark_coversNeverSeenKeys|globalWatermark_coversNeverSeenKeys(){}[0]
+
+    // Targets: [wasmJs]
     final fun identityDerivation_differentCanonicalId_isolated(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.identityDerivation_differentCanonicalId_isolated|identityDerivation_differentCanonicalId_isolated(){}[0]
 
     // Targets: [wasmJs]
     final fun identityDerivation_equalCanonicalPair_sharesRecords(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.identityDerivation_equalCanonicalPair_sharesRecords|identityDerivation_equalCanonicalPair_sharesRecords(){}[0]
 
     // Targets: [wasmJs]
+    final fun laterSuccess_clearsOnlyEarlierStalenessForItsKey(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.laterSuccess_clearsOnlyEarlierStalenessForItsKey|laterSuccess_clearsOnlyEarlierStalenessForItsKey(){}[0]
+
+    // Targets: [wasmJs]
+    final fun maintenance_externalCancellationAtCommit_obeysOutcome(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture>, kotlin.collections/Set<org.mobilenativefoundation.store6.testing/MutationFaultPoint> = ...): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.maintenance_externalCancellationAtCommit_obeysOutcome|maintenance_externalCancellationAtCommit_obeysOutcome(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperFaultFixture>;kotlin.collections.Set<org.mobilenativefoundation.store6.testing.MutationFaultPoint>){}[0]
+
+    // Targets: [wasmJs]
+    final fun maintenance_throwBeforeCommit_preservesStatus(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture>): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.maintenance_throwBeforeCommit_preservesStatus|maintenance_throwBeforeCommit_preservesStatus(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperFaultFixture>){}[0]
+
+    // Targets: [wasmJs]
+    final fun marksAndSuccesses_shareOneMonotoneSequence(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.marksAndSuccesses_shareOneMonotoneSequence|marksAndSuccesses_shareOneMonotoneSequence(){}[0]
+
+    // Targets: [wasmJs]
     final fun namespaceWatermark_thenLaterSuccess_clearsDurableStaleness(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.namespaceWatermark_thenLaterSuccess_clearsDurableStaleness|namespaceWatermark_thenLaterSuccess_clearsDurableStaleness(){}[0]
 
     // Targets: [wasmJs]
     final fun recordSuccess_clearsFailureCountAndTimestamp(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.recordSuccess_clearsFailureCountAndTimestamp|recordSuccess_clearsFailureCountAndTimestamp(){}[0]
+
+    // Targets: [wasmJs]
+    final fun status_externalCancellation_propagatesAndRecovers(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture>): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.status_externalCancellation_propagatesAndRecovers|status_externalCancellation_propagatesAndRecovers(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperStatusFaultFixture>){}[0]
+
+    // Targets: [wasmJs]
+    final fun status_storageFailure_propagatesAndRecovers(kotlin/Function0<org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture>): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.status_storageFailure_propagatesAndRecovers|status_storageFailure_propagatesAndRecovers(kotlin.Function0<org.mobilenativefoundation.store6.testing.BookkeeperStatusFaultFixture>){}[0]
 
     // Targets: [wasmJs]
     final fun watermarkOnlyKey_reportsDurablyStale(): kotlin.js/Promise<kotlin.js/JsAny?> // org.mobilenativefoundation.store6.testing/BookkeeperContractKit.watermarkOnlyKey_reportsDurablyStale|watermarkOnlyKey_reportsDurablyStale(){}[0]
@@ -265,6 +411,39 @@ final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any
     final suspend fun invalidateNamespace(org.mobilenativefoundation.store6.core/StoreNamespace) // org.mobilenativefoundation.store6.testing/FakeStore.invalidateNamespace|invalidateNamespace(org.mobilenativefoundation.store6.core.StoreNamespace){}[0]
 }
 
+final class <#A: org.mobilenativefoundation.store6.core/StoreKey, #B: kotlin/Any> org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture { // org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture|null[0]
+    constructor <init>(org.mobilenativefoundation.store6.core.seam/SourceOfTruth<#A, #B>, org.mobilenativefoundation.store6.testing/MutationFaultInjector, kotlin/Function0<kotlin/Unit> = ...) // org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture.<init>|<init>(org.mobilenativefoundation.store6.core.seam.SourceOfTruth<1:0,1:1>;org.mobilenativefoundation.store6.testing.MutationFaultInjector;kotlin.Function0<kotlin.Unit>){}[0]
+
+    final val close // org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture.close|{}close[0]
+        final fun <get-close>(): kotlin/Function0<kotlin/Unit> // org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture.close.<get-close>|<get-close>(){}[0]
+    final val faults // org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture.faults|{}faults[0]
+        final fun <get-faults>(): org.mobilenativefoundation.store6.testing/MutationFaultInjector // org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture.faults.<get-faults>|<get-faults>(){}[0]
+    final val sourceOfTruth // org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture.sourceOfTruth|{}sourceOfTruth[0]
+        final fun <get-sourceOfTruth>(): org.mobilenativefoundation.store6.core.seam/SourceOfTruth<#A, #B> // org.mobilenativefoundation.store6.testing/SourceOfTruthFaultFixture.sourceOfTruth.<get-sourceOfTruth>|<get-sourceOfTruth>(){}[0]
+}
+
+final class org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture { // org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture|null[0]
+    constructor <init>(org.mobilenativefoundation.store6.core.seam/Bookkeeper, org.mobilenativefoundation.store6.testing/MutationFaultInjector, kotlin/Function0<kotlin/Unit> = ...) // org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture.<init>|<init>(org.mobilenativefoundation.store6.core.seam.Bookkeeper;org.mobilenativefoundation.store6.testing.MutationFaultInjector;kotlin.Function0<kotlin.Unit>){}[0]
+
+    final val bookkeeper // org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture.bookkeeper|{}bookkeeper[0]
+        final fun <get-bookkeeper>(): org.mobilenativefoundation.store6.core.seam/Bookkeeper // org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture.bookkeeper.<get-bookkeeper>|<get-bookkeeper>(){}[0]
+    final val close // org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture.close|{}close[0]
+        final fun <get-close>(): kotlin/Function0<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture.close.<get-close>|<get-close>(){}[0]
+    final val faults // org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture.faults|{}faults[0]
+        final fun <get-faults>(): org.mobilenativefoundation.store6.testing/MutationFaultInjector // org.mobilenativefoundation.store6.testing/BookkeeperFaultFixture.faults.<get-faults>|<get-faults>(){}[0]
+}
+
+final class org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture { // org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture|null[0]
+    constructor <init>(org.mobilenativefoundation.store6.core.seam/Bookkeeper, kotlin/Function1<kotlin/Function0<kotlin/Unit>, kotlin/Unit>, kotlin/Function0<kotlin/Unit> = ...) // org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture.<init>|<init>(org.mobilenativefoundation.store6.core.seam.Bookkeeper;kotlin.Function1<kotlin.Function0<kotlin.Unit>,kotlin.Unit>;kotlin.Function0<kotlin.Unit>){}[0]
+
+    final val bookkeeper // org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture.bookkeeper|{}bookkeeper[0]
+        final fun <get-bookkeeper>(): org.mobilenativefoundation.store6.core.seam/Bookkeeper // org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture.bookkeeper.<get-bookkeeper>|<get-bookkeeper>(){}[0]
+    final val close // org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture.close|{}close[0]
+        final fun <get-close>(): kotlin/Function0<kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture.close.<get-close>|<get-close>(){}[0]
+    final val onNextStatusRead // org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture.onNextStatusRead|{}onNextStatusRead[0]
+        final fun <get-onNextStatusRead>(): kotlin/Function1<kotlin/Function0<kotlin/Unit>, kotlin/Unit> // org.mobilenativefoundation.store6.testing/BookkeeperStatusFaultFixture.onNextStatusRead.<get-onNextStatusRead>|<get-onNextStatusRead>(){}[0]
+}
+
 final class org.mobilenativefoundation.store6.testing/FakeBookkeeper : org.mobilenativefoundation.store6.core.seam/Bookkeeper { // org.mobilenativefoundation.store6.testing/FakeBookkeeper|null[0]
     constructor <init>() // org.mobilenativefoundation.store6.testing/FakeBookkeeper.<init>|<init>(){}[0]
 
@@ -286,6 +465,13 @@ final class org.mobilenativefoundation.store6.testing/FakeFetcherInvocation { //
         final fun <get-etag>(): kotlin/String? // org.mobilenativefoundation.store6.testing/FakeFetcherInvocation.etag.<get-etag>|<get-etag>(){}[0]
     final val key // org.mobilenativefoundation.store6.testing/FakeFetcherInvocation.key|{}key[0]
         final fun <get-key>(): org.mobilenativefoundation.store6.core/StoreKey // org.mobilenativefoundation.store6.testing/FakeFetcherInvocation.key.<get-key>|<get-key>(){}[0]
+}
+
+final class org.mobilenativefoundation.store6.testing/MutationFaultInjector { // org.mobilenativefoundation.store6.testing/MutationFaultInjector|null[0]
+    constructor <init>() // org.mobilenativefoundation.store6.testing/MutationFaultInjector.<init>|<init>(){}[0]
+
+    final fun arm(org.mobilenativefoundation.store6.testing/MutationFaultPoint, kotlin/Function0<kotlin/Unit>) // org.mobilenativefoundation.store6.testing/MutationFaultInjector.arm|arm(org.mobilenativefoundation.store6.testing.MutationFaultPoint;kotlin.Function0<kotlin.Unit>){}[0]
+    final fun reach(org.mobilenativefoundation.store6.testing/MutationFaultPoint) // org.mobilenativefoundation.store6.testing/MutationFaultInjector.reach|reach(org.mobilenativefoundation.store6.testing.MutationFaultPoint){}[0]
 }
 
 final class org.mobilenativefoundation.store6.testing/TestStoreMeta : org.mobilenativefoundation.store6.core/StoreMeta { // org.mobilenativefoundation.store6.testing/TestStoreMeta|null[0]

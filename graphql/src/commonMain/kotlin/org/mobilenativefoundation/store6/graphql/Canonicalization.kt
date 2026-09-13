@@ -11,8 +11,9 @@ import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 //   control characters below U+0020 as lowercase \u00xx.
 // - Explicit NullValue renders `null`; an absent variable renders nothing, so the two are
 //   distinct identities.
-// - IntValue renders as a decimal integer; FloatValue delegates to Double.toString, which is
-//   runtime-dependent (documented on GraphQlValue.FloatValue).
+// - IntValue renders as a decimal integer; FloatValue uses runtime-dependent Double.toString
+//   with `.0` added when neither a decimal point nor an exponent is present, keeping the
+//   numeric types distinct (documented on GraphQlValue.FloatValue).
 
 internal fun GraphQlVariables.canonicalString(): String =
     buildString { appendCanonicalObject(entries) }
@@ -22,7 +23,11 @@ private fun StringBuilder.appendCanonical(value: GraphQlValue) {
         is GraphQlValue.NullValue -> append("null")
         is GraphQlValue.BooleanValue -> append(value.value)
         is GraphQlValue.IntValue -> append(value.value)
-        is GraphQlValue.FloatValue -> append(value.value)
+        is GraphQlValue.FloatValue -> {
+            val rendered = value.value.toString()
+            append(rendered)
+            if ('.' !in rendered && 'e' !in rendered && 'E' !in rendered) append(".0")
+        }
         is GraphQlValue.StringValue -> appendJsonEscaped(value.value)
         is GraphQlValue.ListValue -> {
             append('[')

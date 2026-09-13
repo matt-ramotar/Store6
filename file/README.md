@@ -7,6 +7,32 @@ seam is a **freeze candidate, not frozen** — see [STABILITY.md](../STABILITY.m
 
 ## Install
 
+This artifact ships in 6.0.0-alpha01, which is not released yet. The coordinates below are
+for a local publication from this source tree; nothing reaches Maven Central before that
+release.
+
+Use JDK 17 and configure an Android SDK containing platform 36 through `sdk.dir` in
+`local.properties` or `ANDROID_HOME`. The commands below enable Native KLIB cross-compilation;
+publication of those files does not establish Native execution. Apple execution and linking
+require macOS with Xcode.
+
+From the repository root, publish the module and its Store6 dependencies locally:
+
+```bash
+./gradlew :core:publishToMavenLocal :file:publishToMavenLocal -Pkotlin.native.enableKlibsCrossCompilation=true
+```
+
+Use the version in `gradle.properties` (currently `6.0.0-SNAPSHOT`) and add the local repository
+to the consuming build's dependency repositories:
+
+```kotlin
+repositories {
+    mavenLocal()
+    mavenCentral()
+    google()
+}
+```
+
 Use the same Store6 version for `core` and `file`:
 
 ```kotlin
@@ -94,6 +120,15 @@ the actual length. Empty strings are valid. On disk they use the `"0"` sentinel 
 collapse onto a parent directory. Windows `MAX_PATH` (260 characters) can still be exceeded by a
 deep `directory` plus two encoded components. Choose a shallow root on Windows. This adapter does
 not detect that overflow.
+
+Components must also be well-formed UTF-16. A component holding an unpaired surrogate throws
+`IllegalArgumentException` naming the offending part and the index of that surrogate, before any
+file or mirror change: UTF-8 encoding replaces an unpaired surrogate with U+FFFD, so distinct
+malformed strings would otherwise map to one on-disk name while staying distinct Store identities.
+
+**Cold bookkeeping recovery.** `status` reads storage only on its first-operation recovery. A
+failed recovery propagates as a typed persistence failure, never as `null` or as fresh
+metadata, and leaves the mirror uninitialized so a later call retries.
 
 **Absent paths.** A path that does not exist is absence, never an error and never corruption.
 

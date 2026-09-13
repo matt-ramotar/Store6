@@ -6,15 +6,16 @@
 
 ## Store 6
 
-Store 6 is the next major line, published as `core`, `testing`, `mutations`, and the other Store 6
+Store 6 is the next major line, using `core`, `testing`, `mutations`, and the other Store 6
 artifacts in the `org.mobilenativefoundation.store` group, alongside Store 5 for the whole 6.x major. It is a Kotlin Multiplatform library for reading and writing data that lives in
 more than one place: a network, a local database, and memory. You describe a key and a fetcher, and
 Store handles single-flighting concurrent demand, staleness, and invalidation, and it bounds engine
 residency with a `maxIdleKeys` LRU. Every zero-config behavior is named and covered by a conformance
 test you can read; the zero-config in-memory persistence itself is unbounded by design — install a
-real source of truth when key cardinality can grow without limit.
+persistent source of truth and bookkeeper when key cardinality can grow without limit.
 
-**Status: in development, targeting 6.0.0-alpha01.** Nothing is published yet.
+**Status: in development, targeting 6.0.0-alpha01.** The alpha artifacts are not yet available
+from Maven Central.
 
 Two things about the first alpha, stated up front rather than discovered later:
 
@@ -22,16 +23,20 @@ Two things about the first alpha, stated up front rather than discovered later:
   is `@ExperimentalStoreApi`. The tier is on the artifact, never annotation-gated inside a stable
   one.
 - **Mutations ship the two-step durable ack posture.** The non-transactional acknowledgement path
-  adopts the server echo first and retires the journal row last, so a crash inside that window
-  leaves a replayable pending intent rather than losing the write. The consequence is that the same
-  push can be re-sent after such a crash, so design those endpoints to be idempotent. Making the ack
-  path atomic is beta01 work, not alpha01 work.
+  records `ACKED` durably before adopting the server echo and retires the journal row last.
+  Process-death recovery requires durable journal storage; the default is in memory.
+  Recovery from durable `ACKED` resumes adoption and effects without another push. A crash before
+  that receipt is durable can cause the push to be re-sent with the same idempotency key; endpoints
+  must treat it as the same request. Atomic journal/source acknowledgement is beta01 work.
 
 The full policy — API tiers, the deprecation cycle, the cadence commitment, and how you can verify
 all of it from a released tag — is in [STABILITY.md](./STABILITY.md). The public roadmap is at
 [ROADMAP.md](./ROADMAP.md), and the quickstart is at
 [docs/store6/quickstart.md](./docs/store6/quickstart.md).
-Swift consumers: the Swift Package Manager facade is documented in [store6-swift/README.md](./store6-swift/README.md).
+The [platform matrix](docs/store6/platforms.md) lists declared targets and the scope of completed
+verification.
+The Swift Package Manager facade is deferred from this alpha. Local development instructions are in
+[store6-swift/README.md](./store6-swift/README.md).
 
 ---
 

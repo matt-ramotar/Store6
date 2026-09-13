@@ -46,37 +46,52 @@ Group coordinates are unchanged: `org.mobilenativefoundation.store`. Packages ar
 |---|---|---|
 | `core` | Stable-track. The API is **not frozen** until the beta01 freeze candidate. | alpha01 |
 | `testing` | Experimental (`@ExperimentalStoreApi`) — every public declaration in the artifact carries the marker today. | alpha01 |
-| `sqldelight` | Experimental adapter (`@ExperimentalStoreApi`). Graduates to stable at 6.0.0, having run the contract kit throughout the alpha line. | alpha01, may slip one alpha |
-| `room` | Experimental adapter, same graduation. | alpha01, may slip one alpha |
-| `compose` | Experimental adapter, same graduation. | alpha01, may slip one alpha |
+| `sqldelight` | Experimental adapter (`@ExperimentalStoreApi`). Graduates to stable at 6.0.0, having run the contract kit throughout the alpha line. | alpha01 |
+| `room` | Experimental adapter, same graduation. | alpha01 |
+| `compose` | Experimental adapter, same graduation. | alpha01 |
 | `graphql` | Experimental (`@ExperimentalStoreApi`). Fetcher integration for GraphQL operations. | alpha01 |
 | `realtime` | Experimental (`@ExperimentalStoreApi`). Server-message bindings onto stores. | alpha01 |
 | `mutations` | **Experimental, separate artifact — every public symbol is `@ExperimentalStoreApi`.** See [§8](#mutations). | alpha01 |
 | `mutations-sqldelight` | Experimental mutations-family artifact (`@ExperimentalStoreApi`). SQLDelight-backed durable journal storage. | alpha01 |
 | `mutations-testing` | Experimental mutations-family artifact (`@ExperimentalStoreApi`). Contract kits for journal storage and mutator purity, plus deterministic crash-test storage. | alpha01 |
+| `paging-androidx` | Experimental (`@ExperimentalStoreApi`). Paging 3 interop. The default refresh key restarts from the initial page unless the page closest to the anchor has a previous key. | alpha01 |
+| `opentelemetry` | Experimental (`@ExperimentalStoreApi`). Telemetry sink over the OpenTelemetry API; JVM and Android only. | alpha01 |
+| `ktor` | Experimental (`@ExperimentalStoreApi`). HTTP fetcher kit. A `304 Not Modified` is adopted only when the request carried exactly the validator the kit wrote; any other 304 is refused as an error. `204` and `205` responses are refused by default (previously they reached `decode`). | alpha01 |
+| `file` | Experimental (`@ExperimentalStoreApi`). Filesystem source of truth and bookkeeper. Malformed UTF-16 key components are rejected before any file or mirror change. | alpha01 |
+| `mutations-conflicts` | Experimental (`@ExperimentalStoreApi`). Canned conflict merge policies registered in the `conflicts { }` door of `mutationStore`. | alpha01 |
 | `bom` | Version alignment only; no API surface of its own. | alpha01 |
 | `devtools` | Experimental (`@ExperimentalStoreApi`). | alpha02 (target) |
 | `devtools-inspector` | Experimental (`@ExperimentalStoreApi`). | alpha02 (target) |
 | `mutations-drain` | Experimental (`@ExperimentalStoreApi`). | alpha02 (target) |
-| `mutations-drain-meeseeks` | Experimental (`@ExperimentalStoreApi`) — additionally gated on upstream Meeseeks JVM scheduling fixes. | alpha02 (target) |
-| `opentelemetry` | Experimental (`@ExperimentalStoreApi`). | Joins the line in the first release it is green for. |
+| `mutations-drain-meeseeks` | Experimental (`@ExperimentalStoreApi`). Upstream JVM scheduling fixes and concurrent scheduling uniqueness verification remain required. | alpha02 (target) |
+| `store6-swift` | Prerelease Swift facade and local XCFramework workflow. Undeclared Kotlin exceptions in maintenance and closed-store calls require bridge correction before distribution. | Deferred distribution; not an alpha01 Maven artifact. |
 
-Inside `core`, the `org.mobilenativefoundation.store6.core.seam` package — the 13 files you
-implement to plug in your own fetcher, source of truth, bookkeeper, clock, telemetry, or overlay —
-is a **freeze candidate, not frozen.** Today these types are `@ExperimentalStoreApi`, so
+Inside `core`, the `org.mobilenativefoundation.store6.core.seam` package contains 15 files for
+fetchers, persistence, bookkeeping, clocks, telemetry, overlays, and acknowledgement evidence.
+It is a **freeze candidate, not frozen.** Today these types are `@ExperimentalStoreApi`, so
 implementing one is an explicit opt-in; that is the exception §2 names, and it is why the seam sits
 inside a stable-track artifact rather than shipping separately.
+
+Recompile custom `StoreWriteHandle` and `Overlay` implementations against this version. The
+new acknowledgement and adoption-aware projection methods have Kotlin source defaults, but the
+JVM build emits abstract interface methods with `DefaultImpls`; previously compiled implementations
+do not gain binary compatibility from those defaults. The default acknowledgement implementation
+marks stale and applies without confirming freshness or supplying adoption proof.
 
 The candidate-versus-frozen distinction is load-bearing and we state it in two stages deliberately.
 A real producer has to exercise a seam end to end before we will call it a candidate. The
 `Overlay` and `StoreWriteHandle` surfaces become frozen only once the ack-path atomicity work and
 its test matrix are green; if that work misses beta01, those two ship `@ExperimentalStoreApi`
-outside the frozen tier and the rest of core freezes on schedule. CI enforces the 13-file list on
+outside the frozen tier and the rest of core freezes on schedule. CI enforces the 15-file list on
 every pull request, so the seam cannot grow quietly.
 
-Promised: `store5-interop`, tracking to 6.0.0 and not in the alpha01 line, and
-`paging-androidx`, which joins the line in the first release it is green for. An artifact
-that misses a train gets its target release named here. It does not get dropped silently.
+`store5-interop` targets 6.0.0 and is not in alpha01. Passing a module's build does not add it
+to the release. A roster change must update the publication manifest, BOM constraints, and
+this table together. Deferred artifacts have no alpha01 installation promise; a later release
+must name their target and satisfy their validation requirements before distribution.
+
+The [platform matrix](docs/store6/platforms.md) separates declared targets, executed local tests,
+compile/artifact checks, independent consumers, and pending release verification.
 
 ## 4. Deprecation cycle
 
@@ -185,6 +200,20 @@ recovery is a compile-time-required resolver, the value state is an explicit pre
 and the persistence a caller installs is retained for the transactional ack-path decorator.
 The module remains experimental — shapes can change in any release, and this document still
 deliberately freezes no mutations signature into policy prose.
+
+### (d) Parked work and retained history
+
+A `PARKED` intent remains durable and appears in `MutationStore.deadLetters()`. It is not
+automatically retried. Its client sequence can pin the retirement high-water mark, so later
+completed work does not make all older history eligible for confirmed pruning. Storage can
+continue growing behind that gap.
+
+Inspect the dead letter and retain the codec versions needed to read existing history before
+changing the application. Correcting future writes does not retire an already parked intent.
+The alpha exposes no discard or requeue API for parked work. Recovery that requires changing
+that intent needs an application-specific journal migration; normal drain retries do not
+provide it. An `ACKED` adoption failure is a different state: recovery resumes its stored
+acknowledgement without pushing that generation again.
 
 ## 9. Reading pending writes and staleness
 

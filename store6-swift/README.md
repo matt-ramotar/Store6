@@ -74,6 +74,10 @@ drift, the test is the truth and the README follows it.
 
 ## Boundaries
 
+- Distribution is deferred. Maintenance failures and calls after Store closure can escape the
+  Kotlin bridge's declared exception set and terminate the process. Swift `async throws` alone
+  does not make those Kotlin exceptions catchable; checked wrappers and process-survival tests
+  are required before distribution.
 - Apple targets: iOS (device + simulator) and Apple-silicon macOS. tvOS and watchOS are not in
   this package's target set.
 - Values cross the Kotlin bridge as objects; value generics are typed on the Swift side and
@@ -81,3 +85,8 @@ drift, the test is the truth and the README follows it.
 - Cancelling a Kotlin-side fetch does not cancel a Swift fetcher closure already in flight.
 - The Kotlin framework `Store6Kotlin` is an implementation detail; its generated Swift surface is
   committed and diffed under `store6-swift/api/swift/skie/`.
+- Custom Swift or Objective-C conformers to the raw `Overlay` and `StoreWriteHandle` protocols
+  must implement the added adoption-aware projection and acknowledgement methods. Kotlin defaults
+  do not generate Swift protocol defaults or omitted-argument overloads. Pass nullable evidence
+  and adoption arguments explicitly; raw acknowledgement/status exports do not declare typed
+  persistence-error conversion.

@@ -13,23 +13,28 @@ GraphQL documents and never normalizes responses into entities.
 
 ## Install
 
-Until the snapshot is published remotely, publish `core` and `graphql` to
-Maven Local:
+The alpha artifacts are not yet available from Maven Central. For a local build, use JDK 17
+and configure an Android SDK containing platform 36 through `sdk.dir` in `local.properties`
+or `ANDROID_HOME`. Publish `core` and `graphql` from the repository root:
 
 ```shell
-./gradlew :core:publishToMavenLocal :graphql:publishToMavenLocal
+./gradlew :core:publishToMavenLocal :graphql:publishToMavenLocal -Pkotlin.native.enableKlibsCrossCompilation=true
 ```
 
 ```kotlin
 repositories {
     mavenLocal()
     mavenCentral()
+    google()
 }
 
 dependencies {
     implementation("org.mobilenativefoundation.store:graphql:6.0.0-SNAPSHOT")
 }
 ```
+
+Use the version in `gradle.properties` (currently `6.0.0-SNAPSHOT`). Native KLIB publication
+does not establish Native execution; Apple execution and linking require macOS with Xcode.
 
 ## First result
 
@@ -122,3 +127,17 @@ response. Executors without revalidation support ignore the ETag and execute nor
 The headless JVM sample asserts four scenes over an in-process scripted executor: key
 identity across variable orders, document-cache serve without re-execution, the
 fail-vs-adopt partial-response split, and `NotModified` revalidation with recorded ETags.
+
+## Persisted numeric keys
+
+GraphQL floats must be finite. `NaN` and infinities now throw `IllegalArgumentException` at
+construction. Signed zero normalizes to positive zero, and whole-number floats retain a decimal
+point or exponent so their canonical identity differs from an integer with the same magnitude.
+
+Persisted identities change for negative-zero floats and for whole-number floats previously
+rendered without a decimal point or exponent. Rotate the persisted GraphQL namespace or discard
+affected records before reuse. Rebuild keys only from the original typed variables: legacy
+JavaScript integer and whole-number float keys can be identical, so textual renaming cannot recover
+their types. Marking records stale alone does not remove those aliases. Float rendering remains
+subject to runtime number formatting; this change does not establish portable float keys across
+runtimes.

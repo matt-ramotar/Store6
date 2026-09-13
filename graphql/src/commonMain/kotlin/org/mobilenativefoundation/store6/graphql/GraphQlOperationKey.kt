@@ -36,9 +36,10 @@ public class GraphQlOperationKey(
      *
      * The variable rendering is JSON-shaped with object keys sorted in UTF-16 code-unit order,
      * no whitespace, JSON string escaping, significant list order, and explicit `null` distinct
-     * from an absent variable. [GraphQlValue.FloatValue] renders through the runtime's
-     * `Double.toString`, which differs across Kotlin targets; prefer int or string variables
-     * when canonical ids must match across runtimes.
+     * from an absent variable. Integer and float inputs have distinct canonical forms, and
+     * float signed zero renders as `0.0`. [GraphQlValue.FloatValue] uses runtime-dependent
+     * number formatting with `.0` added when neither a decimal point nor an exponent is
+     * present. Prefer int or string variables when canonical ids must match across runtimes.
      *
      * @return the stable identifier for this key within [namespace]
      */

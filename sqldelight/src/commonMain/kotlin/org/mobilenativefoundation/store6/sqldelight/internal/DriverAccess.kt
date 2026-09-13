@@ -2,6 +2,7 @@ package org.mobilenativefoundation.store6.sqldelight.internal
 
 import app.cash.sqldelight.db.SqlDriver
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -52,6 +53,38 @@ internal class DriverAccess private constructor(
         }
     }
 
+    suspend fun <R> withMutationAccess(block: suspend () -> R): R {
+        val context = currentCoroutineContext()
+        val heldAccess = context[HeldDriverAccess]
+        if (heldAccess?.owns(stripe, context[Job], currentExecutionThreadId()) == true) {
+            context.ensureActive()
+            return block()
+        }
+
+        val gate = gates[stripe]
+        gate.lock()
+        val lease = Job()
+        return try {
+            context.ensureActive()
+            val acquiredAccess = HeldDriverAccess(
+                stripe = stripe,
+                ownerJob = null,
+                ownerThreadId = currentExecutionThreadId(),
+                lease = lease,
+                parent = heldAccess,
+            )
+            // Admission remains cancellable. Once admitted, commit and notification must return
+            // through this same protected frame so cancellation cannot report a committed write as failed.
+            withContext(NonCancellable + acquiredAccess) {
+                acquiredAccess.bindOwner(currentCoroutineContext()[Job])
+                block()
+            }
+        } finally {
+            lease.cancel()
+            gate.unlock()
+        }
+    }
+
     companion object {
         private const val STRIPE_COUNT = 64
         private val gates = List(STRIPE_COUNT) { Mutex() }
@@ -69,11 +102,15 @@ internal fun CoroutineContext.rebindDriverAccessOwner(ownerJob: Job): CoroutineC
 
 private class HeldDriverAccess(
     private val stripe: Int,
-    private val ownerJob: Job?,
+    private var ownerJob: Job?,
     private val ownerThreadId: Long,
     private val lease: Job,
     private val parent: HeldDriverAccess?,
 ) : AbstractCoroutineContextElement(HeldDriverAccess) {
+    fun bindOwner(ownerJob: Job?) {
+        this.ownerJob = ownerJob
+    }
+
     fun owns(
         candidateStripe: Int,
         candidateOwnerJob: Job?,

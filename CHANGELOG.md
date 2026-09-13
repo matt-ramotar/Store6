@@ -2,7 +2,7 @@
 
 ### Thank you to all our wonderful contributors and users
 
-## [6.0.0-alpha01] (2026-08-21)
+## [6.0.0-alpha01] (unreleased; date pending)
 
 The first Store 6 alpha. Store 6 is the next major line, a Kotlin Multiplatform library for reading
 and writing data that lives in more than one place: a network, a local database, and memory. The
@@ -10,19 +10,44 @@ stability policy is in [STABILITY.md](./STABILITY.md); each artifact's tier is s
 
 **New Features**
 
-* Ship `core`, `testing`, `mutations`, `mutations-sqldelight`, `mutations-testing`, `sqldelight`,
-  `room`, `compose`, `graphql`, and `realtime` as experimental-track artifacts, plus `bom` for
-  version alignment. `paging-androidx` joins in the first release it is green for; `devtools` and
-  `devtools-inspector` target alpha02.
-* Mutations ship the two-step durable acknowledgement posture: the server echo is adopted first and
-  the journal row retired last, so a crash inside the window leaves a replayable pending intent.
-  Design mutation endpoints to treat a repeated idempotency key as the same request.
+* The alpha roster contains stable-track `core`, experimental `testing`, `mutations`,
+  `mutations-sqldelight`, `mutations-testing`, `mutations-conflicts`, `sqldelight`, `room`,
+  `compose`, `graphql`, `realtime`, `file`, `ktor`, `opentelemetry`, and `paging-androidx`, plus
+  `bom` for version alignment. Other modules remain deferred as listed in
+  [STABILITY.md](STABILITY.md); a passing build does not change release eligibility.
+* `KtorExchange`'s constructor is public, so a `KtorErrorMapper` can be unit-tested without
+  driving a fetch.
+* The OpenTelemetry instrumentation-scope version is generated from the build version; a
+  hardcoded constant would otherwise have reported `6.0.0-SNAPSHOT` regardless of the version
+  actually published.
+* With durable journal storage, recovery from a committed `ACKED` receipt resumes source adoption,
+  effects, and retirement without another push. A crash before that receipt commits can resend
+  the same generation. Endpoints must treat a repeated idempotency key as the same request;
+  the default in-memory journal does not survive process death.
 * A conformance suite under `core/src/commonTest` names every zero-config behavior as a readable
   test, including single-flight, freshness policy, overlay projection, invalidation, and engine
   eviction.
 
 **Bug Fixes**
 
+* Settle admitted SQLDelight mutations and their reader notifications before returning when the
+  caller is cancelled. Explicit failures before commit still roll back.
+* Park value-codec failures during initial mutation preparation and precondition copies without
+  counting a push attempt, and release completed execution caches after safe retirement.
+* Cancel suspended `Store.get` work when the Store closes.
+* Report bookkeeping read failures through Store's typed persistence errors and keep freshness
+  conservative until successful revalidation. SQLDelight and Room status reads preserve storage
+  failures instead of treating them as fresh metadata.
+* Settle admitted Room bookkeeping transactions across caller cancellation.
+* Bind acknowledgement content and metadata to the same writer, preserve invalidations after
+  the first push, and retain conservative freshness when earlier evidence is unavailable.
+* Exclude an acknowledged optimistic prefix only after proven source adoption; queued suffixes
+  and durable recovery records remain available.
+* Keep a committed fetch behind its causal source-reader observation when a suspended absence
+  replan resumes during the bookkeeping tail.
+* Preserve a captured writer's source origin when a later writer changes reader resolution.
+* Reject nonfinite GraphQL floats, normalize signed zero, and preserve distinct integer and float
+  canonical identities. See the [persisted-key migration note](graphql/README.md#persisted-numeric-keys).
 * Fix `Store.get` surfacing a joined-fetch failure when a concurrent write already committed a
   fresher value; the resident value is served instead.
 * Fix invalidation telemetry and key events firing for invalidations that were superseded before
@@ -37,6 +62,20 @@ stability policy is in [STABILITY.md](./STABILITY.md); each artifact's tier is s
   admission now fails fast with an exception naming both databases.
 * Stop adapter bookkeepers from swallowing `OutOfMemoryError` and other VM failures as "stale".
 * Replace quadratic UTF-8 truncation in the in-memory journal storage with a single pass.
+* Refuse `204 No Content` and `205 Reset Content` in the Ktor kit's default mapping instead of
+  adopting them; neither carries a representation, so an empty body never replaces a resident
+  value. Handle those statuses in a `KtorErrorMapper`.
+* Refuse a `KtorOutcome.NotModified` returned by a mapper for an exchange that sent no validator:
+  freshness cannot be refreshed from an unconditional request.
+* Refuse a `304 Not Modified` whose request carried a validator header the Ktor kit did not set.
+  The kit cannot tell which validator the server compared, so it fails closed rather than
+  trusting the response.
+* Default the paging refresh key to the previous key of the page closest to the anchor, so a
+  forward-only source restarts from the initial page instead of resuming at the next page and
+  skipping the anchored content.
+* Reject a `file` namespace or canonical id holding an unpaired surrogate before any file or
+  mirror change. UTF-8 encoding replaces an unpaired surrogate with U+FFFD, so distinct malformed
+  keys would otherwise map onto one on-disk name.
 
 **Known limitations**
 
@@ -54,7 +93,36 @@ stability policy is in [STABILITY.md](./STABILITY.md); each artifact's tier is s
   mutation; one wedged collector freezes writes to its database. This tradeoff is documented at
   the adapter.
 
-The next alpha targets September 2026.
+**Community issues**
+
+* Closes [#402](https://github.com/MobileNativeFoundation/Store/issues/402). `Freshness.MustBeFresh`
+  refetches even when the resident value is fresh: `mustBeFreshRefetchesFreshResident` in
+  [FreshnessPolicyConformanceTest](core/src/commonTest/kotlin/org/mobilenativefoundation/store6/core/FreshnessPolicyConformanceTest.kt).
+* Closes [#536](https://github.com/MobileNativeFoundation/Store/issues/536). `Freshness.LocalOnly`
+  serves a pre-populated source of truth without calling the fetcher:
+  `localOnly_prePopulatedSot_getServesWithoutFetcher` in
+  [SourceOfTruthConformanceTest](core/src/commonTest/kotlin/org/mobilenativefoundation/store6/core/SourceOfTruthConformanceTest.kt).
+* Closes [#702](https://github.com/MobileNativeFoundation/Store/issues/702) and
+  [#602](https://github.com/MobileNativeFoundation/Store/issues/602). `paging-androidx` builds an
+  androidx `PagingSource` and a `RemoteMediator` over any Store: `refreshLoad_mapsFirstDataFrameToPage`
+  and `appendLoad_usesPageKeyFromParams` in
+  [StorePagingSourceTest](paging-androidx/src/commonTest/kotlin/org/mobilenativefoundation/store6/paging/StorePagingSourceTest.kt),
+  and `mediatorRefresh_invalidatesThenGetsFresh` and `mediatorAppend_getsCachedOrFetch` in
+  [StoreRemoteMediatorTest](paging-androidx/src/commonTest/kotlin/org/mobilenativefoundation/store6/paging/StoreRemoteMediatorTest.kt).
+* Answers [#534](https://github.com/MobileNativeFoundation/Store/issues/534) with the published
+  roadmap, [ROADMAP.md](ROADMAP.md).
+* Answers [#570](https://github.com/MobileNativeFoundation/Store/issues/570) with the committed
+  JVM and KLIB ABI dumps described in [STABILITY.md](STABILITY.md#verification), which are
+  committed at every released tag and checked on every pull request.
+* Answers [#722](https://github.com/MobileNativeFoundation/Store/issues/722) and
+  [#578](https://github.com/MobileNativeFoundation/Store/issues/578) with the mutations floor in
+  this alpha — `mutations`, `mutations-sqldelight`, and `mutations-testing` — described in
+  [STABILITY.md](STABILITY.md#mutations).
+
+The release date and the next-alpha target month await the release owner; the target month is
+stated as one month after the cut date, per the monthly cadence in
+[STABILITY.md](STABILITY.md#cadence). Posting and closing the issues above is a release-owner
+action. These notes are a draft and do not establish artifact availability.
 
 ## [5.1.0-alpha10] (2026-07-13)
 

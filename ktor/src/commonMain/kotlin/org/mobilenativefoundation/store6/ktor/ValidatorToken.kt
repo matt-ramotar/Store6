@@ -48,11 +48,11 @@ internal fun decodeValidatorToken(
     }
 
 /**
- * Selects a replacement token from a 304 response. Ignoring Last-Modified here prevents a
- * previously stored ETag from being downgraded to a Last-Modified validator.
+ * Selects a replacement token from a 304 response.
+ *
+ * A 304 response's `Last-Modified` is deliberately not consulted: adopting it would downgrade a
+ * previously stored ETag to a weaker validator. Returning null instead is safe because core reads
+ * null as "keep the recorded token", so the caller does not need a Last-Modified argument to pass
+ * in and this function does not need to be told whether the fallback is enabled.
  */
-internal fun selectNotModifiedValidatorToken(
-    etagHeader: String?,
-    lastModifiedHeader: String?,
-    lastModifiedFallback: Boolean,
-): String? = etagHeader
+internal fun selectNotModifiedValidatorToken(etagHeader: String?): String? = etagHeader

@@ -1,7 +1,9 @@
 package org.mobilenativefoundation.store6.core.internal
 
+import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.Origin
 import org.mobilenativefoundation.store6.core.StoreMeta
+import org.mobilenativefoundation.store6.core.seam.SourceAdoption
 
 /**
  * Consume-once attribution owned by the exact fetch [owner] for a future pipeline emission.
@@ -10,12 +12,14 @@ import org.mobilenativefoundation.store6.core.StoreMeta
  * consumes and discards it; equal external content is indistinguishable residue. Matching writer
  * rows remain outside residence until [owner] publishes an exact durable commit disposition.
  */
+@OptIn(ExperimentalStoreApi::class)
 internal class AttributionTag(
     val owner: FetchTicket,
     val value: Any,
     val origin: Origin,
     val meta: StoreMeta,
     val staleEpochAtCommit: Long,
+    val sourceAdoption: SourceAdoption? = null,
 )
 
 /** Immutable state governing fetch ownership and invalidation epochs for one canonical key. */

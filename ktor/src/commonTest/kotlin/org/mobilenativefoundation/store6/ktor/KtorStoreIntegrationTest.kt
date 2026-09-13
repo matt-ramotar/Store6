@@ -20,6 +20,7 @@ import kotlinx.coroutines.yield
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.Freshness
 import org.mobilenativefoundation.store6.core.Origin
+import org.mobilenativefoundation.store6.core.Store
 import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreKey
@@ -40,10 +41,16 @@ class KtorStoreIntegrationTest {
     @Test
     fun invalidateThenConditionalRefetch_emitsOneRevalidatedAndClearsStaleness() = runTest {
         var requests = 0
+        var invalidateReturned = false
         val ifNoneMatchHeaders = mutableListOf<String?>()
+        val revalidationHeaders = mutableListOf<String?>()
         val engine =
             MockEngine { request ->
-                ifNoneMatchHeaders += request.headers[HttpHeaders.IfNoneMatch]
+                val ifNoneMatch = request.headers[HttpHeaders.IfNoneMatch]
+                ifNoneMatchHeaders += ifNoneMatch
+                if (invalidateReturned) {
+                    revalidationHeaders += ifNoneMatch
+                }
                 when (++requests) {
                     1 ->
                         respond(
@@ -70,7 +77,9 @@ class KtorStoreIntegrationTest {
             val key = IntegrationKey("revalidation")
             try {
                 assertEquals("v1", store.get(key))
+                assertEquals(1, requests, "the cold read must issue exactly one request")
                 store.invalidate(key)
+                invalidateReturned = true
 
                 store.stream(key).test {
                     var revalidatedCount = 0
@@ -95,9 +104,22 @@ class KtorStoreIntegrationTest {
                     cancelAndIgnoreRemainingEvents()
                 }
 
+                // Documented core-owned nondeterminism: the engine may issue one obsolete
+                // cold-baseline launch that the 304 cycle then self-heals. An exact count of
+                // two held on JVM, macOS, JS, and wasm but was observed as three on linuxX64,
+                // iosSimulatorArm64, and the Android unit lane (PR #77, first CI attempt), so
+                // the count is tolerated and the guarantees below are asserted instead.
+                assertTrue(
+                    revalidationHeaders.isNotEmpty() &&
+                        revalidationHeaders.size <= 2 &&
+                        revalidationHeaders.all { it == "\"v1\"" },
+                    "invalidation must issue one or two conditional revalidation requests, each " +
+                        "carrying the stored validator; observed $revalidationHeaders",
+                )
                 assertTrue(
                     requests in 2..3,
-                    "the 304 cycle may self-heal one obsolete cold-baseline launch",
+                    "the 304 cycle may self-heal one obsolete cold-baseline launch; observed " +
+                        "ifNoneMatchHeaders=$ifNoneMatchHeaders",
                 )
                 assertNull(ifNoneMatchHeaders[0])
                 ifNoneMatchHeaders.drop(1).forEach { header ->
@@ -113,7 +135,7 @@ class KtorStoreIntegrationTest {
     }
 
     @Test
-    fun trulyColdNotModified_surfacesMissing() = runTest {
+    fun trulyColdNotModified_mapperOverrideIsRejected() = runTest {
         val engine =
             MockEngine { request ->
                 assertNull(request.headers[HttpHeaders.IfNoneMatch])
@@ -126,14 +148,7 @@ class KtorStoreIntegrationTest {
                 store<IntegrationKey, String> {
                     ktorFetcher(
                         client = client,
-                        errorMapper =
-                            KtorErrorMapper { exchange ->
-                                if (exchange.status == HttpStatusCode.NotModified) {
-                                    KtorOutcome.NotModified(null)
-                                } else {
-                                    KtorOutcome.Defer
-                                }
-                            },
+                        errorMapper = UnconditionalNotModifiedOverride,
                         decode = { response -> response.bodyAsText() },
                         configureRequest = { key ->
                             url("https://example.test/items/${key.canonicalId()}")
@@ -141,11 +156,101 @@ class KtorStoreIntegrationTest {
                     )
                 }
             try {
-                val failure =
-                    assertFailsWith<StoreException> {
-                        store.get(IntegrationKey("cold-304"))
-                    }
-                assertIs<StoreError.Missing>(failure.error)
+                assertFetchStatus(store, IntegrationKey("cold-304"), HttpStatusCode.NotModified)
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    @Test
+    fun mapperNotModifiedWithoutConditionalRequest_leavesStaleValueStale() = runTest {
+        var requests = 0
+        val engine =
+            MockEngine {
+                when (++requests) {
+                    // No ETag and no Last-Modified: the resident value carries no validator, so
+                    // every later request is unconditional.
+                    1 -> respond(content = "v1", status = HttpStatusCode.OK)
+                    else -> respond(content = "", status = HttpStatusCode.NotModified)
+                }
+            }
+
+        HttpClient(engine).use { client ->
+            val store =
+                store<IntegrationKey, String> {
+                    ktorFetcher(
+                        client = client,
+                        errorMapper = UnconditionalNotModifiedOverride,
+                        decode = { response -> response.bodyAsText() },
+                        configureRequest = { key ->
+                            url("https://example.test/items/${key.canonicalId()}")
+                        },
+                    )
+                }
+            val key = IntegrationKey("stale-stays-stale")
+            try {
+                assertEquals("v1", store.get(key))
+                store.invalidate(key)
+
+                assertFetchStatus(store, key, HttpStatusCode.NotModified, Freshness.MustBeFresh)
+
+                store.stream(key, Freshness.LocalOnly).test {
+                    val data = assertIs<StoreResult.Data<String>>(awaitItem())
+                    assertEquals("v1", data.value)
+                    assertTrue(
+                        data.isStale,
+                        "an unvalidated NotModified must not mark the stale value fresh",
+                    )
+                    cancelAndIgnoreRemainingEvents()
+                }
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    @Test
+    fun noContent_doesNotReplaceResidentValueAndDoesNotMarkItFresh() = runTest {
+        var requests = 0
+        val engine =
+            MockEngine {
+                when (++requests) {
+                    1 ->
+                        respond(
+                            content = "v1",
+                            status = HttpStatusCode.OK,
+                            headers = headersOf(HttpHeaders.ETag, "\"v1\""),
+                        )
+
+                    else -> respond(content = "", status = HttpStatusCode.NoContent)
+                }
+            }
+
+        HttpClient(engine).use { client ->
+            val store =
+                store<IntegrationKey, String> {
+                    ktorFetcher(
+                        client = client,
+                        decode = { response -> response.bodyAsText() },
+                        configureRequest = { key ->
+                            url("https://example.test/items/${key.canonicalId()}")
+                        },
+                    )
+                }
+            val key = IntegrationKey("no-content")
+            try {
+                assertEquals("v1", store.get(key))
+                store.invalidate(key)
+
+                assertFetchStatus(store, key, HttpStatusCode.NoContent, Freshness.MustBeFresh)
+
+                store.stream(key, Freshness.LocalOnly).test {
+                    val data = assertIs<StoreResult.Data<String>>(awaitItem())
+                    assertEquals("v1", data.value)
+                    assertTrue(data.isStale, "a refused 204 must not mark the resident value fresh")
+                    cancelAndIgnoreRemainingEvents()
+                }
             } finally {
                 store.close()
             }
@@ -202,18 +307,13 @@ class KtorStoreIntegrationTest {
                     )
                 }
             try {
-                val failure =
-                    assertFailsWith<StoreException> {
-                        store.get(IntegrationKey("typed-error"))
-                    }
-                val fetchError =
-                    failure.error as? StoreError.Fetch
-                        ?: fail("expected StoreError.Fetch, was ${failure.error}")
                 val cause =
-                    fetchError.cause as? KtorFetchException
-                        ?: fail("expected KtorFetchException, was ${fetchError.cause}")
+                    assertFetchStatus(
+                        store,
+                        IntegrationKey("typed-error"),
+                        HttpStatusCode.InternalServerError,
+                    )
 
-                assertEquals(HttpStatusCode.InternalServerError, cause.status)
                 assertEquals(HttpMethod.Get, cause.method)
                 assertEquals("https://example.test/items/typed-error", cause.url)
             } finally {
@@ -254,14 +354,23 @@ class KtorStoreIntegrationTest {
             val key = IntegrationKey("validator-lifetime")
             try {
                 assertEquals("v1", store.get(key))
-                while (true) {
-                    var origin: Origin? = null
+                var origin: Origin? = null
+                var polls = 0
+                while (origin != Origin.SOT) {
+                    // Bounded: yield() does not advance virtual time, so an unbounded spin would
+                    // turn a residence regression into a 25-second runTest timeout instead of a
+                    // legible failure.
+                    if (polls++ == MAX_EVICTION_POLLS) {
+                        fail(
+                            "the value never left residence: after $MAX_EVICTION_POLLS polls its " +
+                                "origin was still $origin, expected ${Origin.SOT}",
+                        )
+                    }
                     store.stream(key, Freshness.LocalOnly).test {
                         origin = assertIs<StoreResult.Data<String>>(awaitItem()).origin
                         cancelAndIgnoreRemainingEvents()
                     }
-                    if (origin == Origin.SOT) break
-                    yield()
+                    if (origin != Origin.SOT) yield()
                 }
                 assertEquals("v2", store.get(key, Freshness.MustBeFresh))
                 val expectedHeaders =
@@ -274,10 +383,48 @@ class KtorStoreIntegrationTest {
     }
 }
 
+// Generous: eviction normally lands on the first poll. This only has to beat the 25s shadow with
+// a readable message.
+private const val MAX_EVICTION_POLLS = 1_000
+
+private val UnconditionalNotModifiedOverride =
+    KtorErrorMapper { exchange ->
+        if (exchange.status == HttpStatusCode.NotModified) {
+            KtorOutcome.NotModified(null)
+        } else {
+            KtorOutcome.Defer
+        }
+    }
+
 private class IntegrationKey(private val id: String) : StoreKey {
     override val namespace: StoreNamespace = StoreNamespace("ktor-integration")
 
     override fun canonicalId(): String = id
+}
+
+/**
+ * Asserts that reading [key] fails with HTTP [status], unwrapping the whole refusal chain:
+ * `StoreException` to `StoreError.Fetch` to `KtorFetchException`.
+ *
+ * The transport suite's `assertStatusError` does the same for a raw `FetcherResult`; this is the
+ * store-level counterpart, and like that one it returns the typed exception so a caller that needs
+ * more than the status can go on asserting.
+ */
+private suspend fun assertFetchStatus(
+    store: Store<IntegrationKey, String>,
+    key: IntegrationKey,
+    status: HttpStatusCode,
+    freshness: Freshness = Freshness.CachedOrFetch,
+): KtorFetchException {
+    val failure = assertFailsWith<StoreException> { store.get(key, freshness) }
+    val fetchError =
+        failure.error as? StoreError.Fetch
+            ?: fail("expected StoreError.Fetch, was ${failure.error}")
+    val cause =
+        fetchError.cause as? KtorFetchException
+            ?: fail("expected KtorFetchException, was ${fetchError.cause}")
+    assertEquals(status, cause.status)
+    return cause
 }
 
 // Turbine's 3s default would nest inside the 25s shadow. Raising the Turbine deadline above

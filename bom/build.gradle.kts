@@ -26,6 +26,11 @@ dependencies {
         api("$group:mutations:$version")
         api("$group:mutations-testing:$version")
         api("$group:mutations-sqldelight:$version")
+        api("$group:paging-androidx:$version")
+        api("$group:opentelemetry:$version")
+        api("$group:ktor:$version")
+        api("$group:file:$version")
+        api("$group:mutations-conflicts:$version")
     }
 }
 

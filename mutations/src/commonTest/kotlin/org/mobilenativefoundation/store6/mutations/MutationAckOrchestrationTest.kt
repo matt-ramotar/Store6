@@ -14,6 +14,8 @@ import kotlinx.coroutines.test.runTest as coroutineRunTest
 import org.mobilenativefoundation.store6.core.StoreError
 import org.mobilenativefoundation.store6.core.StoreException
 import org.mobilenativefoundation.store6.core.StoreKey
+import org.mobilenativefoundation.store6.core.seam.FreshnessEvidence
+import org.mobilenativefoundation.store6.core.seam.SourceAdoption
 import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
 import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJournalStorage
 import org.mobilenativefoundation.store6.mutations.storage.MutationAckRecord
@@ -662,6 +664,17 @@ private class RecordingAckWriteHandle(
     val confirmed = mutableListOf<Pair<KeyIdentity, String?>>()
     val markedStale = mutableListOf<KeyIdentity>()
     val cleared = mutableListOf<KeyIdentity>()
+
+    override suspend fun applyAcknowledgement(
+        key: MutationsTestKey,
+        value: String,
+        etag: String?,
+        freshnessEvidence: FreshnessEvidence?,
+        adoption: SourceAdoption?,
+    ) {
+        apply(key, value)
+        confirmed += key.identity() to etag
+    }
 
     override suspend fun apply(
         key: MutationsTestKey,

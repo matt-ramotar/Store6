@@ -3,8 +3,12 @@ package org.mobilenativefoundation.store6.core.internal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emitAll
@@ -48,8 +52,10 @@ internal class RealStore<K : StoreKey, V : Any>(
     private val maxIdleKeys: Int,
 ) : Store<K, V> {
     private val storeJob = SupervisorJob()
+    private val closeSignal = Job(storeJob)
     private val storeScope = CoroutineScope(Dispatchers.Default + storeJob)
     private val maintenanceCoordinator = MaintenanceCoordinator()
+    private val acknowledgementCoordinator = MaintenanceCoordinator()
     internal val events =
         MutableSharedFlow<KeyEvents>(
             replay = 0,
@@ -74,6 +80,7 @@ internal class RealStore<K : StoreKey, V : Any>(
                 engineScope = CoroutineScope(storeScope.coroutineContext + engineJob),
                 residencyHooks = hooks,
                 maintenanceCoordinator = maintenanceCoordinator,
+                acknowledgementCoordinator = acknowledgementCoordinator,
             )
         }
 
@@ -98,7 +105,18 @@ internal class RealStore<K : StoreKey, V : Any>(
         key: K,
         freshness: Freshness,
     ): V {
-        return withEngine(key) { engine -> engine.get(freshness) }
+        ensureOpen()
+        return coroutineScope {
+            val request = this
+            val closeHandle =
+                closeSignal.invokeOnCompletion { request.cancel(storeClosedCancellation()) }
+            try {
+                ensureActive()
+                withEngine(key) { engine -> engine.get(freshness) }
+            } finally {
+                closeHandle.dispose()
+            }
+        }
     }
 
     override suspend fun invalidate(key: K) {
@@ -108,16 +126,22 @@ internal class RealStore<K : StoreKey, V : Any>(
 
     override suspend fun invalidateNamespace(namespace: StoreNamespace) {
         ensureOpen()
-        durably("invalidateNamespace", "namespace '${namespace.value}'") {
-            bookkeeper.advanceStaleWatermark(namespace)
+        acknowledgementCoordinator.withNamespaceMaintenance(namespace.value) {
+            durably("invalidateNamespace", "namespace '${namespace.value}'") {
+                bookkeeper.advanceStaleWatermark(namespace)
+            }
+            acknowledgementCoordinator.advanceNamespaceFreshness(namespace.value)
         }
         registry.forEachResident(namespace.value) { engine -> engine.invalidateResident() }
     }
 
     override suspend fun invalidateAll() {
         ensureOpen()
-        durably("invalidateAll", "all namespaces") {
-            bookkeeper.advanceGlobalStaleWatermark()
+        acknowledgementCoordinator.withGlobalMaintenance {
+            durably("invalidateAll", "all namespaces") {
+                bookkeeper.advanceGlobalStaleWatermark()
+            }
+            acknowledgementCoordinator.advanceGlobalFreshness()
         }
         registry.forEachResident(namespace = null) { engine -> engine.invalidateResident() }
     }

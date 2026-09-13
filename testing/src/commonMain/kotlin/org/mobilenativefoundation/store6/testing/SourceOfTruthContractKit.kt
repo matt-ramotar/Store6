@@ -7,6 +7,9 @@ package org.mobilenativefoundation.store6.testing
 
 import app.cash.turbine.test
 import app.cash.turbine.turbineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -14,13 +17,20 @@ import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.SourceOfTruth
+import org.mobilenativefoundation.store6.core.seam.TransactionalSourceOfTruth
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 /**
  * Conformance kit for [SourceOfTruth] implementations. Extend it in your test source set,
  * run your tests: every inherited @Test member executes on every target you compile.
+ * Checks without `@Test` require an explicit test wrapper in the consumer. Fault checks also
+ * require an adapter fixture wired into its actual storage boundary.
  *
  * ```
  * class MySourceOfTruthContractTest : SourceOfTruthContractKit<MyKey, MyValue>() {
@@ -312,4 +322,177 @@ public abstract class SourceOfTruthContractKit<K : StoreKey, V : Any> {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    /** Checks each mutation's public outcome when its caller is already cancelled. */
+    public fun mutations_cancelledCaller_obeyOutcome(): TestResult = runTest {
+        SourceMutation.entries.filter { it != SourceMutation.Transaction }.forEach { mutation ->
+            assertMutationOutcome(
+                SourceOfTruthFaultFixture(createSourceOfTruth(), MutationFaultInjector()),
+                mutation,
+                null,
+                null,
+            )
+        }
+    }
+
+    /** Checks rollback and absent notifications for storage failures and explicit cancellation. */
+    public fun mutations_throwBeforeCommit_preserveRowsAndNotifications(
+        createFixture: () -> SourceOfTruthFaultFixture<K, V>,
+    ): TestResult = runTest {
+        SourceMutation.entries.filter { it != SourceMutation.Transaction }.forEach { mutation ->
+            listOf(IllegalStateException("storage failed"), CancellationException("storage cancelled"), AssertionError("storage error")).forEach { failure ->
+                val fixture = createFixture()
+                try {
+                    assertMutationOutcome(fixture, mutation, MutationFaultPoint.BeforeCommit, failure)
+                } finally {
+                    fixture.close()
+                }
+            }
+        }
+    }
+
+    /** Cancels the external caller at each storage boundary and checks the public call's outcome. */
+    public fun mutations_externalCancellationAtCommit_obeyOutcome(
+        createFixture: () -> SourceOfTruthFaultFixture<K, V>,
+        points: Set<MutationFaultPoint> = MutationFaultPoint.entries.toSet(),
+    ): TestResult = runTest {
+        require(points.isNotEmpty())
+        SourceMutation.entries.filter { it != SourceMutation.Transaction }.forEach { mutation ->
+            points.forEach { point ->
+                val fixture = createFixture()
+                try {
+                    assertMutationOutcome(fixture, mutation, point, null)
+                } finally {
+                    fixture.close()
+                }
+            }
+        }
+    }
+
+    /** Invoke only for a transactional source; a thrown block must roll back every changed key. */
+    public fun transactions_throw_preserveRowsAndNotifications(): TestResult = runTest {
+        listOf(IllegalStateException("transaction failed"), CancellationException("transaction cancelled"), AssertionError("transaction error")).forEach { failure ->
+            val source = createSourceOfTruth()
+            val transactional = assertIs<TransactionalSourceOfTruth<K, V>>(source)
+            val keys = listOf(keyA, keyB, keyOtherNamespace)
+            val before = keys.mapIndexed { index, key -> value(index + 1).also { source.write(key, it) } }
+            turbineScope {
+                val readers = keys.map { source.reader(it).testIn(backgroundScope) }
+                try {
+                    readers.forEachIndexed { index, reader -> assertEquals(before[index], reader.awaitItem()) }
+                    val observed = observeMutationCall {
+                        transactional.withTransaction {
+                            source.write(keyA, value(4))
+                            source.delete(keyB)
+                            source.deleteNamespace(keyOtherNamespace.namespace)
+                            throw failure
+                        }
+                    }
+                    assertThrownFailure(failure, observed.completion.exceptionOrNull())
+                    keys.forEachIndexed { index, key -> assertEquals(before[index], source.reader(key).first()) }
+                    runCurrent()
+                    readers.forEach { it.expectNoEvents() }
+                    source.write(keyA, value(5))
+                    assertEquals(value(5), readers.first().awaitItem())
+                    runCurrent()
+                    readers.drop(1).forEach { it.expectNoEvents() }
+                } finally {
+                    readers.forEach { it.cancelAndIgnoreRemainingEvents() }
+                }
+            }
+        }
+    }
+
+    /** Checks transaction-wide completion and notifications when the caller is cancelled at commit. */
+    public fun transactions_externalCancellationAtCommit_obeyOutcome(
+        createFixture: () -> SourceOfTruthFaultFixture<K, V>,
+        points: Set<MutationFaultPoint> = MutationFaultPoint.entries.toSet(),
+    ): TestResult = runTest {
+        require(points.isNotEmpty())
+        points.forEach { point ->
+            val fixture = createFixture()
+            try {
+                assertMutationOutcome(fixture, SourceMutation.Transaction, point, null)
+            } finally {
+                fixture.close()
+            }
+        }
+    }
+
+    private suspend fun TestScope.assertMutationOutcome(
+        fixture: SourceOfTruthFaultFixture<K, V>,
+        mutation: SourceMutation,
+        point: MutationFaultPoint?,
+        failure: Throwable?,
+    ) {
+        val source = fixture.sourceOfTruth
+        val keys = listOf(keyA, keyB, keyOtherNamespace)
+        val before = keys.mapIndexed { index, key -> value(index + 1).also { source.write(key, it) } }
+        turbineScope {
+            val readers = keys.map { source.reader(it).testIn(backgroundScope) }
+            try {
+                readers.forEachIndexed { index, reader -> assertEquals(before[index], reader.awaitItem()) }
+                var reached = false
+                val observed = observeMutationCall { caller ->
+                    if (point == null) {
+                        reached = true
+                        caller.cancel()
+                    } else {
+                        fixture.faults.arm(point) {
+                            reached = true
+                            if (failure != null) throw failure
+                            caller.cancel()
+                        }
+                    }
+                    when (mutation) {
+                        SourceMutation.Write -> source.write(keyA, value(4))
+                        SourceMutation.Delete -> source.delete(keyA)
+                        SourceMutation.DeleteNamespace -> source.deleteNamespace(keyA.namespace)
+                        SourceMutation.DeleteAll -> source.deleteAll()
+                        SourceMutation.Transaction -> assertIs<TransactionalSourceOfTruth<K, V>>(source).withTransaction {
+                            source.write(keyA, value(4))
+                            source.delete(keyB)
+                            source.delete(keyOtherNamespace)
+                        }
+                    }
+                }
+                assertTrue(reached, "Storage fault did not fire for $mutation at $point")
+                if (failure != null) {
+                    assertThrownFailure(failure, observed.completion.exceptionOrNull())
+                } else {
+                    assertTrue(observed.callerCancelled)
+                    observed.completion.exceptionOrNull()?.let { assertIs<CancellationException>(it) }
+                    if (point == MutationFaultPoint.AfterCommit) observed.completion.getOrThrow()
+                }
+                val applied = observed.completion.isSuccess
+                val expected: List<V?> = if (!applied) before else when (mutation) {
+                    SourceMutation.Write -> listOf(value(4), before[1], before[2])
+                    SourceMutation.Delete -> listOf(null, before[1], before[2])
+                    SourceMutation.DeleteNamespace -> listOf(null, null, before[2])
+                    SourceMutation.DeleteAll -> listOf(null, null, null)
+                    SourceMutation.Transaction -> listOf(value(4), null, null)
+                }
+                keys.forEachIndexed { index, key -> assertEquals(expected[index], source.reader(key).first()) }
+                readers.forEachIndexed { index, reader ->
+                    if (expected[index] != before[index]) assertEquals(expected[index], reader.awaitItem())
+                }
+                runCurrent()
+                readers.forEach { it.expectNoEvents() }
+                source.write(keyA, value(5))
+                assertEquals(value(5), readers.first().awaitItem())
+                runCurrent()
+                readers.drop(1).forEach { it.expectNoEvents() }
+            } finally {
+                readers.forEach { it.cancelAndIgnoreRemainingEvents() }
+            }
+        }
+    }
+
+    private fun assertThrownFailure(injected: Throwable, thrown: Throwable?) {
+        assertNotNull(thrown)
+        if (injected is CancellationException) assertIs<CancellationException>(thrown)
+        else assertFalse(thrown is CancellationException)
+    }
+
+    private enum class SourceMutation { Write, Delete, DeleteNamespace, DeleteAll, Transaction }
 }

@@ -8,6 +8,8 @@ package org.mobilenativefoundation.store6.mutations
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.runTest
+import org.mobilenativefoundation.store6.core.seam.FreshnessEvidence
+import org.mobilenativefoundation.store6.core.seam.SourceAdoption
 import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
 import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJournalStorage
 import org.mobilenativefoundation.store6.mutations.storage.MutationAckRecord
@@ -451,6 +453,17 @@ private class CountingAdoptionHandle : StoreWriteHandle<MutationsTestKey, String
         private set
     var confirmFreshCount: Int = 0
         private set
+
+    override suspend fun applyAcknowledgement(
+        key: MutationsTestKey,
+        value: String,
+        etag: String?,
+        freshnessEvidence: FreshnessEvidence?,
+        adoption: SourceAdoption?,
+    ) {
+        apply(key, value)
+        confirmFreshCount += 1
+    }
 
     override suspend fun apply(
         key: MutationsTestKey,

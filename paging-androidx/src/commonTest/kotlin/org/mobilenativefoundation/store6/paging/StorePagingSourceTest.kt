@@ -23,6 +23,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.time.Duration.Companion.seconds
@@ -338,7 +339,7 @@ class StorePagingSourceTest {
     }
 
     @Test
-    fun getRefreshKey_defaultAnchorsViaClosestPageToPosition() = runTest {
+    fun getRefreshKey_defaultTakesClosestPagePrevKey_neverNextKey() = runTest {
         val store = pageStore(ScriptedPageFetcher())
 
         try {
@@ -354,15 +355,130 @@ class StorePagingSourceTest {
                     config = PagingConfig(pageSize = 1),
                     leadingPlaceholderCount = 0,
                 )
+            val forwardOnlyFirstPage =
+                PagingState(
+                    pages =
+                        listOf(pagingPage(data = listOf("page-1"), prevKey = null, nextKey = 2)),
+                    anchorPosition = 0,
+                    config = PagingConfig(pageSize = 1),
+                    leadingPlaceholderCount = 0,
+                )
 
             assertEquals(1, store.standardPagingFactory()().getRefreshKey(state))
+            assertNull(store.standardPagingFactory()().getRefreshKey(forwardOnlyFirstPage))
             assertEquals(
                 99,
                 store.standardPagingFactory {
                     refreshKey { 99 }
                 }().getRefreshKey(state),
             )
+            assertEquals(
+                99,
+                store.standardPagingFactory {
+                    refreshKey { 99 }
+                }().getRefreshKey(forwardOnlyFirstPage),
+            )
         } finally {
+            store.close()
+        }
+    }
+
+    @Test
+    fun defaultRefresh_forwardOnlyFirstPageAnchor_reloadsAnchoredItems() = runTest {
+        val firstKey = PageKey("query", cursor = null, limit = 2)
+        val secondKey = PageKey("query", cursor = 2, limit = 2)
+        val fetcher =
+            ScriptedPageFetcher().apply {
+                enqueue(
+                    firstKey,
+                    FetcherResult.Success(Page(listOf("a1", "a2"), next = 2, prev = null)),
+                )
+                enqueue(
+                    secondKey,
+                    FetcherResult.Success(Page(listOf("b1", "b2"), next = null, prev = 1)),
+                )
+            }
+        val store = pageStore(fetcher)
+        val factory = store.standardPagingFactory()
+
+        try {
+            val firstPage = assertPage(factory().load(refreshParams(key = null, loadSize = 2)))
+            assertEquals(listOf("a1", "a2"), firstPage.data)
+            assertNull(firstPage.prevKey)
+            assertEquals(2, firstPage.nextKey)
+
+            val anchoredInFirstPage =
+                PagingState(
+                    pages = listOf(firstPage),
+                    anchorPosition = 0,
+                    config = PagingConfig(pageSize = 2, initialLoadSize = 2),
+                    leadingPlaceholderCount = 0,
+                )
+            val nextGeneration = factory()
+            val refreshKey = nextGeneration.getRefreshKey(anchoredInFirstPage)
+            val refreshed =
+                assertPage(nextGeneration.load(refreshParams(key = refreshKey, loadSize = 2)))
+
+            assertEquals(listOf("a1", "a2"), refreshed.data)
+            assertNull(refreshKey)
+            assertEquals(0, fetcher.callCount(secondKey))
+        } finally {
+            factory.invalidate()
+            store.close()
+        }
+    }
+
+    @Test
+    fun defaultRefresh_bidirectionalAnchor_loadsPrevPage_thenAppendsAnchoredPage() = runTest {
+        val secondKey = PageKey("query", cursor = 2, limit = 2)
+        val thirdKey = PageKey("query", cursor = 3, limit = 2)
+        val fetcher =
+            ScriptedPageFetcher().apply {
+                enqueue(
+                    secondKey,
+                    FetcherResult.Success(Page(listOf("b1", "b2"), next = 3, prev = 1)),
+                )
+                enqueue(
+                    thirdKey,
+                    FetcherResult.Success(Page(listOf("c1", "c2"), next = null, prev = 2)),
+                )
+            }
+        val store = pageStore(fetcher)
+        val factory = store.standardPagingFactory()
+
+        try {
+            val anchoredInThirdPage =
+                PagingState(
+                    pages =
+                        listOf(
+                            pagingPage(data = listOf("a1", "a2"), prevKey = null, nextKey = 2),
+                            pagingPage(data = listOf("b1", "b2"), prevKey = 1, nextKey = 3),
+                            pagingPage(data = listOf("c1", "c2"), prevKey = 2, nextKey = null),
+                        ),
+                    anchorPosition = 4,
+                    config = PagingConfig(pageSize = 2, initialLoadSize = 2),
+                    leadingPlaceholderCount = 0,
+                )
+            val generation = factory()
+            val refreshKey = generation.getRefreshKey(anchoredInThirdPage)
+            val refreshed =
+                assertPage(generation.load(refreshParams(key = refreshKey, loadSize = 2)))
+            val appended =
+                assertPage(
+                    generation.load(
+                        PagingSource.LoadParams.Append(
+                            key = assertNotNull(refreshed.nextKey),
+                            loadSize = 2,
+                            placeholdersEnabled = false,
+                        ),
+                    ),
+                )
+
+            assertEquals(2, refreshKey)
+            assertEquals(listOf("b1", "b2"), refreshed.data)
+            assertEquals(listOf("c1", "c2"), appended.data)
+        } finally {
+            factory.invalidate()
             store.close()
         }
     }
@@ -497,6 +613,16 @@ private fun pagingPage(
         data = data,
         prevKey = prevKey,
         nextKey = nextKey,
+    )
+
+private fun refreshParams(
+    key: Int?,
+    loadSize: Int,
+): PagingSource.LoadParams.Refresh<Int> =
+    PagingSource.LoadParams.Refresh(
+        key = key,
+        loadSize = loadSize,
+        placeholdersEnabled = false,
     )
 
 private fun assertPage(

@@ -10,21 +10,37 @@ import kotlinx.coroutines.test.runTest
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.testing.TestStoreMeta
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
-import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /**
- * Fault injection at the driver boundary: runtime storage failures keep the soft-fail contract
- * (status returns null, operational writes absorb), while kotlin.Error propagates unmasked.
+ * Driver failures remain visible to status callers while operational writes absorb ordinary
+ * storage failures and kotlin.Error propagates.
  */
 internal class SqlDelightBookkeeperFailureTest {
     @Test
-    fun status_runtimeStorageFailure_returnsNull() = runTest {
+    fun status_runtimeStorageFailure_propagates() = runTest {
         withFaultyBookkeeper { bookkeeper, faultDriver ->
             faultDriver.fault = IllegalStateException("sqlite busy")
 
-            assertNull(bookkeeper.status(KEY))
+            val failure = assertFailsWith<IllegalStateException> { bookkeeper.status(KEY) }
+            assertEquals("sqlite busy", failure.message)
+        }
+    }
+
+    @Test
+    fun status_failureAndRecovery_preserveExistingDurableStaleness() = runTest {
+        withFaultyBookkeeper { bookkeeper, faultDriver ->
+            bookkeeper.recordSuccess(KEY, TestStoreMeta(1L, "e1"))
+            bookkeeper.markStale(KEY)
+            faultDriver.fault = IllegalStateException("temporarily unavailable")
+            assertFailsWith<IllegalStateException> { bookkeeper.status(KEY) }
+            faultDriver.fault = null
+            val recovered = assertNotNull(bookkeeper.status(KEY))
+            assertTrue(recovered.durablyStale)
+            assertEquals("e1", recovered.meta?.etag)
         }
     }
 

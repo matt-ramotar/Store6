@@ -1,6 +1,17 @@
 name: Store6
 
 on:
+  workflow_dispatch: {}
+  workflow_call:
+    outputs:
+      source_sha:
+        value: ${{ jobs.validation-evidence.outputs.source_sha }}
+      run_id:
+        value: ${{ jobs.validation-evidence.outputs.run_id }}
+      run_attempt:
+        value: ${{ jobs.validation-evidence.outputs.run_attempt }}
+      version:
+        value: ${{ jobs.validation-evidence.outputs.version }}
   push:
     branches: [ main, store6 ]
     tags: [ 'v*' ]
@@ -12,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: store6-${{ github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && 'docs-sync-guard' || 'validation' }}
+  group: store6-${{ github.workflow }}-${{ github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && 'docs-sync-guard' || 'validation' }}
   cancel-in-progress: true
 
 jobs:
@@ -70,6 +81,11 @@ jobs:
     env:
       # Kotlin JS/Wasm lock tasks must see one complete project graph across separate Gradle steps.
       GRADLE_OPTS: -Dorg.gradle.configureondemand=false
+    outputs:
+      source_sha: ${{ steps.provenance.outputs.source_sha }}
+      run_id: ${{ steps.provenance.outputs.run_id }}
+      run_attempt: ${{ steps.provenance.outputs.run_attempt }}
+      version: ${{ steps.provenance.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -328,7 +344,7 @@ jobs:
           done
           exit "${status}"
 
-      - name: Verify seam package matches the TD-13 freeze list
+      - name: Verify core seam inventory
         shell: bash
         run: |
           set -euo pipefail
@@ -337,9 +353,11 @@ jobs:
             Bookkeeper.kt
             Fetcher.kt
             FetcherResult.kt
+            FreshnessEvidence.kt
             FreshnessValidator.kt
             KeyEvents.kt
             Overlay.kt
+            SourceAdoption.kt
             SourceOfTruth.kt
             StoreResults.kt
             StoreRuntime.kt
@@ -499,9 +517,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Record checked-source validation provenance
+        id: provenance
+        if: ${{ github.event_name != 'pull_request' }}
+        run: python3 .github/scripts/release_control.py provenance
+
   apple-tests:
     runs-on: macos-latest
     timeout-minutes: 40
+    outputs:
+      source_sha: ${{ steps.provenance.outputs.source_sha }}
+      run_id: ${{ steps.provenance.outputs.run_id }}
+      run_attempt: ${{ steps.provenance.outputs.run_attempt }}
+      version: ${{ steps.provenance.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -602,9 +630,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Record checked-source validation provenance
+        id: provenance
+        if: ${{ github.event_name != 'pull_request' }}
+        run: python3 .github/scripts/release_control.py provenance
+
   swift-dumps:
     runs-on: macos-latest
     timeout-minutes: 40
+    outputs:
+      source_sha: ${{ steps.provenance.outputs.source_sha }}
+      run_id: ${{ steps.provenance.outputs.run_id }}
+      run_attempt: ${{ steps.provenance.outputs.run_attempt }}
+      version: ${{ steps.provenance.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -648,9 +686,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Record checked-source validation provenance
+        id: provenance
+        if: ${{ github.event_name != 'pull_request' }}
+        run: python3 .github/scripts/release_control.py provenance
+
   swift-facade:
     runs-on: macos-latest
     timeout-minutes: 60
+    outputs:
+      source_sha: ${{ steps.provenance.outputs.source_sha }}
+      run_id: ${{ steps.provenance.outputs.run_id }}
+      run_attempt: ${{ steps.provenance.outputs.run_attempt }}
+      version: ${{ steps.provenance.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -698,9 +746,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+      - name: Record checked-source validation provenance
+        id: provenance
+        if: ${{ github.event_name != 'pull_request' }}
+        run: python3 .github/scripts/release_control.py provenance
+
   klib-publication-check:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    outputs:
+      source_sha: ${{ steps.provenance.outputs.source_sha }}
+      run_id: ${{ steps.provenance.outputs.run_id }}
+      run_attempt: ${{ steps.provenance.outputs.run_attempt }}
+      version: ${{ steps.provenance.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -738,7 +796,7 @@ jobs:
         shell: bash
         run: |
           group_id="org.mobilenativefoundation.store"
-          version="6.0.0-SNAPSHOT"
+          version="$(python3 .github/scripts/release_control.py version)"
           repository="${HOME}/.m2/repository/org/mobilenativefoundation/store"
 
           modules=(core testing sqldelight compose room devtools devtools-inspector mutations mutations-testing mutations-sqldelight mutations-drain mutations-drain-meeseeks mutations-conflicts paging-androidx graphql realtime file ktor opentelemetry bom)
@@ -759,6 +817,7 @@ jobs:
           )
 
           failed=0
+          publications=()
           for module in "${modules[@]}"; do
             for suffix in "${suffixes[@]}"; do
               case "${module}:${suffix}" in
@@ -794,6 +853,7 @@ jobs:
                   ;;
               esac
               artifact_id="${module}${suffix}"
+              publications+=("${artifact_id}")
               artifact_dir="${repository}/${artifact_id}/${version}"
               case "${suffix}" in
                 ""|-jvm)
@@ -819,11 +879,24 @@ jobs:
               echo "Verified ${group_id}:${artifact_id}:${version} (${extension})"
             done
           done
-          exit "${failed}"
+          if [[ "${failed}" -ne 0 ]]; then exit "${failed}"; fi
+          python3 .github/scripts/release_control.py publication-versions \
+            --repository "${repository}" --modules "${modules[@]}" \
+            --publications "${publications[@]}"
+
+      - name: Record checked-source validation provenance
+        id: provenance
+        if: ${{ github.event_name != 'pull_request' }}
+        run: python3 .github/scripts/release_control.py provenance
 
   native-stress:
     runs-on: macos-latest
     timeout-minutes: 40
+    outputs:
+      source_sha: ${{ steps.provenance.outputs.source_sha }}
+      run_id: ${{ steps.provenance.outputs.run_id }}
+      run_attempt: ${{ steps.provenance.outputs.run_attempt }}
+      version: ${{ steps.provenance.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -925,3 +998,34 @@ jobs:
             */build/reports/tests/**
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Record checked-source validation provenance
+        id: provenance
+        if: ${{ github.event_name != 'pull_request' }}
+        run: python3 .github/scripts/release_control.py provenance
+
+  validation-evidence:
+    if: ${{ always() && github.event_name != 'pull_request' }}
+    needs: [linux-build-test, apple-tests, swift-dumps, swift-facade, klib-publication-check, native-stress]
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.evidence.outputs.source_sha }}
+      run_id: ${{ steps.evidence.outputs.run_id }}
+      run_attempt: ${{ steps.evidence.outputs.run_attempt }}
+      version: ${{ steps.evidence.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require the complete Store6 validation matrix
+        id: evidence
+        env:
+          VALIDATION_NEEDS: ${{ toJSON(needs) }}
+        run: python3 .github/scripts/release_control.py matrix --output store6-validation.json
+      - name: Archive the exact-source validation record
+        uses: actions/upload-artifact@v4
+        with:
+          name: store6-validation-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: store6-validation.json
+          if-no-files-found: error
+          retention-days: 90

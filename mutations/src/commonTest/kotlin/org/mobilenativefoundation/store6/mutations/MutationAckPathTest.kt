@@ -26,6 +26,8 @@ import org.mobilenativefoundation.store6.core.StoreResult
 import org.mobilenativefoundation.store6.core.store
 import org.mobilenativefoundation.store6.core.seam.Bookkeeper
 import org.mobilenativefoundation.store6.core.seam.KeyStatus
+import org.mobilenativefoundation.store6.core.seam.FreshnessEvidence
+import org.mobilenativefoundation.store6.core.seam.SourceAdoption
 import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
 import org.mobilenativefoundation.store6.core.seam.runtime
 import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJournalStorage
@@ -206,6 +208,68 @@ class MutationAckPathTest {
     }
 
     @Test
+    fun defaultAcknowledgementHandle_marksStaleBeforeAdoptingWithoutConfirmation() = runTest {
+        val mutation = RenameMutation()
+        val events = mutableListOf<String>()
+        val engine = MutationEngine(
+            registry = mutation.registry,
+            server = echoingMutationServer(),
+            baseReader = { "base" },
+        )
+        engine.bind(object : StoreWriteHandle<MutationsTestKey, String> {
+            override suspend fun apply(key: MutationsTestKey, value: String) {
+                events += "apply:$value"
+            }
+
+            override suspend fun markStale(key: MutationsTestKey) {
+                events += "markStale"
+            }
+
+            override suspend fun confirmFresh(key: MutationsTestKey, etag: String?) {
+                fail("A default acknowledgement handle has no freshness authority")
+            }
+        })
+        val key = MutationsTestKey("default-adoption")
+        engine.mutate(key, mutation.ref, "pending")
+
+        engine.drain(key)
+
+        assertEquals(listOf("markStale", "apply:pending"), events)
+        assertEquals(emptyList(), engine.pending(key))
+    }
+
+    @Test
+    fun defaultAcknowledgementStaleFailure_keepsIntentPendingBeforeSourceWrite() = runTest {
+        val mutation = RenameMutation()
+        val expected = IllegalStateException("stale mark failed")
+        val engine = MutationEngine(
+            registry = mutation.registry,
+            server = echoingMutationServer(),
+            baseReader = { "base" },
+        )
+        engine.bind(object : StoreWriteHandle<MutationsTestKey, String> {
+            override suspend fun apply(key: MutationsTestKey, value: String) {
+                fail("A failed stale mark must abort before writing")
+            }
+
+            override suspend fun markStale(key: MutationsTestKey) {
+                throw expected
+            }
+
+            override suspend fun confirmFresh(key: MutationsTestKey, etag: String?) {
+                fail("A failed acknowledgement must not confirm freshness")
+            }
+        })
+        val key = MutationsTestKey("default-stale-failure")
+        val id = engine.mutate(key, mutation.ref, "pending")
+
+        assertSame(expected, assertFailsWith<IllegalStateException> { engine.drain(key) })
+
+        assertEquals(listOf(id), engine.pending(key).map { it.mutationId })
+        assertEquals("pending", engine.overlay.apply(key, "base"))
+    }
+
+    @Test
     fun retireHappensAfterAdoption() = runTest {
         val events = mutableListOf<String>()
         val journal = RetireOrderingJournal(events)
@@ -223,13 +287,13 @@ class MutationAckPathTest {
 
         engine.drain(key)
 
-        assertEquals(listOf("apply", "confirmFresh", "retire"), events)
+        assertEquals(listOf("applyAcknowledgement", "retire"), events)
     }
 
-    // The sealed Present variant adopts through apply -> confirmFresh, then retires; the
+    // The sealed Present variant adopts through applyAcknowledgement, then retires; the
     // accepted-state key-change signal follows the completed retirement.
     @Test
-    fun presentAck_appliesConfirmsFreshThenRetires() = runTest {
+    fun presentAck_adoptsValueAndMetadataThenRetires() = runTest {
         val events = mutableListOf<String>()
         val journal = RetireOrderingJournal(events)
         val mutation = RenameMutation()
@@ -255,6 +319,17 @@ class MutationAckPathTest {
             )
         val handle =
             object : StoreWriteHandle<MutationsTestKey, String> {
+                override suspend fun applyAcknowledgement(
+                    key: MutationsTestKey,
+                    value: String,
+                    etag: String?,
+                    freshnessEvidence: FreshnessEvidence?,
+                    adoption: SourceAdoption?,
+                ) {
+                    events += "applyAcknowledgement"
+                    applied += value to etag
+                }
+
                 override suspend fun apply(
                     key: MutationsTestKey,
                     value: String,
@@ -279,7 +354,7 @@ class MutationAckPathTest {
 
         engine.drain(key)
 
-        assertEquals(listOf("apply", "confirmFresh", "retire"), events)
+        assertEquals(listOf("applyAcknowledgement", "retire"), events)
         assertEquals("authoritative:pending", applied.first().first)
         assertEquals("ack-etag", applied.last().second)
         assertEquals(emptyList(), engine.pending(key))
@@ -354,6 +429,16 @@ class MutationAckPathTest {
             )
         val handle =
             object : StoreWriteHandle<MutationsTestKey, String> {
+                override suspend fun applyAcknowledgement(
+                    key: MutationsTestKey,
+                    value: String,
+                    etag: String?,
+                    freshnessEvidence: FreshnessEvidence?,
+                    adoption: SourceAdoption?,
+                ) {
+                    adoptionLog += "applyAcknowledgement:${key.canonicalId()}"
+                }
+
                 override suspend fun apply(
                     key: MutationsTestKey,
                     value: String,
@@ -380,7 +465,7 @@ class MutationAckPathTest {
         engine.drain(absentKey)
 
         assertEquals(
-            listOf("apply:adopts-present", "confirmFresh:adopts-present", "clear:adopts-absent"),
+            listOf("applyAcknowledgement:adopts-present", "clear:adopts-absent"),
             adoptionLog,
         )
         assertEquals(emptyList(), engine.pending(presentKey))
@@ -1166,7 +1251,7 @@ private class RetireOrderingJournal(
         key: KeyIdentity,
         mutationId: String,
     ) {
-        assertEquals(listOf("apply", "confirmFresh"), events)
+        assertEquals(listOf("applyAcknowledgement"), events)
         super.retire(key, mutationId)
         events += "retire"
     }
@@ -1188,6 +1273,16 @@ private class ClearOrderingJournal(
 private class RecordingWriteHandle(
     private val events: MutableList<String>,
 ) : StoreWriteHandle<MutationsTestKey, String> {
+    override suspend fun applyAcknowledgement(
+        key: MutationsTestKey,
+        value: String,
+        etag: String?,
+        freshnessEvidence: FreshnessEvidence?,
+        adoption: SourceAdoption?,
+    ) {
+        events += "applyAcknowledgement"
+    }
+
     override suspend fun apply(
         key: MutationsTestKey,
         value: String,

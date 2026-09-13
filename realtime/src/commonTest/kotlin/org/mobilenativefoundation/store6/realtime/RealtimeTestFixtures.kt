@@ -8,6 +8,8 @@ import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
 import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
+import org.mobilenativefoundation.store6.core.seam.FreshnessEvidence
+import org.mobilenativefoundation.store6.core.seam.SourceAdoption
 import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
 import org.mobilenativefoundation.store6.mutations.MutationAck
 import org.mobilenativefoundation.store6.mutations.MutationCodec
@@ -33,6 +35,21 @@ internal val REALTIME_NAMESPACE = StoreNamespace("realtime")
 
 internal class RecordingWriteHandle : StoreWriteHandle<RealtimeTestKey, String> {
     val events = mutableListOf<String>()
+
+    override suspend fun captureFreshness(key: RealtimeTestKey): FreshnessEvidence? {
+        events += "captureFreshness"
+        return null
+    }
+
+    override suspend fun applyAcknowledgement(
+        key: RealtimeTestKey,
+        value: String,
+        etag: String?,
+        freshnessEvidence: FreshnessEvidence?,
+        adoption: SourceAdoption?,
+    ) {
+        events += "applyAcknowledgement"
+    }
 
     override suspend fun apply(
         key: RealtimeTestKey,

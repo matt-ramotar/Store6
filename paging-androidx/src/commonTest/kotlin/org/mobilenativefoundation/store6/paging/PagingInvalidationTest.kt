@@ -2,7 +2,9 @@
 
 package org.mobilenativefoundation.store6.paging
 
+import androidx.paging.PagingConfig
 import androidx.paging.PagingSource
+import androidx.paging.testing.TestPager
 import app.cash.turbine.withTurbineTimeout
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -33,6 +35,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.seconds
@@ -66,6 +69,53 @@ class PagingInvalidationTest {
             assertEquals(listOf("v2"), generationB.refresh().data)
             assertFalse(generationB.invalid)
             assertEquals(2, fetcher.callCount(key))
+        } finally {
+            factory.invalidate()
+            store.awaitActiveCollectors(0)
+            store.close()
+        }
+    }
+
+    @Test
+    fun generationCycle_refreshFromFirstPageAnchor_loadsAnchoredContent() = runTest {
+        val config = PagingConfig(pageSize = 2, initialLoadSize = 2, enablePlaceholders = false)
+        val firstKey = PageKey("query", cursor = null, limit = config.initialLoadSize)
+        val secondKey = PageKey("query", cursor = 2, limit = config.initialLoadSize)
+        val fetcher =
+            ScriptedPageFetcher().apply {
+                enqueue(
+                    firstKey,
+                    FetcherResult.Success(Page(listOf("a1", "a2"), next = 2, prev = null)),
+                    FetcherResult.Success(
+                        Page(listOf("a1-fresh", "a2-fresh"), next = 2, prev = null),
+                    ),
+                )
+                enqueue(
+                    secondKey,
+                    FetcherResult.Success(Page(listOf("b1", "b2"), next = null, prev = 1)),
+                )
+            }
+        val store = TrackingPageStore(pageStore(fetcher))
+        val factory = store.maxAgePagingFactory()
+
+        try {
+            val generationA = factory()
+            val invalidated = generationA.invalidationProbe()
+            val presenterA = TestPager(config, generationA)
+            assertEquals(listOf("a1", "a2"), assertLoadedPage(presenterA.refresh()).data)
+            val anchoredInFirstPage = presenterA.getPagingState(anchorPosition = 0)
+
+            store.invalidate(firstKey)
+            invalidated.awaitCount(1)
+
+            val generationB = factory()
+            val refreshKey = generationB.getRefreshKey(anchoredInFirstPage)
+            val refreshed = assertLoadedPage(TestPager(config, generationB).refresh(refreshKey))
+
+            assertEquals(listOf("a1-fresh", "a2-fresh"), refreshed.data)
+            assertNull(refreshKey)
+            assertEquals(0, fetcher.callCount(secondKey))
+            assertFalse(generationB.invalid)
         } finally {
             factory.invalidate()
             store.awaitActiveCollectors(0)
@@ -376,6 +426,10 @@ private class InvalidationProbe {
 
 private fun PagingSource<Int, String>.invalidationProbe(): InvalidationProbe =
     InvalidationProbe().also { probe -> registerInvalidatedCallback(probe::record) }
+
+private fun assertLoadedPage(
+    result: PagingSource.LoadResult<Int, String>,
+): PagingSource.LoadResult.Page<Int, String> = assertIs(result)
 
 private fun Store<PageKey, Page>.maxAgePagingFactory() =
     standardPagingFactory {

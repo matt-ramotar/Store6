@@ -7,6 +7,32 @@ Every public entry point is `@ExperimentalStoreApi`. See [STABILITY.md](../STABI
 
 ## Install
 
+This artifact ships in 6.0.0-alpha01, which is not released yet. The coordinates below are
+for a local publication from this source tree; nothing reaches Maven Central before that
+release.
+
+Use JDK 17 and configure an Android SDK containing platform 36 through `sdk.dir` in
+`local.properties` or `ANDROID_HOME`. The commands below enable Native KLIB cross-compilation;
+publication of those files does not establish Native execution. Apple execution and linking
+require macOS with Xcode.
+
+From the repository root, publish the module and its Store6 dependencies locally:
+
+```bash
+./gradlew :core:publishToMavenLocal :mutations:publishToMavenLocal :mutations-conflicts:publishToMavenLocal -Pkotlin.native.enableKlibsCrossCompilation=true
+```
+
+Use the version in `gradle.properties` (currently `6.0.0-SNAPSHOT`) and add the local repository
+to the consuming build's dependency repositories:
+
+```kotlin
+repositories {
+    mavenLocal()
+    mavenCentral()
+    google()
+}
+```
+
 ```kotlin
 kotlin {
     sourceSets {
@@ -83,11 +109,11 @@ A bare `lastWriteWins { ... }` call is last-write-wins when both sides are prese
 server-wins otherwise.
 
 > **WARNING: assign a fresh stamp in every local-write projector.** A projector that copies
-> the base's stamp produces ties. Ties lose to the server, so the policy silently degrades to
-> server-wins.
+> the base's stamp produces stamps that never exceed the server's, and `mine` must be strictly
+> newer to win, so the policy silently degrades to server-wins.
 
 This anti-example projector copies the base's stamp — the routine `copy(title = ...)` shape —
-so its merges always tie and lose:
+so its stamps never exceed the server's and every conflict resolves to server-wins:
 
 ```kotlin
 update(

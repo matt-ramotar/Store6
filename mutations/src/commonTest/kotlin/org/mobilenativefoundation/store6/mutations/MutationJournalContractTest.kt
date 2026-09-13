@@ -9,6 +9,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.mobilenativefoundation.store6.core.StoreKey
 import org.mobilenativefoundation.store6.core.StoreNamespace
+import org.mobilenativefoundation.store6.core.seam.FreshnessEvidence
+import org.mobilenativefoundation.store6.core.seam.SourceAdoption
 import org.mobilenativefoundation.store6.core.seam.StoreWriteHandle
 import org.mobilenativefoundation.store6.core.seam.WallClock
 import org.mobilenativefoundation.store6.mutations.storage.InMemoryMutationJournalStorage
@@ -1442,6 +1444,17 @@ private class RecordingRestartServer(
 private class RecordingRestartWriteHandle : StoreWriteHandle<RestartKey, String> {
     val applied = mutableListOf<Pair<String, String>>()
     val confirmed = mutableListOf<Pair<String, String?>>()
+
+    override suspend fun applyAcknowledgement(
+        key: RestartKey,
+        value: String,
+        etag: String?,
+        freshnessEvidence: FreshnessEvidence?,
+        adoption: SourceAdoption?,
+    ) {
+        applied += key.canonicalId() to value
+        confirmed += key.canonicalId() to etag
+    }
 
     override suspend fun apply(
         key: RestartKey,

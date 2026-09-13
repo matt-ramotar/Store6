@@ -79,9 +79,5 @@ class KtorTypesTest {
         assertSame(exception, fail.exception)
         assertEquals("etag-1", notModified.validatorToken)
         assertNull(KtorOutcome.NotModified(null).validatorToken)
-        assertEquals(KtorOutcome.Delete, KtorOutcome.Delete)
-        assertEquals(KtorOutcome.Defer, KtorOutcome.Defer)
-        assertEquals(KtorNotFoundPolicy.Error, KtorNotFoundPolicy.Error)
-        assertEquals(KtorNotFoundPolicy.Delete, KtorNotFoundPolicy.Delete)
     }
 }

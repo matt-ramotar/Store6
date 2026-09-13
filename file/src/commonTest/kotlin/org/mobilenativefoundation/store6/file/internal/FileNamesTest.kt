@@ -8,20 +8,20 @@ import kotlin.test.assertTrue
 
 class FileNamesTest {
     @Test
-    fun requireComponentLengths_accepts159Utf8BytesOnEachPart() {
+    fun requireValidComponents_accepts159Utf8BytesOnEachPart() {
         val atLimit = "a".repeat(FileNames.MAX_COMPONENT_UTF8_BYTES)
-        FileNames.requireComponentLengths(namespace = atLimit, canonicalId = "id")
-        FileNames.requireComponentLengths(namespace = "ns", canonicalId = atLimit)
-        FileNames.requireComponentLengths(namespace = atLimit, canonicalId = atLimit)
-        FileNames.requireComponentLengths(namespace = "", canonicalId = "")
+        FileNames.requireValidComponents(namespace = atLimit, canonicalId = "id")
+        FileNames.requireValidComponents(namespace = "ns", canonicalId = atLimit)
+        FileNames.requireValidComponents(namespace = atLimit, canonicalId = atLimit)
+        FileNames.requireValidComponents(namespace = "", canonicalId = "")
     }
 
     @Test
-    fun requireComponentLengths_rejects160Utf8BytesOnNamespace() {
+    fun requireValidComponents_rejects160Utf8BytesOnNamespace() {
         val overLimit = "a".repeat(FileNames.MAX_COMPONENT_UTF8_BYTES + 1)
         val error =
             assertFailsWith<IllegalArgumentException> {
-                FileNames.requireComponentLengths(namespace = overLimit, canonicalId = "id")
+                FileNames.requireValidComponents(namespace = overLimit, canonicalId = "id")
             }
         assertExceptionNamesPartLimitAndActual(
             message = error.message,
@@ -31,11 +31,11 @@ class FileNamesTest {
     }
 
     @Test
-    fun requireComponentLengths_rejects160Utf8BytesOnCanonicalId() {
+    fun requireValidComponents_rejects160Utf8BytesOnCanonicalId() {
         val overLimit = "a".repeat(FileNames.MAX_COMPONENT_UTF8_BYTES + 1)
         val error =
             assertFailsWith<IllegalArgumentException> {
-                FileNames.requireComponentLengths(namespace = "ns", canonicalId = overLimit)
+                FileNames.requireValidComponents(namespace = "ns", canonicalId = overLimit)
             }
         assertExceptionNamesPartLimitAndActual(
             message = error.message,
@@ -45,18 +45,18 @@ class FileNamesTest {
     }
 
     @Test
-    fun requireComponentLengths_measuresUtf8BytesNotCharacters() {
+    fun requireValidComponents_measuresUtf8BytesNotCharacters() {
         val twoByteChar = "é"
         assertEquals(2, twoByteChar.encodeToByteArray().size)
         val atLimit = twoByteChar.repeat(79) + "a"
         assertEquals(FileNames.MAX_COMPONENT_UTF8_BYTES, atLimit.encodeToByteArray().size)
-        FileNames.requireComponentLengths(namespace = atLimit, canonicalId = atLimit)
+        FileNames.requireValidComponents(namespace = atLimit, canonicalId = atLimit)
 
         val overLimit = twoByteChar.repeat(80)
         assertEquals(160, overLimit.encodeToByteArray().size)
         val namespaceError =
             assertFailsWith<IllegalArgumentException> {
-                FileNames.requireComponentLengths(namespace = overLimit, canonicalId = "id")
+                FileNames.requireValidComponents(namespace = overLimit, canonicalId = "id")
             }
         assertExceptionNamesPartLimitAndActual(
             message = namespaceError.message,
@@ -65,12 +65,79 @@ class FileNamesTest {
         )
         val canonicalError =
             assertFailsWith<IllegalArgumentException> {
-                FileNames.requireComponentLengths(namespace = "ns", canonicalId = overLimit)
+                FileNames.requireValidComponents(namespace = "ns", canonicalId = overLimit)
             }
         assertExceptionNamesPartLimitAndActual(
             message = canonicalError.message,
             part = "canonical id",
             actualLength = 160,
+        )
+    }
+
+    @Test
+    fun requireValidComponents_acceptsWellFormedSurrogatePairs() {
+        listOf("🚀", "🙂🚀", "orders-🚀-42", "é", "", "plain").forEach { wellFormed ->
+            FileNames.requireValidComponents(namespace = wellFormed, canonicalId = wellFormed)
+        }
+    }
+
+    @Test
+    fun requireValidComponents_rejectsUnpairedSurrogatesNamingPartAndIndex() {
+        val malformed =
+            listOf(
+                "\uD800a" to 0,
+                "\uDC00a" to 0,
+                "a\uD83D" to 1,
+                "\uDE80\uD83D" to 0,
+                "\uD800" to 0,
+                "🚀\uD83D" to 2,
+                "ok🚀\uD800x" to 4,
+            )
+        malformed.forEach { (value, index) ->
+            assertNamesMalformedPartAndIndex(
+                message =
+                    assertFailsWith<IllegalArgumentException> {
+                        FileNames.requireValidComponents(namespace = value, canonicalId = "id")
+                    }.message,
+                part = "namespace",
+                index = index,
+            )
+            assertNamesMalformedPartAndIndex(
+                message =
+                    assertFailsWith<IllegalArgumentException> {
+                        FileNames.requireValidComponents(namespace = "ns", canonicalId = value)
+                    }.message,
+                part = "canonical id",
+                index = index,
+            )
+        }
+    }
+
+    @Test
+    fun requireValidComponents_reportsMalformedBeforeLength() {
+        // The UTF-8 length of a malformed component measures its U+FFFD replacement encoding,
+        // so well-formedness must be decided first.
+        val malformedAndOverLimit = "\uD800" + "a".repeat(FileNames.MAX_COMPONENT_UTF8_BYTES)
+        assertTrue(malformedAndOverLimit.encodeToByteArray().size > FileNames.MAX_COMPONENT_UTF8_BYTES)
+        assertNamesMalformedPartAndIndex(
+            message =
+                assertFailsWith<IllegalArgumentException> {
+                    FileNames.requireValidComponents(namespace = malformedAndOverLimit, canonicalId = "id")
+                }.message,
+            part = "namespace",
+            index = 0,
+        )
+    }
+
+    @Test
+    fun requireValidComponents_reportsNamespaceBeforeCanonicalId() {
+        assertNamesMalformedPartAndIndex(
+            message =
+                assertFailsWith<IllegalArgumentException> {
+                    FileNames.requireValidComponents(namespace = "a\uD800", canonicalId = "\uDC00b")
+                }.message,
+            part = "namespace",
+            index = 1,
         )
     }
 
@@ -102,6 +169,17 @@ class FileNamesTest {
         val path = Path("values", "aaa", "bbb")
         assertEquals(Path("values", "aaa", "bbb.corrupt"), FileNames.corruptSibling(path))
         assertEquals(Path("bbb.corrupt"), FileNames.corruptSibling(Path("bbb")))
+    }
+
+    private fun assertNamesMalformedPartAndIndex(
+        message: String?,
+        part: String,
+        index: Int,
+    ) {
+        val text = requireNotNull(message)
+        assertTrue(text.contains(part), "message must name $part: $text")
+        assertTrue(text.contains("malformed"), "message must name the malformed sequence: $text")
+        assertTrue(text.contains("index $index"), "message must name index $index: $text")
     }
 
     private fun assertExceptionNamesPartLimitAndActual(

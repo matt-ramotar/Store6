@@ -46,17 +46,26 @@ public sealed interface GraphQlValue {
     }
 
     /**
-     * A GraphQL `Float` value.
+     * A finite GraphQL `Float` value. Signed zero is normalized to positive zero.
      *
-     * Canonical rendering uses the runtime's `Double.toString`, which differs across Kotlin
-     * targets (JS drops the trailing `.0` of whole numbers). Prefer [IntValue] or [StringValue]
-     * variables when canonical ids must match across runtimes, for example in a shared
-     * persistent cache.
+     * Canonical rendering uses the runtime's `Double.toString` and adds `.0` when the result
+     * has neither a decimal point nor an exponent, keeping [IntValue] and [FloatValue]
+     * identities distinct. Other formatting still differs across Kotlin targets. Prefer
+     * [IntValue] or [StringValue] variables when canonical ids must match across runtimes,
+     * for example in a shared persistent cache.
+     *
+     * @throws IllegalArgumentException if [value] is NaN or infinite
      */
     public class FloatValue(
-        /** The wrapped floating-point number. */
-        public val value: Double,
+        value: Double,
     ) : GraphQlValue {
+        init {
+            require(value.isFinite()) { "GraphQlValue.FloatValue requires a finite value." }
+        }
+
+        /** The finite floating-point number, with signed zero normalized to `0.0`. */
+        public val value: Double = if (value == 0.0) 0.0 else value
+
         override fun equals(other: Any?): Boolean = other is FloatValue && other.value == value
 
         override fun hashCode(): Int = value.hashCode()
@@ -184,7 +193,11 @@ public class GraphQlObjectBuilder internal constructor() {
         put(name, GraphQlValue.IntValue(value))
     }
 
-    /** Binds [name] to a [GraphQlValue.FloatValue]; see its cross-runtime rendering caveat. */
+    /**
+     * Binds [name] to a [GraphQlValue.FloatValue]; see its cross-runtime rendering caveat.
+     *
+     * @throws IllegalArgumentException if [value] is NaN or infinite
+     */
     public fun put(
         name: String,
         value: Double,
@@ -249,7 +262,11 @@ public class GraphQlListBuilder internal constructor() {
         add(GraphQlValue.IntValue(value))
     }
 
-    /** Appends a [GraphQlValue.FloatValue]; see its cross-runtime rendering caveat. */
+    /**
+     * Appends a [GraphQlValue.FloatValue]; see its cross-runtime rendering caveat.
+     *
+     * @throws IllegalArgumentException if [value] is NaN or infinite
+     */
     public fun add(value: Double) {
         add(GraphQlValue.FloatValue(value))
     }

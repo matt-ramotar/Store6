@@ -5,8 +5,11 @@ package org.mobilenativefoundation.store6.ktor
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.HttpRequestData
+import io.ktor.client.request.HttpRequestPipeline
+import io.ktor.client.request.header
 import io.ktor.client.request.url
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
@@ -16,8 +19,10 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import org.mobilenativefoundation.store6.core.ExperimentalStoreApi
 import org.mobilenativefoundation.store6.core.StoreKey
@@ -26,6 +31,7 @@ import org.mobilenativefoundation.store6.core.seam.Fetcher
 import org.mobilenativefoundation.store6.core.seam.FetcherResult
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
@@ -132,12 +138,12 @@ class KtorFetcherTransportTest {
         }
 
     @Test
-    fun noContent_decodeThrows_errorPreservesOriginalExceptionType() =
+    fun ok_decodeThrows_errorPreservesOriginalExceptionType() =
         runTest {
             val decodeFailure = EmptyBodyException()
             val engine =
                 MockEngine {
-                    respond(content = "", status = HttpStatusCode.NoContent)
+                    respond(content = "", status = HttpStatusCode.OK)
                 }
 
             HttpClient(engine).use { client ->
@@ -154,9 +160,37 @@ class KtorFetcherTransportTest {
         }
 
     @Test
-    fun resetContent_decodeThrows_errorPreservesOriginalExceptionType() =
+    fun noContent_decodeReturningValue_isNotAdoptedAsSuccess() =
         runTest {
-            val decodeFailure = EmptyBodyException()
+            var decoded = false
+            val engine =
+                MockEngine {
+                    respond(content = "", status = HttpStatusCode.NoContent)
+                }
+
+            HttpClient(engine).use { client ->
+                val result =
+                    transportFetcher(
+                        client,
+                        decode = { response ->
+                            decoded = true
+                            response.bodyAsText()
+                        },
+                    ).fetch(KEY, null)
+
+                assertFalse(
+                    result is FetcherResult.Success<*>,
+                    "204 carries no representation and must not be adopted as Success",
+                )
+                assertFalse(decoded, "decode must not run for 204")
+                assertStatusError(result, HttpStatusCode.NoContent)
+            }
+        }
+
+    @Test
+    fun resetContent_decodeReturningValue_isNotAdoptedAsSuccess() =
+        runTest {
+            var decoded = false
             val engine =
                 MockEngine {
                     respond(content = "", status = HttpStatusCode.ResetContent)
@@ -164,14 +198,46 @@ class KtorFetcherTransportTest {
 
             HttpClient(engine).use { client ->
                 val result =
-                    assertIs<FetcherResult.Error>(
-                        transportFetcher(
-                            client,
-                            decode = { throw decodeFailure },
-                        ).fetch(KEY, null),
-                    )
-                assertSame(decodeFailure, result.cause)
-                assertFalse(result.cause is KtorFetchException)
+                    transportFetcher(
+                        client,
+                        decode = { response ->
+                            decoded = true
+                            response.bodyAsText()
+                        },
+                    ).fetch(KEY, null)
+
+                assertFalse(
+                    result is FetcherResult.Success<*>,
+                    "205 carries no representation and must not be adopted as Success",
+                )
+                assertFalse(decoded, "decode must not run for 205")
+                assertStatusError(result, HttpStatusCode.ResetContent)
+            }
+        }
+
+    @Test
+    fun noContent_errorMapperMayStillOverrideTheRefusal() =
+        runTest {
+            val engine =
+                MockEngine {
+                    respond(content = "", status = HttpStatusCode.NoContent)
+                }
+
+            HttpClient(engine).use { client ->
+                assertEquals(
+                    FetcherResult.Deleted,
+                    transportFetcher(
+                        client,
+                        errorMapper =
+                            KtorErrorMapper { exchange ->
+                                if (exchange.status == HttpStatusCode.NoContent) {
+                                    KtorOutcome.Delete
+                                } else {
+                                    KtorOutcome.Defer
+                                }
+                            },
+                    ).fetch(KEY, null),
+                )
             }
         }
 
@@ -467,22 +533,306 @@ class KtorFetcherTransportTest {
             HttpClient(engine).use { client ->
                 val fetcher = transportFetcher(client)
                 var returned: FetcherResult<String>? = null
-                val job =
-                    launch {
-                        try {
-                            returned = fetcher.fetch(KEY, null)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        }
+                val deferred =
+                    async {
+                        fetcher.fetch(KEY, null).also { result -> returned = result }
                     }
                 started.await()
-                job.cancel()
-                val joinFailure = runCatching { job.join() }.exceptionOrNull()
-                assertNull(returned)
-                assertTrue(job.isCancelled)
-                if (joinFailure != null) {
-                    assertIs<CancellationException>(joinFailure)
+                deferred.cancel()
+
+                // Deferred.await rethrows the terminal cause, so this assertion has teeth where
+                // Job.join's did not: join resumes normally for a cancelled job.
+                assertFailsWith<CancellationException> { deferred.await() }
+                assertNull(returned, "a cancelled fetch must not produce a FetcherResult")
+            }
+        }
+
+    @Test
+    fun engineThrownCancellation_propagatesInsteadOfBecomingError() =
+        runTest {
+            // Negative control for the `catch (CancellationException)` rethrow arm: delete that
+            // arm and this fetch returns FetcherResult.Error instead of failing.
+            val engine =
+                MockEngine {
+                    throw CancellationException("the engine cancelled the call")
                 }
+
+            HttpClient(engine).use { client ->
+                val fetcher = transportFetcher(client)
+                var returned: FetcherResult<String>? = null
+
+                assertFailsWith<CancellationException> {
+                    returned = fetcher.fetch(KEY, null)
+                }
+                assertNull(returned, "a cancellation must never be adopted as a FetcherResult")
+            }
+        }
+
+    @Test
+    fun engineSurfacedCancellation_producesNoFetcherResult() =
+        runTest {
+            // Documents the scenario; it is NOT the control for the `ensureActive()` call in the
+            // kit's broad catch arm, and the name no longer claims to be. MockEngine's throw
+            // crosses a suspension point in the request pipeline with the job already cancelled,
+            // so the pipeline converts it to a CancellationException before the kit's catch arms
+            // see it — this passes with or without `ensureActive()`. The real control is
+            // `nonCancellationFailureAfterCancellation_isNotRecordedAsFetchError` below, which
+            // raises the failure synchronously inside `configureRequest` so it reaches the broad
+            // arm as its own type.
+            var returned: FetcherResult<String>? = null
+            var thrown: Throwable? = null
+            lateinit var deferred: Deferred<Unit>
+            val engine =
+                MockEngine {
+                    // Some engines report a cancelled call as their own exception type rather than
+                    // as a CancellationException (Darwin's NSURLErrorCancelled, OkHttp's
+                    // IOException("Canceled"), the JS AbortError). Cancel first, then surface the
+                    // engine's own type, and the kit must still stand down rather than record a
+                    // fetch failure.
+                    deferred.cancel()
+                    throw EngineSurfacedCancellation()
+                }
+
+            HttpClient(engine).use { client ->
+                val fetcher = transportFetcher(client)
+                deferred =
+                    async(start = CoroutineStart.LAZY) {
+                        try {
+                            returned = fetcher.fetch(KEY, null)
+                        } catch (failure: Throwable) {
+                            thrown = failure
+                            throw failure
+                        }
+                    }
+
+                runCatching { deferred.await() }
+
+                assertNull(returned, "a cancelled fetch must not produce a FetcherResult")
+                assertIs<CancellationException>(
+                    thrown,
+                    "an engine-surfaced cancellation must be rethrown as cancellation",
+                )
+            }
+        }
+
+    @Test
+    fun nonCancellationFailureAfterCancellation_isNotRecordedAsFetchError() =
+        runTest {
+            var returned: FetcherResult<String>? = null
+            var thrown: Throwable? = null
+            lateinit var deferred: Deferred<Unit>
+            lateinit var originalFailure: EngineSurfacedCancellation
+            val engine =
+                MockEngine {
+                    respond(content = "payload", status = HttpStatusCode.OK)
+                }
+
+            HttpClient(engine).use { client ->
+                // Negative control for `ensureActive()` in the broad catch arm. The failure is
+                // raised synchronously inside the fetch, with the job already cancelled, so it
+                // reaches that arm as its own type rather than being converted to a
+                // CancellationException by a suspension point on the way. Without ensureActive()
+                // the arm records FetcherResult.Error for a coroutine that is no longer alive.
+                val fetcher =
+                    transportFetcher(
+                        client,
+                        configureRequest = { key ->
+                            url("https://example.test/items/${key.canonicalId()}")
+                            deferred.cancel()
+                            originalFailure = EngineSurfacedCancellation()
+                            throw originalFailure
+                        },
+                    )
+                deferred =
+                    async(start = CoroutineStart.LAZY) {
+                        try {
+                            returned = fetcher.fetch(KEY, null)
+                        } catch (failure: Throwable) {
+                            thrown = failure
+                            throw failure
+                        }
+                    }
+
+                runCatching { deferred.await() }
+
+                assertNull(returned, "a cancelled fetch must not produce a FetcherResult")
+                val rethrown =
+                    assertIs<CancellationException>(
+                        thrown,
+                        "a failure raised after cancellation must be rethrown as cancellation",
+                    )
+                // The `ensureActive()` throw replaces `failure` in the control flow, so without
+                // attaching it, the original non-cancellation failure's information is silently
+                // lost. It must survive as a suppressed exception on the rethrown cancellation.
+                assertSame(
+                    originalFailure,
+                    rethrown.suppressedExceptions.singleOrNull(),
+                    "the original failure must be attached to the rethrown cancellation via addSuppressed",
+                )
+            }
+        }
+
+    @Test
+    fun clientDefaultRequestConditionalHeader_reachesTheEngineAndBreaksTheFetch() =
+        runTest {
+            // The kit's strip is builder-scoped: `headers.remove` inside `prepareRequest` cannot
+            // reach a header a client plugin contributes later in the request pipeline. Observed
+            // on Ktor 3.5.2: the DefaultRequest header reaches the engine, the kit's own
+            // `conditional` flag stays false, and the resulting 304 is read as a protocol anomaly.
+            // That is a hard failure on every request, with a message pointing at the wrong thing,
+            // which is why the contract has to name `defaultRequest` and plugins explicitly.
+            val seenIfNoneMatch = mutableListOf<List<String>?>()
+            val engine =
+                MockEngine { request ->
+                    seenIfNoneMatch += request.headers.getAll(HttpHeaders.IfNoneMatch)
+                    respond(content = "", status = HttpStatusCode.NotModified)
+                }
+
+            HttpClient(engine) {
+                defaultRequest { header(HttpHeaders.IfNoneMatch, "\"x\"") }
+            }.use { client ->
+                val result = transportFetcher(client).fetch(KEY, null)
+
+                assertEquals(listOf<List<String>?>(listOf("\"x\"")), seenIfNoneMatch)
+                assertStatusError(result, HttpStatusCode.NotModified)
+            }
+        }
+
+    @Test
+    fun clientDefaultRequestConditionalHeader_besideTheKitsValidator_isRefused() =
+        runTest {
+            val seenIfNoneMatch = mutableListOf<List<String>?>()
+            val engine =
+                MockEngine { request ->
+                    seenIfNoneMatch += request.headers.getAll(HttpHeaders.IfNoneMatch)
+                    respond(
+                        content = "",
+                        status = HttpStatusCode.NotModified,
+                        headers = headersOf(HttpHeaders.ETag, "\"v2\""),
+                    )
+                }
+
+            HttpClient(engine) {
+                defaultRequest { header(HttpHeaders.IfNoneMatch, "\"x\"") }
+            }.use { client ->
+                val result = transportFetcher(client).fetch(KEY, "\"v1\"")
+
+                // Merge order, observed on Ktor 3.5.2: DefaultRequest appends beside the kit's
+                // validator rather than yielding to it, so the request carries two entity tags.
+                // The kit's replace-not-append guarantee holds only against `configureRequest`.
+                // A red on this assertion means Ktor's precedence changed: re-read the contract
+                // and re-derive what the kit can promise, rather than patching the kit to match.
+                assertEquals(listOf<List<String>?>(listOf("\"v1\"", "\"x\"")), seenIfNoneMatch)
+
+                // A server matching the plugin's tag answers 304 for a representation the kit
+                // never asked about, and adopting it would refresh the freshness of a resident
+                // value recorded under a different tag. The kit compares the conditional headers
+                // the request actually carried against the single one it wrote, and refuses.
+                // The message is asserted so that a regression turning `conditional` false —
+                // which would refuse with the unrelated case-1 anomaly — cannot pass this test.
+                val refusal = assertStatusError(result, HttpStatusCode.NotModified)
+                assertTrue(
+                    refusal.message.orEmpty().contains(FOREIGN_VALIDATOR_REFUSAL),
+                    "expected the foreign-validator refusal, was ${refusal.message}",
+                )
+            }
+        }
+
+    @Test
+    fun clientDefaultRequestForeignIfModifiedSince_besideTheKitsEtag_isRefused() =
+        runTest {
+            // The foreign validator need not be the same header the kit wrote. Here the kit sends
+            // If-None-Match from its recorded ETag and the plugin adds If-Modified-Since, so a
+            // server may answer 304 on the date alone while the entity tag never matched.
+            val seenConditionals = mutableListOf<Pair<List<String>?, List<String>?>>()
+            val engine =
+                MockEngine { request ->
+                    seenConditionals +=
+                        request.headers.getAll(HttpHeaders.IfNoneMatch) to
+                        request.headers.getAll(HttpHeaders.IfModifiedSince)
+                    respond(content = "", status = HttpStatusCode.NotModified)
+                }
+
+            HttpClient(engine) {
+                defaultRequest { header(HttpHeaders.IfModifiedSince, LM_DATE) }
+            }.use { client ->
+                val result = transportFetcher(client).fetch(KEY, "\"v1\"")
+
+                assertEquals(
+                    listOf<Pair<List<String>?, List<String>?>>(
+                        listOf("\"v1\"") to listOf(LM_DATE),
+                    ),
+                    seenConditionals,
+                )
+                val refusal = assertStatusError(result, HttpStatusCode.NotModified)
+                assertTrue(
+                    refusal.message.orEmpty().contains(FOREIGN_VALIDATOR_REFUSAL),
+                    "expected the foreign-validator refusal, was ${refusal.message}",
+                )
+            }
+        }
+
+    @Test
+    fun clientDefaultRequestConditionalHeader_besideTheKitsLastModified_isRefused() =
+        runTest {
+            // Mirrors clientDefaultRequestConditionalHeader_besideTheKitsValidator_isRefused on
+            // the Last-Modified path: the kit's own conditional header is If-Modified-Since here,
+            // so the plugin's append produces two If-Modified-Since values instead of two entity
+            // tags.
+            val seenIfModifiedSince = mutableListOf<List<String>?>()
+            val engine =
+                MockEngine { request ->
+                    seenIfModifiedSince += request.headers.getAll(HttpHeaders.IfModifiedSince)
+                    respond(content = "", status = HttpStatusCode.NotModified)
+                }
+
+            HttpClient(engine) {
+                defaultRequest { header(HttpHeaders.IfModifiedSince, FOREIGN_LM_DATE) }
+            }.use { client ->
+                val result = transportFetcher(client).fetch(KEY, "LM:$LM_DATE")
+
+                assertEquals(
+                    listOf<List<String>?>(listOf(LM_DATE, FOREIGN_LM_DATE)),
+                    seenIfModifiedSince,
+                )
+
+                val refusal = assertStatusError(result, HttpStatusCode.NotModified)
+                assertTrue(
+                    refusal.message.orEmpty().contains(FOREIGN_VALIDATOR_REFUSAL),
+                    "expected the foreign-validator refusal, was ${refusal.message}",
+                )
+            }
+        }
+
+    @Test
+    fun requestPipelineInterceptor_removesTheKitsIfNoneMatch_isRefused() =
+        runTest {
+            // defaultRequest cannot remove a header the kit's builder already set - it can only
+            // contribute alongside it (see the two tests above) - so the missing-header case is
+            // driven through a request pipeline interceptor instead. Installed at the State phase,
+            // it runs after both prepareRequest's block and the Before phase defaultRequest uses,
+            // so it observes and can strip the kit's own header. The sent request then carries no
+            // conditional header at all, which the guard finds just as unattributable as a foreign
+            // one.
+            val engine =
+                MockEngine { request ->
+                    assertNoHeader(request, HttpHeaders.IfNoneMatch)
+                    respond(content = "", status = HttpStatusCode.NotModified)
+                }
+
+            val client = HttpClient(engine)
+            client.requestPipeline.intercept(HttpRequestPipeline.State) {
+                context.headers.remove(HttpHeaders.IfNoneMatch)
+            }
+
+            client.use {
+                val result = transportFetcher(client).fetch(KEY, "\"v1\"")
+
+                val refusal = assertStatusError(result, HttpStatusCode.NotModified)
+                assertTrue(
+                    refusal.message.orEmpty().contains(FOREIGN_VALIDATOR_REFUSAL),
+                    "expected the foreign-validator refusal, was ${refusal.message}",
+                )
             }
         }
 
@@ -539,7 +889,7 @@ class KtorFetcherTransportTest {
         }
 
     @Test
-    fun errorMapper_notModifiedOnUnconditional304_overridesAnomaly() =
+    fun errorMapper_notModifiedOnUnconditionalExchange_isRejected() =
         runTest {
             val engine =
                 MockEngine {
@@ -548,18 +898,58 @@ class KtorFetcherTransportTest {
 
             HttpClient(engine).use { client ->
                 val result =
+                    transportFetcher(
+                        client,
+                        errorMapper = NotModifiedOverride,
+                    ).fetch(KEY, null)
+
+                assertFalse(
+                    result is FetcherResult.NotModified,
+                    "a mapper must not refresh freshness for an exchange that sent no validator",
+                )
+                assertStatusError(result, HttpStatusCode.NotModified)
+            }
+        }
+
+    @Test
+    fun errorMapper_notModifiedOnUnconditionalNon304_isRejected() =
+        runTest {
+            val engine =
+                MockEngine {
+                    respond(content = "", status = HttpStatusCode.InternalServerError)
+                }
+
+            HttpClient(engine).use { client ->
+                val result =
+                    transportFetcher(
+                        client,
+                        errorMapper = KtorErrorMapper { KtorOutcome.NotModified(null) },
+                    ).fetch(KEY, null)
+
+                assertFalse(
+                    result is FetcherResult.NotModified,
+                    "a mapper must not refresh freshness from a status the kit never validated",
+                )
+                assertStatusError(result, HttpStatusCode.InternalServerError)
+            }
+        }
+
+    @Test
+    fun errorMapper_notModifiedOnConditionalExchange_overridesValidatorToken() =
+        runTest {
+            val engine =
+                MockEngine { request ->
+                    assertEquals(listOf("\"v1\""), request.headers.getAll(HttpHeaders.IfNoneMatch))
+                    respond(content = "", status = HttpStatusCode.NotModified)
+                }
+
+            HttpClient(engine).use { client ->
+                val result =
                     assertIs<FetcherResult.NotModified>(
                         transportFetcher(
                             client,
-                            errorMapper =
-                                KtorErrorMapper { exchange ->
-                                    if (exchange.status == HttpStatusCode.NotModified) {
-                                        KtorOutcome.NotModified("\"override\"")
-                                    } else {
-                                        KtorOutcome.Defer
-                                    }
-                                },
-                        ).fetch(KEY, null),
+                            errorMapper = NotModifiedOverride,
+                        ).fetch(KEY, "\"v1\""),
                     )
                 assertEquals("\"override\"", result.etag)
             }
@@ -611,10 +1001,11 @@ class KtorFetcherTransportTest {
     private fun assertStatusError(
         result: FetcherResult<String>,
         status: HttpStatusCode,
-    ) {
+    ): KtorFetchException {
         val error = assertIs<FetcherResult.Error>(result)
         val cause = assertIs<KtorFetchException>(error.cause)
         assertEquals(status, cause.status)
+        return cause
     }
 
     private fun assertNoConditionalHeaders(request: HttpRequestData) {
@@ -633,6 +1024,8 @@ class KtorFetcherTransportTest {
     private companion object {
         val KEY = TransportKey("1")
         const val LM_DATE = "Wed, 21 Oct 2015 07:28:00 GMT"
+        const val FOREIGN_LM_DATE = "Thu, 22 Oct 2015 07:28:00 GMT"
+        const val FOREIGN_VALIDATOR_REFUSAL = "carried validators the kit did not set"
         val DefaultDecode: suspend (HttpResponse) -> String = { response ->
             val text = response.bodyAsText()
             if (text.isEmpty()) throw EmptyBodyException()
@@ -641,6 +1034,14 @@ class KtorFetcherTransportTest {
         val DefaultConfigure: HttpRequestBuilder.(TransportKey) -> Unit = { key ->
             url("https://example.test/items/${key.canonicalId()}")
         }
+        val NotModifiedOverride: KtorErrorMapper =
+            KtorErrorMapper { exchange ->
+                if (exchange.status == HttpStatusCode.NotModified) {
+                    KtorOutcome.NotModified("\"override\"")
+                } else {
+                    KtorOutcome.Defer
+                }
+            }
     }
 }
 
@@ -655,3 +1056,5 @@ private class TransportKey(
 private class EmptyBodyException : IllegalStateException("empty body")
 
 private class TransportIoException : Exception("io failure")
+
+private class EngineSurfacedCancellation : Exception("the engine reports the call was cancelled")

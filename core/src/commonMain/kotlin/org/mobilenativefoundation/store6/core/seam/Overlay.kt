@@ -46,6 +46,20 @@ public interface Overlay<K : StoreKey, V : Any> {
         base: V?,
     ): V?
 
+    /**
+     * Projects [base] with optional proof that its observation includes one source adoption.
+     *
+     * A non-null [adoption] identifies an exact committed source observation, including its
+     * metadata-only successors. Null supplies no adoption proof. The default delegates to [apply]
+     * without inspecting identity. Implementations must satisfy the same purity and failure
+     * contract as the two-argument overload.
+     */
+    public fun apply(
+        key: K,
+        base: V?,
+        adoption: SourceAdoption?,
+    ): V? = apply(key, base)
+
     /** Signals keys whose projection inputs changed without changing confirmed residence. */
     public val changes: Flow<StoreKey>
 }
